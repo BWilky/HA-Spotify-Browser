@@ -1,7 +1,7 @@
-import { CARD_CSS } from './styles.js?v=1';
-import { SpotifyApi } from './api.js?v=2';
-import { Templates } from './templates.js?v=3';
-import { msToTime, fireHaptic } from './utils.js?v=4'; 
+import { CARD_CSS } from './styles.js';
+import { SpotifyApi } from './api.js';
+import { Templates } from './templates.js';
+import { msToTime, fireHaptic } from './utils.js'; 
 
 class SpotifyBrowserCard extends HTMLElement {
   constructor() {
