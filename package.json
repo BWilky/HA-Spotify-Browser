@@ -1,3 +1,20 @@
-"scripts": {
-  "build": "rollup -c"
+{
+  "name": "spotify-browser",
+  "version": "1.0.0",
+  "description": "Custom Spotify Card for Home Assistant",
+  "main": "src/main.js",
+  "scripts": {
+    "build": "rollup -c"
+  },
+  "keywords": [
+    "home-assistant",
+    "lovelace"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@rollup/plugin-node-resolve": "^15.2.3",
+    "@rollup/plugin-terser": "^0.4.4",
+    "rollup": "^4.9.6"
+  }
 }
