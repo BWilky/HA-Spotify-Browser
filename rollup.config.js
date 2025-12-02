@@ -3,7 +3,7 @@ import terser from '@rollup/plugin-terser';
 
 export default {
   // Point this to your main input file
-  input: 'src/index.js', 
+  input: 'index.js', 
   output: {
     // This is the file HACS will serve
     file: 'dist/spotify-browser.js', 
