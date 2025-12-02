@@ -6,7 +6,7 @@ TODO Readme
 
 ```
 type: custom:spotify-browser-card
-entity: media_player.spotifyplus_bryce_peter
+entity: media_player.***
 default_device: "Office Speaker"
 
 # --- Features ---
@@ -37,7 +37,7 @@ madeforyou:
       - id: 37i9dQZF1E363TX1pYJjAC
         title: "Release Radar"
   - playlists:
-      - 37i9dQZF1DXcBWIGoYBM5M
-      - 4uGHXUU4pHsNHTayHiWUj5
+      - 37i9dQZF1E363TX1pYJjAC
+      - 37i9dQZF1E363TX1pYJjAC
 
 ```
