@@ -41,3 +41,11 @@ madeforyou:
       - 37i9dQZF1E363TX1pYJjAC
 
 ```
+
+Launch via tap_action url 
+
+```
+tap_action:
+  action: navigate
+  navigation_path: "#spotify-browser"
+```
