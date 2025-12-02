@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build outputs (The Action builds this, so we don't need it in the repo)
+dist/
+build/
+
+# Environment variables (Safety first!)
+.env
+.env.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Editor directories
+.idea/
+.vscode/
+*.swp
