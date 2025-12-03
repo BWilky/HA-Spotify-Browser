@@ -1,7 +1,7 @@
 # HA-Spotify-Browser
-A homeassistant spotify browser
+A homeassistant spotify browser. Requires the HomeAssistant Spotify Plus integration. https://github.com/thlucas1/homeassistantcomponent_spotifyplus
 
-TODO Readme
+
 
 
 ```
