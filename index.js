@@ -8,7 +8,7 @@ class SpotifyBrowserCard extends HTMLElement {
     super();
     this.attachShadow({ mode: 'open' });
     
-    // State
+    // --- Core State ---
     this._isOpen = false;
     this._hass = null;
     this._config = {};
@@ -16,69 +16,65 @@ class SpotifyBrowserCard extends HTMLElement {
     this._currentUserId = null; 
     this._api = null; // API Module Instance
 
-    // Playback State
+    // --- Playback State ---
     this._currentTrackUri = null;
     this._currentContextUri = null;
     this._isPlaying = false;
     this._lastOptimisticUpdate = 0; 
+    this._lastTrackData = null; // Stores previous track for queue animation logic
+    this._queueLockTime = 0;    // Prevents API race conditions on artwork
     
-    // Scan Interval Timer (NEW)
-    this._scanTimer = null;
+    // --- Connection Tracking (New) ---
+    this._subscribedConnection = null;
 
-    // Navigation & Caching
+    // --- Timers ---
+    this._scanTimer = null;        // For sync interval
+    this._progressTimer = null;    // For miniplayer progress bar
+    this._timer = null;            // For auto-close inactivity
+    this._closeTimer = null;       // For close animation delay
+    this._searchDebounceTimer = null;
+    this._searchAutoCloseTimer = null; 
+
+    // --- Navigation & Caching ---
     this._history = []; 
     this._pageCache = new Map(); 
     this._maxCacheSize = 15;
     this._currentPageId = null;
     this._homeLastUpdated = 0;
+    this._favCache = new Map(); // Stores Favorite status to prevent UI flicker
 
-    // Pagination State Store
-    this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0 };
+    // --- Pagination State ---
+    this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0, madeforyou: 0 };
     this._totals = { favorites: null, artists: null, albums: null, recent: null };
-    this._fetching = { favorites: false, artists: false, albums: false, recent: false };
+    this._fetching = { favorites: false, artists: false, albums: false, recent: false, madeforyou: false };
     this._followingPlaylistIds = new Set(); 
     
-    // Pagination (Search)
+    // --- Search Pagination ---
     this._searchOffset = 0;
     this._searchTotal = null;
     this._isFetchingSearch = false;
     
-    // FIX: Pagination (Context / Liked Songs)
+    // --- Context / Liked Songs Pagination ---
     this._contextOffset = 0;
     this._contextTotal = null;
-    this._contextType = null; // 'likedsongs', 'playlist', etc.
+    this._contextType = null; 
     this._isFetchingContext = false;
 
-    // Search
-    this._searchDebounceTimer = null;
-    this._searchAutoCloseTimer = null; 
-
-    // Auto Close
-    this._timer = null;
-    this._closeTimer = null; 
-    
-    // Swipe Logic
+    // --- Swipe / Touch Logic ---
     this._touchStartY = 0;
     this._touchCurrentY = 0;
     this._touchStartX = 0;
     this._touchCurrentX = 0;
-    this._touchStartTime = 0; // NEW
+    this._touchStartTime = 0; 
     
-    // FIX: Add a lock timer to prevent stale API data from overwriting optimistic clicks
-    this._queueLockTime = 0;
-    
-    
-    // Pull-to-Refresh State
+    // --- Pull-to-Refresh State ---
     this._ptrStartY = 0;
     this._ptrCurrentY = 0;
     this._isDraggingPtr = false;
-    this._ptrLocked = false; // NEW: Track if we have already triggered the "ready" haptic
+    this._ptrLocked = false; 
     
-    // FIX: Cache favorite states to prevent UI flickering
-    this._favCache = new Map();
-    
-    
-    // Bindings
+    // --- Event Bindings ---
+    // (Crucial for passing 'this' context to event listeners)
     this._boundResetTimer = this._resetTimer.bind(this);
     this._boundHashCheck = this._checkHash.bind(this);
     this._boundCloseBrowser = this._closeBrowser.bind(this);
@@ -92,6 +88,9 @@ class SpotifyBrowserCard extends HTMLElement {
     this._boundPageScroll = this._onPageScroll.bind(this);
     this._boundSearchKeydown = this._handleSearchKeydown.bind(this);
     this._boundToggleMenu = this._toggleMenu.bind(this);
+    
+    // FIX: Bind the Disconnect Handler
+    this._boundDisconnect = this._onDisconnect.bind(this);
   }
   
   // --- Lovelace Editor Configuration ---
@@ -99,52 +98,150 @@ class SpotifyBrowserCard extends HTMLElement {
  
 
   setConfig(config) {
-    // Handle entity vs entity_id alias
     const targetEntity = config.entity || config.entity_id;
+    if (!targetEntity) throw new Error("You need to define a spotify 'entity'");
 
-    if (!targetEntity) {
-      throw new Error("You need to define a spotify 'entity' (e.g., media_player.spotifyplus_xyz)");
+    // --- 1. Homescreen Config ---
+    let homescreenConfig = { cache: true, expiry: 60 };
+    if (Array.isArray(config.homescreen)) {
+        config.homescreen.forEach(item => {
+            if (item.cache !== undefined) homescreenConfig.cache = item.cache;
+            if (item.expiry !== undefined) homescreenConfig.expiry = item.expiry;
+        });
+    } else if (typeof config.homescreen === 'object') {
+        homescreenConfig = { ...homescreenConfig, ...config.homescreen };
     }
 
-    // Parse homescreen config
-    let homescreenConfig = { cache: true, expiry: 60 };
-    
-    if (config.homescreen) {
-        if (Array.isArray(config.homescreen)) {
-            // Handle list format: - cache: true
-            config.homescreen.forEach(item => {
-                if (item.cache !== undefined) homescreenConfig.cache = item.cache;
-                if (item.expiry !== undefined) homescreenConfig.expiry = item.expiry;
+    // --- 2. Device Playback Config ---
+    let devicePlayback = { hide: [], show: [] };
+    if (Array.isArray(config.device_playback)) {
+        config.device_playback.forEach(entry => {
+            if (entry.hide) devicePlayback.hide = devicePlayback.hide.concat(entry.hide);
+            if (entry.show) devicePlayback.show = devicePlayback.show.concat(entry.show);
+        });
+    }
+
+    // --- 3. Queue / Miniplayer Config ---
+    // DEFAULTS: 
+    // - Enabled: False
+    // - Open Init: False
+    // - Components: Previous/Next/Like = True, Shuffle = False
+    let queueSettings = { 
+        enabled: false, 
+        openInit: false, 
+        components: { shuffle: false, previous: true, next: true, like: true } 
+    };
+
+    // 3a. Legacy Boolean Support (queue_miniplayer: true)
+    if (config.queue_miniplayer === true) {
+        queueSettings.enabled = true;
+    }
+
+    // 3b. New Nested YAML Support
+    if (Array.isArray(config.queue)) {
+        const desktopEntry = config.queue.find(item => item.desktop);
+        
+        if (desktopEntry && Array.isArray(desktopEntry.desktop)) {
+            desktopEntry.desktop.forEach(item => {
+                
+                // Parse 'open_init' (Auto-open on desktop)
+                if (item.open_init !== undefined) {
+                    queueSettings.openInit = item.open_init === true;
+                }
+
+                // Parse 'miniplayer' settings
+                if (item.miniplayer !== undefined) {
+                    const miniConfig = item.miniplayer;
+
+                    if (miniConfig === true) {
+                        // User set "- miniplayer: true", enable with defaults
+                        queueSettings.enabled = true;
+                    } 
+                    else if (typeof miniConfig === 'object') {
+                        // User provided specific overrides
+                        queueSettings.enabled = true;
+                        
+                        // Merge overrides into defaults. 
+                        // Using 'applyOverrides' ensures we handle both Array and Object syntax from YAML.
+                        const applyOverrides = (source) => {
+                            // Only update keys that actually exist in the source
+                            if (source.shuffle !== undefined) queueSettings.components.shuffle = source.shuffle;
+                            if (source.previous !== undefined) queueSettings.components.previous = source.previous;
+                            if (source.next !== undefined) queueSettings.components.next = source.next;
+                            if (source.like !== undefined) queueSettings.components.like = source.like;
+                        };
+
+                        if (Array.isArray(miniConfig)) {
+                            miniConfig.forEach(c => applyOverrides(c));
+                        } else {
+                            applyOverrides(miniConfig);
+                        }
+                    }
+                }
             });
-        } else if (typeof config.homescreen === 'object') {
-            // Handle object format: homescreen: { cache: true }
-            homescreenConfig = { ...homescreenConfig, ...config.homescreen };
         }
     }
 
+    // --- 4. Made For You Config ---
+    let mfyContent = [];
+    let mfyPills = false; // Default
+
+    if (Array.isArray(config.madeforyou)) {
+        // Legacy: Array at root
+        mfyContent = config.madeforyou;
+        if (config.desktop_madeforyou_pills) mfyPills = true;
+    } else if (config.madeforyou && typeof config.madeforyou === 'object') {
+        // New: Object structure
+        mfyPills = config.madeforyou.desktop_pills || false;
+        // Support 'items', 'content', or 'sections' as key for the array
+        mfyContent = config.madeforyou.items || config.madeforyou.content || config.madeforyou.sections || [];
+    }
+
+    // --- 5. Final Configuration Assembly ---
     this._config = {
       auto_close_seconds: 0,
       default_device: null, 
-      madeforyou: [],
       scan_interval: null,
-      queue_miniplayer: false,
+      
+      // Close on Disconnect (Default: true)
+      close_on_disconnect: config.closeondisconnect !== false,
+      
       ...config,
       entity: targetEntity,
       homescreen: homescreenConfig,
-      home_order: ['madeforyou', 'recent', 'favorites', 'artists', 'albums'], // Default Order
-      desktop_madeforyou_pills: false // Default Off
+      device_playback: devicePlayback,
+      queue_settings: queueSettings,
+      madeforyou_content: mfyContent, 
+      madeforyou_pills: mfyPills
     };
     
     this._api = new SpotifyApi(null, this._config.entity);
   }
-
+  
+  
+  
+      
   set hass(hass) {
     this._hass = hass;
     if (this._api) this._api.updateHass(hass);
-    
-    // --- FIX: Edit Mode Detection ---
-    // We assume we are in edit mode if we are inside a 'hui-card-preview' (Config Panel)
-    // OR if the main Lovelace panel has editMode=true.
+
+    // --- 1. Connection Monitor (Close on Disconnect) ---
+    if (this._config.close_on_disconnect && hass.connection) {
+        // Only attach if we haven't already, or if the connection object changed
+        if (this._subscribedConnection !== hass.connection) {
+            
+            // Clean up old listener if it exists
+            if (this._subscribedConnection) {
+                this._subscribedConnection.removeEventListener('disconnect', this._boundDisconnect);
+            }
+            
+            // Attach new listener
+            hass.connection.addEventListener('disconnect', this._boundDisconnect);
+            this._subscribedConnection = hass.connection;
+        }
+    }
+
+    // --- 2. Edit Mode Detection ---
     try {
         const isPreview = this.closest('hui-card-preview') !== null;
         
@@ -167,8 +264,10 @@ class SpotifyBrowserCard extends HTMLElement {
         // Ignore errors during DOM traversal
     }
     
+    // --- 3. State & Playback Updates ---
     // Only proceed if we have a valid entity state
     if (this._config.entity && this._hass.states[this._config.entity]) {
+        
         // Check for optimistic updates (prevent jitter)
         if (Date.now() - this._lastOptimisticUpdate > 2000) {
             const stateObj = this._hass.states[this._config.entity];
@@ -190,10 +289,15 @@ class SpotifyBrowserCard extends HTMLElement {
                 // Check if Queue is open and needs update
                 const wrapper = this.shadowRoot.getElementById('browser-wrapper');
                 if (wrapper && wrapper.classList.contains('queue-open')) {
-                    // 1. Instant Header Update
-                    this._renderNowPlaying(this._getEntityNowPlaying());
                     
-                    // 2. Smart Animation Logic
+                    // A. Instant Header Update
+                    // FIX: Only update header from Entity if we aren't locked by a recent click
+                    // This stops the artwork from "flashing" back to the old song
+                    if (Date.now() > this._queueLockTime) {
+                        this._renderNowPlaying(this._getEntityNowPlaying());
+                    }
+                    
+                    // B. Smart Animation Logic (Queue List)
                     if (Date.now() > this._queueLockTime) {
                         const queueList = this.shadowRoot.getElementById('queue-list');
                         if (queueList) {
@@ -213,7 +317,6 @@ class SpotifyBrowserCard extends HTMLElement {
                                 });
                             } else {
                                 // CASE B: "Previous" / Jump (Not in list) -> Push Old Song Down
-                                // If we have the data for the song that just finished, inject it at the top
                                 if (this._lastTrackData && this._lastTrackData.uri !== newTrackUri) {
                                     const tempDiv = document.createElement('div');
                                     tempDiv.innerHTML = Templates.queueRow(this._lastTrackData);
@@ -222,7 +325,6 @@ class SpotifyBrowserCard extends HTMLElement {
                                     newRow.classList.add('adding-top');
                                     queueList.prepend(newRow);
                                     
-                                    // Attach listener to new row immediately
                                     const playBtn = newRow.querySelector('.queue-row-play-btn');
                                     if (playBtn) {
                                         const uri = this._lastTrackData.uri;
@@ -235,7 +337,7 @@ class SpotifyBrowserCard extends HTMLElement {
                             }
                         }
                         
-                        // 3. Background Refresh (Delayed to let animation finish)
+                        // Background Refresh (Delayed to let animation finish)
                         setTimeout(() => this._loadQueue(), 800);
                     } else {
                         // Manual click (already animated), refresh immediately
@@ -246,16 +348,14 @@ class SpotifyBrowserCard extends HTMLElement {
         }
     }
 
-    // Lazy Load Home if open
+    // --- 4. Lazy Load Home ---
     if (this._hass && this._isOpen && this._currentPageId === 'home') {
         const homePage = this.shadowRoot.getElementById('page-home');
-        
-        // FIX: Strict string check
         if (homePage && homePage.dataset.loaded !== "true" && homePage.dataset.loading !== "true") {
             this._loadHomeData(homePage);
         }
     }
-  } // End of set hass
+  }
   
 
   connectedCallback() {
@@ -291,10 +391,28 @@ class SpotifyBrowserCard extends HTMLElement {
     window.removeEventListener('hashchange', this._boundHashCheck);
     window.removeEventListener('location-changed', this._boundHashCheck); 
     this._stopAutoCloseListener();
-    this._stopSearchAutoClose(); // <--- ADD THIS LINE
+    this._stopSearchAutoClose();
     this._stopScanTimer();
+    
+    // FIX: Remove Connection Listener
+    if (this._subscribedConnection) {
+        this._subscribedConnection.removeEventListener('disconnect', this._boundDisconnect);
+        this._subscribedConnection = null;
+    }
   }
-
+  
+  
+  _onDisconnect() {
+      // Only act if the popup is actually open
+      if (this._isOpen) {
+          console.log("[SpotifyBrowser] Connection lost. Closing popup.");
+          this._closeBrowser();
+          
+          // Optional: Show a toast so you know why it closed
+          this._showToast("Connection lost");
+      }
+  }
+  
   render() {
     this.shadowRoot.innerHTML = `
       <style>${CARD_CSS}</style>
@@ -1705,25 +1823,31 @@ class SpotifyBrowserCard extends HTMLElement {
       document.body.style.overflow = 'hidden'; 
       this._startAutoCloseListener();
       this._startScanTimer(); 
+
+      // --- NEW: Auto-Open Queue on Desktop ---
+      // 1. Check Config
+      // 2. Check Screen Width (Desktop Breakpoint > 768px)
+      if (this._config.queue_settings.openInit && window.matchMedia('(min-width: 769px)').matches) {
+          container.classList.add('queue-open');
+          // Important: Trigger load immediately so it isn't empty
+          this._loadQueue(); 
+      }
     }
     
+    // ... (Existing Homescreen Expiry logic remains here) ...
     const pageContainer = this.shadowRoot.getElementById('page-container');
-    
-    // FIX: Expire Logic for Home
     const expiryMs = (this._config.homescreen?.expiry ?? 60) * 60 * 1000;
     const isExpired = (Date.now() - this._homeLastUpdated) > expiryMs;
-    
     const homePage = this.shadowRoot.getElementById('page-home');
+
     if (isExpired && homePage) {
-        console.log("[SpotifyBrowser] Home cache expired. Forcing reload.");
         homePage.dataset.loaded = "false";
-        homePage.dataset.loading = "false"; // Safety reset
+        homePage.dataset.loading = "false";
     }
 
     if (!this._currentPageId || (pageContainer && pageContainer.children.length === 0)) {
         this._navigateTo('home');
     } else if (this._currentPageId === 'home') {
-        // FIX: Check explicitly for !== "true" because !"false" evaluates to false in JS
         if (homePage && homePage.dataset.loaded !== "true" && homePage.dataset.loading !== "true") {
             this._loadHomeData(homePage);
         }
@@ -2381,19 +2505,84 @@ class SpotifyBrowserCard extends HTMLElement {
       const listEl = this.shadowRoot.getElementById('device-list');
       if(!listEl) return;
       
+      // FIX: Validation Check - Cannot have both Show and Hide
+      if (this._config.device_playback && 
+          this._config.device_playback.show.length > 0 && 
+          this._config.device_playback.hide.length > 0) {
+          
+          this._showAlert(
+              "Config Error",
+              'Cannot utilize both "Show" & "Hide" in configuration.',
+              [{ label: "Close", action: () => this._closeAlert() }]
+          );
+          
+          listEl.innerHTML = '<div style="padding:32px;text-align:center;color:var(--spf-brand)">Configuration Error</div>';
+          return;
+      }
+      
+      // STRATEGY A: Manual List
+      if (this._config.device_playback && this._config.device_playback.show.length > 0) {
+          const manualDevices = this._config.device_playback.show.map(item => {
+              if (typeof item === 'string') {
+                  return { id: item, name: item, type: 'Manual', is_active: false };
+              }
+              return { 
+                  id: item.id || item.name, 
+                  name: item.name || item.id, 
+                  type: item.type || 'Manual', 
+                  is_active: false 
+              };
+          });
+          this._renderDeviceListInternal(manualDevices);
+          return;
+      }
+
+      // STRATEGY B: API Discovery
       listEl.innerHTML = '<div style="padding:32px;text-align:center;color:#b3b3b3">Searching for devices...</div>';
       
       try {
-          const devicesRes = await this._api.fetchSpotifyPlus('get_player_devices', { refresh: true });
+          const devicesRes = await this._api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true });
+          
           if (devicesRes && devicesRes.result) {
-              this._renderDeviceListInternal(devicesRes.result);
+              let rawList = devicesRes.result;
+
+              // 1. Extract Array (Handle 'Items' vs 'devices')
+              if (!Array.isArray(rawList)) {
+                  if (rawList.Items && Array.isArray(rawList.Items)) {
+                      rawList = rawList.Items; // Spotify Connect API
+                  } 
+                  else if (rawList.devices && Array.isArray(rawList.devices)) {
+                      rawList = rawList.devices; // Web API
+                  }
+                  else {
+                      console.warn("[SpotifyBrowser] Could not find device array:", rawList);
+                      rawList = []; 
+                  }
+              }
+
+              // 2. Normalize Data (Handle 'Name' vs 'name')
+              let devices = rawList.map(d => ({
+                  id: d.id || d.Id,
+                  name: d.name || d.Name,
+                  type: d.type || d.DeviceType || 'Unknown',
+                  is_active: d.is_active || d.IsActiveDevice || false
+              }));
+
+              // 3. Filter Hidden Devices
+              if (this._config.device_playback && this._config.device_playback.hide.length > 0) {
+                  const hidden = this._config.device_playback.hide;
+                  devices = devices.filter(d => 
+                      !hidden.includes(d.name) && 
+                      !hidden.includes(d.id)
+                  );
+              }
+
+              this._renderDeviceListInternal(devices);
           } else {
-              // No result object -> Treat as empty
               this._renderDeviceListInternal([]);
           }
       } catch (e) {
           console.error("Device load failed", e);
-          // Treat error as empty/retry state
           this._renderDeviceListInternal([]);
       }
   }
@@ -2402,21 +2591,20 @@ class SpotifyBrowserCard extends HTMLElement {
       const listEl = this.shadowRoot.getElementById('device-list');
       if(!listEl) return;
 
-      // FIX: Handle Empty List
+      // Handle Empty
       if (!devices || devices.length === 0) {
           listEl.innerHTML = Templates.emptyDevices();
-          
-          // Bind Refresh Button
           const refreshBtn = listEl.querySelector('.device-refresh-btn');
           if (refreshBtn) {
               refreshBtn.addEventListener('click', (e) => {
                   e.stopPropagation();
-                  this._loadDeviceList(); // Reload
+                  this._loadDeviceList(); 
               });
           }
           return;
       }
 
+      // Sort: Active first, then Alphabetical
       devices.sort((a, b) => {
           if (a.is_active === b.is_active) return a.name.localeCompare(b.name);
           return a.is_active ? -1 : 1;
@@ -2428,10 +2616,7 @@ class SpotifyBrowserCard extends HTMLElement {
           const isActive = device.is_active;
           const isDefault = defaultDeviceName && device.name === defaultDeviceName;
           const activeClass = isActive ? 'active' : '';
-          
-          // Computer Icon vs Speaker Icon based on type? (Optional, generic for now)
           const icon = `<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M2 11v10h4V11H2zm16 0v10h4V11h-4zm-10 2v6h2v-6H8zm6 0v6h2v-6h-2z"/></svg>`;
-          
           const activeIcon = isActive ? `<span class="device-active-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="#1db954"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>` : '';
           const defaultIcon = isDefault ? `<span class="device-default-badge" title="Default Player">★</span>` : '';
           
@@ -2449,13 +2634,75 @@ class SpotifyBrowserCard extends HTMLElement {
           `;
       }).join('');
       
+      // Attach Click Listeners with Error Handling
       listEl.querySelectorAll('.device-row').forEach(row => {
-          row.addEventListener('click', (e) => {
+          row.addEventListener('click', async (e) => {
              e.stopPropagation();
-             this._api.transferPlayback(row.dataset.id);
-             this._showToast(`Transferring to ${row.querySelector('.device-name').innerText.trim()}...`);
+             const deviceName = row.querySelector('.device-name').innerText.trim();
+             
+             // 1. Show Initial Feedback
+             this._showToast(`Transferring to ${deviceName}...`);
+             
+             // 2. Optimistic UI (Turn text green immediately)
              listEl.querySelectorAll('.device-row').forEach(r => r.classList.remove('active'));
              row.classList.add('active');
+
+             // 3. Call API & Wait for Result
+             const result = await this._api.transferPlayback(row.dataset.id);
+             
+             // 4. Handle Failure
+             if (result && !result.success) {
+                 let msg = `Unable to transfer to ${deviceName}`;
+                 let useAlert = false;
+                 
+                 // Check for specific errors
+                 if (result.error) {
+                     const errCode = result.error.code || '';
+                     const errMsg = result.error.message || '';
+                     const errStr = JSON.stringify(result.error);
+                     
+                     if (errCode === 'service_validation_error' || 
+                         errStr.includes("service_validation_error") ||
+                         errStr.includes("Validation error") ||
+                         errStr.includes("token cache") ||
+                         errStr.includes("authorization token")) {
+                         // Use alert for validation/auth errors (more serious)
+                         useAlert = true;
+                         msg = errMsg || "Spotify authentication error occurred";
+                     } else if (errStr.includes("timed out") || errStr.includes("timeout")) {
+                         msg = "Device connection timed out";
+                     } else if (errMsg) {
+                         msg = errMsg;
+                     }
+                 }
+                 
+                 // Show error
+                 if (useAlert) {
+                     this._showAlert(
+                         "Transfer Failed",
+                         msg,
+                         [
+                             { 
+                                 label: "How to Fix", 
+                                 primary: true,
+                                 action: () => {
+                                     window.open('https://github.com/thlucas1/homeassistantcomponent_spotifyplus/wiki/Device-Configuration-Options#spotify-desktop-player-authentication-configuration', '_blank');
+                                     this._closeAlert();
+                                 }
+                             },
+                             { 
+                                 label: "Close", 
+                                 action: () => this._closeAlert() 
+                             }
+                         ]
+                     );
+                 } else {
+                     this._showToast(msg);
+                 }
+                 
+                 // Revert UI (Undo green text)
+                 row.classList.remove('active');
+             }
           });
       });
   }
@@ -2696,69 +2943,68 @@ class SpotifyBrowserCard extends HTMLElement {
           return; 
       }
 
-      const showMini = this._config.queue_miniplayer === true;
-      // Robust ID extraction
-      const trackId = trackData.id || (trackData.uri ? trackData.uri.split(':')[2] : null);
+      // Configuration
+      const qSettings = this._config.queue_settings || { enabled: false, components: {} };
+      const showMini = qSettings.enabled;
       
-      // FIX: Determine Favorite State from Cache or Context
+      // Track ID / Favorites Logic
+      const trackId = trackData.id || (trackData.uri ? trackData.uri.split(':')[2] : null);
       let isFav = false;
       if (trackId) {
           if (this._favCache.has(trackId)) {
-              // 1. Use Cached Value (Fastest)
               isFav = this._favCache.get(trackId);
           } else if (this._currentContextUri === 'spotify:user:me:collection' || this._currentContextUri === 'spotify:collection:tracks') {
-              // 2. Context Inference (If playing Liked Songs, it MUST be liked)
               isFav = true;
               this._favCache.set(trackId, true);
           }
       }
 
-      // Render with the correct state immediately (Stops the white flash)
-      npEl.innerHTML = Templates.nowPlayingRow(trackData, this._isPlaying, showMini, isFav);
+      // Render Template
+      npEl.innerHTML = Templates.nowPlayingRow(trackData, this._isPlaying, showMini, isFav, qSettings.components);
 
-      const btn = npEl.querySelector('#queue-hero-play-btn');
-      if (btn) {
-          btn.addEventListener('click', (e) => {
+      // --- 1. PLAY/PAUSE BUTTON LOGIC (THE FIX) ---
+      const playBtn = npEl.querySelector('#queue-hero-play-btn');
+      if (playBtn) {
+          playBtn.addEventListener('click', (e) => {
               e.stopPropagation();
-              this._api.togglePlayback(!this._isPlaying);
+              
+              // CRITICAL FIX: Lock incoming updates for 2 seconds to prevent "spazzing"
+              this._lastOptimisticUpdate = Date.now(); 
+              
+              // Toggle Local State
               this._isPlaying = !this._isPlaying;
-              // Update icon only
+              
+              // Send Command
+              this._api.togglePlayback(this._isPlaying);
+              
+              // Update Icon Immediately
               const icon = this._isPlaying 
                 ? `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
                 : `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
-              btn.innerHTML = icon;
+              playBtn.innerHTML = icon;
           });
       }
-      
+
+      // --- 2. MINI CONTROLS LOGIC ---
       if (showMini) {
           const prevBtn = npEl.querySelector('[data-action="mini-prev"]');
           const nextBtn = npEl.querySelector('[data-action="mini-skip"]');
+          const shuffleBtn = npEl.querySelector('[data-action="mini-shuffle"]'); 
           const favBtn = npEl.querySelector('[data-action="mini-fav"]');
           
           if(prevBtn) prevBtn.onclick = (e) => { e.stopPropagation(); this._api.fetchSpotifyPlus('player_media_skip_previous', {}, false); };
           if(nextBtn) nextBtn.onclick = (e) => { e.stopPropagation(); this._api.fetchSpotifyPlus('player_media_skip_next', {}, false); };
+          if(shuffleBtn) shuffleBtn.onclick = (e) => { 
+              e.stopPropagation(); 
+              this._api.fetchSpotifyPlus('player_shuffle', { state: 'true' }, false); 
+          };
           
           if(favBtn && trackId) {
-              // Background Verification (Updates cache/UI if API disagrees)
-              this._api.fetchSpotifyPlus('check_track_favorites', { ids: trackId }).then(res => {
-                  if (res && res.result) {
-                      const apiState = res.result[trackId] || false;
-                      this._favCache.set(trackId, apiState); // Sync Cache
-                      
-                      // Only update DOM if different (prevent unnecessary repaint)
-                      const uiState = favBtn.classList.contains('is-favorite');
-                      if (apiState !== uiState) {
-                           if (apiState) favBtn.classList.add('is-favorite');
-                           else favBtn.classList.remove('is-favorite');
-                      }
-                  }
-              });
-
-              favBtn.onclick = (e) => {
-                  e.stopPropagation();
-                  const isCurrentlyFav = favBtn.classList.contains('is-favorite');
-                  this._toggleTrackFavorite(trackId, isCurrentlyFav, favBtn);
-              };
+             favBtn.onclick = (e) => {
+                 e.stopPropagation();
+                 const isCurrentlyFav = favBtn.classList.contains('is-favorite');
+                 this._toggleTrackFavorite(trackId, isCurrentlyFav, favBtn);
+             };
           }
           this._startProgressTimer();
       }
