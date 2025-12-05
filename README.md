@@ -1,7 +1,28 @@
-# HA-Spotify-Browser
-A homeassistant spotify browser. Requires the HomeAssistant Spotify Plus integration. https://github.com/thlucas1/homeassistantcomponent_spotifyplus
+# 🎵 Spotify Browser Card
+
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
+[![GitHub Release](https://img.shields.io/github/v/release/antontanderup/mediocre-hass-media-player-cards?color=blue)](https://github.com/bwilky/ha-spotify-browser/releases)
 
 
+Spotify Browser Card is a card that allows you to browser, search, play and control your spotify account on any connected devices. It is not a playback card. This card depends on Spotify Plus Component. https://github.com/thlucas1/homeassistantcomponent_spotifyplus
+
+> **Note:** This is a new project and you will likely encouter bugs. Please report them and suggest any features you're looking for.
+
+## Installation
+
+<details>
+<summary>HACS</summary>
+
+1. Open HACS in your Home Assistant instance
+2. Click the three dots in the top right corner
+3. Select "Custom repositories"
+4. Add `BWilky/HA-Spotify-Browser` as a repository
+5. Set category to "Dashboard"
+6. Click "Add"
+7. Search for "Spotify Browser Card"
+8. Install it and reload your browser
+
+</details>
 
 
 ```
