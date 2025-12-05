@@ -107,15 +107,18 @@ export class SpotifyApi {
     }
 
     async transferPlayback(deviceId) {
-        if (!this.hass || !deviceId) return;
+        if (!this.hass || !deviceId) return { success: false, error: { message: "No device ID" } };
+        
         try {
             await this.hass.callService('spotifyplus', 'player_transfer_playback', {
                 entity_id: this.entityId,
                 device_id: deviceId,
                 play: true
             });
+            return { success: true };
         } catch (e) {
             console.error("Transfer failed:", e);
+            return { success: false, error: e };
         }
     }
 }
