@@ -213,9 +213,9 @@ export const Templates = {
             <div class="track-list">
                ${Array(10).fill(0).map(() => `
                   <div class="track-row skeleton-row">
-                     <div class="sk-text w-5"></div>
-                     <div class="sk-text w-40"></div>
-                     <div class="sk-text w-20"></div>
+                      <div class="sk-text w-5"></div>
+                      <div class="sk-text w-40"></div>
+                      <div class="sk-text w-20"></div>
                   </div>
                `).join('')}
             </div>
@@ -370,10 +370,10 @@ export const Templates = {
               </div>
               <div class="track-actions-right">
                   <button class="track-action-btn" data-action="save">
-                     <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
                   </button>
                   <button class="track-action-btn" data-action="queue">
-                     <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+                      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
                   </button>
               </div>
           </div>
@@ -448,7 +448,8 @@ export const Templates = {
 
     /* --- QUEUE TEMPLATES --- */
 
-    nowPlayingRow: (track, isPlaying, showMiniPlayer = false, isFavorite = false) => {
+    // Update signature to accept 'components'
+    nowPlayingRow: (track, isPlaying, showMiniPlayer = false, isFavorite = false, components = {}) => {
         const artists = track.artists ? track.artists.map(a => a.name).join(', ') : 'Unknown';
         const img = track.image_url || (track.album?.images?.[0]?.url) || '';
         const icon = isPlaying 
@@ -460,19 +461,39 @@ export const Templates = {
         
         if (showMiniPlayer) {
             const heartClass = isFavorite ? 'is-favorite' : '';
-            extras = `
-            <div class="queue-mini-controls">
+            
+            // Logic: Default to TRUE unless strictly false
+            const showShuffle = components.shuffle === true; // Default false
+            const showPrev = components.previous !== false;  // Default true
+            const showNext = components.next !== false;      // Default true
+            const showLike = components.like !== false;      // Default true
+
+            const shuffleHtml = showShuffle ? `
+                <button class="mini-btn" data-action="mini-shuffle" title="Shuffle">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+                </button>` : '';
+
+            const prevHtml = showPrev ? `
                 <button class="mini-btn" data-action="mini-prev">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-                </button>
-                
+                </button>` : '';
+
+            const nextHtml = showNext ? `
                 <button class="mini-btn" data-action="mini-skip">
                     <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-                </button>
-                
+                </button>` : '';
+
+            const likeHtml = showLike ? `
                 <button class="mini-btn ${heartClass}" data-action="mini-fav" data-id="${track.id}">
-                     <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                </button>
+                      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                </button>` : '';
+
+            extras = `
+            <div class="queue-mini-controls">
+                ${shuffleHtml}
+                ${prevHtml}
+                ${nextHtml}
+                ${likeHtml}
             </div>`;
             
             progressBar = `
@@ -509,9 +530,6 @@ export const Templates = {
             
         return `
         <div class="queue-item">
-            <div class="queue-status-icon">
-                <div class="q-circle"></div>
-            </div>
             <div class="queue-art" style="background-image: url('${img}')"></div>
             <div class="queue-info">
                 <div class="queue-title">${track.name}</div>
@@ -575,7 +593,9 @@ function renderCarouselSection(title, sectionId, seeMoreParams = null) {
 function cardSkeleton(isCircle = false) {
     return `
       <div class="media-card skeleton-pulse ${isCircle ? 'artist-card' : ''}">
-        <div class="card-image-sk" style="${isCircle ? 'border-radius:50%' : ''}"></div>
+        <div class="media-image-wrapper">
+            <div class="card-image-sk" style="${isCircle ? 'border-radius:50%' : ''}"></div>
+        </div>
         <div class="card-text-sk"></div>
         <div class="card-text-sk short"></div>
       </div>
@@ -588,7 +608,6 @@ function renderPillSection(title, sectionId) {
         <div class="section-header">
             <h3 class="section-title">${title}</h3>
         </div>
-        <!-- Using 'recent-grid-layout' class triggers the Pill renderer in JS -->
         <div class="recent-grid-layout" id="grid-${sectionId}" data-section="${sectionId}">
             ${Array(8).fill(0).map(() => recentPillSkeleton()).join('')}
         </div>
@@ -596,4 +615,12 @@ function renderPillSection(title, sectionId) {
     `;
 }
 
-
+// --- ADDED THIS FUNCTION TO FIX THE ERROR ---
+function recentPillSkeleton() {
+    return `
+      <div class="recent-pill skeleton-pulse">
+        <div class="recent-pill-img"></div>
+        <div class="recent-pill-text" style="width: 60%; height: 12px; background: #333; border-radius: 4px;"></div>
+      </div>
+    `;
+}
