@@ -10,7 +10,10 @@ Spotify Browser Card is a card that allows you to browser, search, play and cont
 
 
 <img width="396" height="225" src="https://github.com/BWilky/HA-Spotify-Browser/blob/main/images/spotbrowser_1.jpg" />
-
+<img width="396" height="225" src="https://github.com/BWilky/HA-Spotify-Browser/blob/main/images/spotbrowser_2.jpg" />
+<img width="396" height="225" src="https://github.com/BWilky/HA-Spotify-Browser/blob/main/images/spotbrowser_3.jpg" />
+<img width="396" height="225" src="https://github.com/BWilky/HA-Spotify-Browser/blob/main/images/spotbrowser_4.jpg" />
+<img width="396" height="225" src="https://github.com/BWilky/HA-Spotify-Browser/blob/main/images/spotbrowser_5.jpg" />
 ## Installation
 
 <details>
