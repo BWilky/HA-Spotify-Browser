@@ -6,7 +6,10 @@
 
 Spotify Browser Card is a card that allows you to browser, search, play and control your spotify account on any connected devices. It is not a playback card. This card depends on Spotify Plus Component. https://github.com/thlucas1/homeassistantcomponent_spotifyplus
 
-> **Note:** This is a new project and you will likely encouter bugs. Please report them and suggest any features you're looking for.
+**Note:** This is a new project and you will likely encouter bugs. Please report them and suggest any features you're looking for.
+
+
+<img width="396" height="135" alt="Mediocre Media Player Card Screenshot" src="https://github.com/user-attachments/assets/443cbfb0-7cf9-4941-b909-360693266aab" />
 
 ## Installation
 
@@ -21,6 +24,24 @@ Spotify Browser Card is a card that allows you to browser, search, play and cont
 6. Click "Add"
 7. Search for "Spotify Browser Card"
 8. Install it and reload your browser
+
+</details>
+
+
+<details>
+<summary>Manual Installation</summary>
+
+1. Grab the latest release from the [releases page](https://github.com/bwilky/ha-spotify-browser/releases)
+2. Copy the JavaScript file to your `www/` directory in your Home Assistant setup
+3. Add the resource to your Lovelace config:
+
+```yaml
+resources:
+	- url: /local/spotify-browser.js
+		type: module
+```
+
+4. Refresh your browser
 
 </details>
 
