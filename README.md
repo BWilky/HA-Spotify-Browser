@@ -1,7 +1,7 @@
 # 🎵 Spotify Browser Card
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/custom-components/hacs)
-[![GitHub Release](https://img.shields.io/github/v/release/antontanderup/mediocre-hass-media-player-cards?color=blue)](https://github.com/bwilky/ha-spotify-browser/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/bwilky/ha-spotify-browser?color=blue)](https://github.com/bwilky/ha-spotify-browser/releases)
 
 
 Spotify Browser Card is a card that allows you to browser, search, play and control your spotify account on any connected devices. It is not a playback card. This card depends on Spotify Plus Component. https://github.com/thlucas1/homeassistantcomponent_spotifyplus
