@@ -12,6 +12,7 @@ closeondisconnect: true
 scan_interval: 5
 
 device_playback:
+  - default: Office
   - show:  ##one or the other
       - Kitchen
       - iPhone
