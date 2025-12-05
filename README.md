@@ -6,39 +6,50 @@ A homeassistant spotify browser. Requires the HomeAssistant Spotify Plus integra
 
 ```
 type: custom:spotify-browser-card
-entity: media_player.***
-default_device: "Office Speaker"
+entity: media_player.spotifyplus_bryce_peter
 
-# --- Features ---
-queue_miniplayer: true
-scan_interval: 10          # Refresh every 10s while open
-auto_close_seconds: 300    # Close after 5 minutes idle
-desktop_madeforyou_pills: true
+closeondisconnect: true
+scan_interval: 5
 
-# --- Performance ---
-homescreen:
-  cache: true
-  expiry: 60
-
-# --- Layout Ordering ---
+device_playback:
+  - show:  ##one or the other
+      - Kitchen
+      - iPhone
+      - Web Player (Chrome)
+  - hide:  ##one or the other
+      - Kitchen1
+      - Kitchen2
+queue:
+  - desktop:
+      - open_init: true
+      - miniplayer:
+          previous: true
+          next: true
+          shuffle: false
+          like: true
 home_order:
   - madeforyou
+  - albums
   - recent
   - favorites
   - artists
-  - albums
-
-# --- Custom Dashboard Row ---
 madeforyou:
   - likedsongs: true
+  - desktop_pills: true
   - playlists_recommended:
       - id: 37i9dQZF1E39suu8OtrpJX
-        title: "Discover Weekly"
-      - id: 37i9dQZF1E363TX1pYJjAC
-        title: "Release Radar"
+        title: Daily Mix 1
+      - id: 37i9dQZF1E39suu8OtrpJX
+        title: Daily Mix 1
+      - id: 37i9dQZF1E39suu8OtrpJX
+        title: Daily Mix 1
+      - id: 37i9dQZF1E39suu8OtrpJX
+        title: Daily Mix 1
+      - id: 37i9dQZF1E39suu8OtrpJX
+        title: Daily Mix 1
   - playlists:
-      - 37i9dQZF1E363TX1pYJjAC
-      - 37i9dQZF1E363TX1pYJjAC
+      - 3fKOnwgR2v4Qc0DH09KJKz
+
 
 ```
 
