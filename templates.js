@@ -449,7 +449,7 @@ export const Templates = {
     /* --- QUEUE TEMPLATES --- */
 
     // Update signature to accept 'components'
-    nowPlayingRow: (track, isPlaying, showMiniPlayer = false, isFavorite = false, components = {}) => {
+    nowPlayingRow: (track, isPlaying, showMiniPlayer = false, isFavorite = false, components = {}, showVolumeView = false, currentVolume = 0) => {
         const artists = track.artists ? track.artists.map(a => a.name).join(', ') : 'Unknown';
         const img = track.image_url || (track.album?.images?.[0]?.url) || '';
         const icon = isPlaying 
@@ -460,41 +460,67 @@ export const Templates = {
         let progressBar = '';
         
         if (showMiniPlayer) {
-            const heartClass = isFavorite ? 'is-favorite' : '';
             
-            // Logic: Default to TRUE unless strictly false
-            const showShuffle = components.shuffle === true; // Default false
-            const showPrev = components.previous !== false;  // Default true
-            const showNext = components.next !== false;      // Default true
-            const showLike = components.like !== false;      // Default true
+            // --- VIEW 1: VOLUME SLIDER ---
+            if (showVolumeView) {
+                const volPercent = Math.round(currentVolume * 100);
+                
+                extras = `
+                <div class="volume-control-container">
+                    <div class="vol-icon">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                    </div>
+                    <input type="range" class="volume-slider" min="0" max="100" value="${volPercent}" id="mini-vol-slider">
+                    <button class="mini-btn" data-action="close-volume" title="Close Volume">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                    </button>
+                </div>`;
+            } 
+            // --- VIEW 2: STANDARD ACTION BUTTONS ---
+            else {
+                const heartClass = isFavorite ? 'is-favorite' : '';
+                
+                // Check Config (Default to true unless explicitly false)
+                const showShuffle = components.shuffle === true; 
+                const showPrev = components.previous !== false; 
+                const showNext = components.next !== false;      
+                const showLike = components.like !== false;      
+                const showVol = components.volume !== false; 
 
-            const shuffleHtml = showShuffle ? `
-                <button class="mini-btn" data-action="mini-shuffle" title="Shuffle">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
-                </button>` : '';
+                const shuffleHtml = showShuffle ? `
+                    <button class="mini-btn" data-action="mini-shuffle" title="Shuffle">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+                    </button>` : '';
 
-            const prevHtml = showPrev ? `
-                <button class="mini-btn" data-action="mini-prev">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-                </button>` : '';
+                const prevHtml = showPrev ? `
+                    <button class="mini-btn" data-action="mini-prev">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
+                    </button>` : '';
 
-            const nextHtml = showNext ? `
-                <button class="mini-btn" data-action="mini-skip">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-                </button>` : '';
+                const nextHtml = showNext ? `
+                    <button class="mini-btn" data-action="mini-skip">
+                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
+                    </button>` : '';
 
-            const likeHtml = showLike ? `
-                <button class="mini-btn ${heartClass}" data-action="mini-fav" data-id="${track.id}">
-                      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                </button>` : '';
+                const likeHtml = showLike ? `
+                    <button class="mini-btn ${heartClass}" data-action="mini-fav" data-id="${track.id}">
+                        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                    </button>` : '';
+                
+                const volHtml = showVol ? `
+                    <button class="mini-btn" data-action="mini-volume" title="Volume">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                    </button>` : '';
 
-            extras = `
-            <div class="queue-mini-controls">
-                ${shuffleHtml}
-                ${prevHtml}
-                ${nextHtml}
-                ${likeHtml}
-            </div>`;
+                extras = `
+                <div class="queue-mini-controls">
+                    ${shuffleHtml}
+                    ${prevHtml}
+                    ${nextHtml}
+                    ${likeHtml}
+                    ${volHtml}
+                </div>`;
+            }
             
             progressBar = `
             <div class="queue-progress-container">
