@@ -360,10 +360,17 @@ export const CARD_CSS = `
         padding: 0;
     }
 
-    /* --- Queue Mini Player --- */
+    /* --- Queue Mini Player & Volume --- */
     .queue-mini-controls {
         display: flex; align-items: center; justify-content: center; gap: 32px; 
-        margin-top: 0; padding: 0 24px 10px 24px; position: relative; z-index: 10;
+        
+        /* LOCK HEIGHT: Matches volume container exactly to prevent jumps */
+        margin-top: 0; 
+        padding: 0 24px 10px 24px; 
+        min-height: 44px; 
+        box-sizing: border-box;
+        
+        position: relative; z-index: 10;
     }
     
     .mini-btn {
@@ -376,6 +383,71 @@ export const CARD_CSS = `
     .mini-btn svg { width: 24px; height: 24px; }
     .mini-btn.is-favorite { color: var(--spf-brand); }
     .mini-btn.is-favorite svg { fill: var(--spf-brand); }
+
+    
+    /* --- Volume Slider View (Alternate State) --- */
+    .volume-control-container {
+        display: flex; align-items: center; gap: 16px;
+        
+        /* LOCK HEIGHT: Exact match of above */
+        padding: 0 24px 10px 24px; 
+        min-height: 44px; 
+        box-sizing: border-box;
+        width: 100%; 
+        
+        animation: fadeIn 0.2s ease;
+    }
+
+    /* Volume Icon (Left) */
+    .vol-icon {
+        color: var(--spf-text-sub);
+        display: flex; align-items: center; justify-content: center;
+        width: 24px; height: 24px; flex-shrink: 0;
+    }
+    .vol-icon svg { width: 20px; height: 20px; fill: currentColor; }
+
+    /* The Slider Track */
+    .volume-slider {
+        flex: 1; -webkit-appearance: none; appearance: none;
+        
+        /* Height adjusted to 36px to sit nicely inside the 44px container */
+        height: 36px; 
+        
+        background: rgba(255,255,255,0.1); /* Dark grey track */
+        border-radius: 12px; 
+        outline: none; cursor: pointer;
+        overflow: hidden; /* Clips the fill shadow */
+        border: none;
+        margin: 0;
+    }
+    
+    /* Slider Thumb (The White Vertical Bar) */
+    .volume-slider::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none;
+        width: 4px; /* Thin Vertical Bar */
+        height: 22px; /* Shorter than track to look floating */
+        background: #ffffff; 
+        border-radius: 2px;
+        cursor: pointer; 
+        transition: transform 0.1s;
+        
+        /* The Fill Effect (White bar to the left) */
+        box-shadow: -100vw 0 0 100vw rgba(255, 255, 255, 0.3); 
+    }
+    
+    .volume-slider::-webkit-slider-thumb:active {
+        transform: scaleY(1.1); 
+        background: var(--spf-brand); 
+    }
+
+    /* Firefox Support */
+    .volume-slider::-moz-range-thumb {
+        width: 4px; height: 22px;
+        background: #ffffff; border: none;
+        border-radius: 2px;
+        cursor: pointer;
+        box-shadow: -100vw 0 0 100vw rgba(255, 255, 255, 0.3);
+    }
 
     .queue-progress-container {
         width: 100%; height: 2px; background: rgba(255,255,255,0.1);
