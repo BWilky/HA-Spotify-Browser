@@ -73,6 +73,8 @@ queue:
           next: true
           shuffle: false
           like: true
+          volume: false
+
 home_order:
   - madeforyou
   - albums
