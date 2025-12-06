@@ -93,6 +93,10 @@ class SpotifyBrowserCard extends HTMLElement {
     this._boundDisconnect = this._onDisconnect.bind(this);
     
     this._showVolumeView = false;
+    
+    this._lastQueueSignature = null; 
+    
+    this._subscribedConnection = null;
   }
   
   // --- Lovelace Editor Configuration ---
@@ -2812,7 +2816,8 @@ class SpotifyBrowserCard extends HTMLElement {
           this._renderNowPlaying(entityData);
       }
 
-      if (!listEl.hasChildNodes() || listEl.innerHTML.includes('Loading')) {
+      // Initial Loading State (Only show if truly empty to avoid flashing "Loading" over existing content)
+      if (!this._lastQueueSignature && (!listEl.hasChildNodes() || listEl.innerHTML.trim() === '')) {
           listEl.innerHTML = '<div style="padding:20px; text-align:center; color:#888;">Loading queue...</div>';
       }
 
@@ -2821,25 +2826,42 @@ class SpotifyBrowserCard extends HTMLElement {
           
           if (res && res.result) {
               // 4. Render Sticky Header (Now Playing)
-              // FIX: Only overwrite header if we are NOT inside the lock window
+              // Only overwrite header if we are NOT inside the lock window
               if (res.result.currently_playing && Date.now() > this._queueLockTime) {
                   this._renderNowPlaying(res.result.currently_playing);
               }
 
-              // 5. Render Scrollable List (Next Up)
-              if (res.result.queue && res.result.queue.length > 0) {
-                  const itemsHtml = res.result.queue.map(track => Templates.queueRow(track)).join('');
-                  listEl.innerHTML = itemsHtml;
-                  // Note: Event Delegation handles clicks
-              } else {
-                  listEl.innerHTML = Templates.emptyQueue();
+              // 5. Smart Queue Render (The Fix)
+              const newQueue = res.result.queue || [];
+              
+              // Generate Signature: List of IDs or URIs
+              // If the order or items haven't changed, this string will be identical.
+              const newSignature = newQueue.map(t => t.id || t.uri).join(',');
+              
+              // DIFF CHECK: Only touch the DOM if the queue actually changed
+              if (this._lastQueueSignature !== newSignature) {
+                  this._lastQueueSignature = newSignature;
+
+                  if (newQueue.length > 0) {
+                      // Note: We use innerHTML here because queue shifts usually change every row anyway.
+                      // Preserving DOM nodes for a shifted list is complex and yields diminishing returns.
+                      const itemsHtml = newQueue.map(track => Templates.queueRow(track)).join('');
+                      listEl.innerHTML = itemsHtml;
+                  } else {
+                      listEl.innerHTML = Templates.emptyQueue();
+                  }
               }
           } else {
-              listEl.innerHTML = '<div style="padding:20px; text-align:center; color:#b3b3b3;">No queue data available.</div>';
+              // Only show empty message if we don't have previous data
+              if (!this._lastQueueSignature) {
+                  listEl.innerHTML = '<div style="padding:20px; text-align:center; color:#b3b3b3;">No queue data available.</div>';
+              }
           }
       } catch (e) {
           console.error("[SpotifyBrowser] Queue Error:", e);
-          listEl.innerHTML = '<div style="padding:20px; text-align:center; color:red;">Failed to load queue.</div>';
+          if (!this._lastQueueSignature) {
+              listEl.innerHTML = '<div style="padding:20px; text-align:center; color:red;">Failed to load queue.</div>';
+          }
           // Ensure header isn't left blank on error (unless locked)
           if (Date.now() > this._queueLockTime) this._renderNowPlaying(null);
       }
@@ -2943,15 +2965,25 @@ class SpotifyBrowserCard extends HTMLElement {
   
   
 
-  // Helper to render the Sticky Header content
   _renderNowPlaying(trackData) {
       const npEl = this.shadowRoot.getElementById('queue-now-playing');
       if (!npEl) return;
 
-      if (!trackData || !trackData.name) {
+      // --- BLIP PROTECTION (Anti-Flash) ---
+      // If data is missing but we think we are playing, hold the last frame.
+      // This prevents the "Empty Player" -> "New Song" flash during track skips.
+      const isMissingData = !trackData || !trackData.name;
+      if (isMissingData) {
+          if (this._isPlaying && this._lastTrackState) {
+              // Ignore this update, keep showing the old song until valid data returns
+              return;
+          }
+          
+          // Genuine Empty State
           if (Templates.emptyPlayer) npEl.innerHTML = Templates.emptyPlayer();
           else npEl.innerHTML = `<div style="padding:16px; opacity:0.5;">Nothing Playing</div>`;
           if (this._progressTimer) clearInterval(this._progressTimer);
+          this._lastTrackState = null;
           return; 
       }
 
@@ -2970,16 +3002,110 @@ class SpotifyBrowserCard extends HTMLElement {
           }
       }
 
-      // --- NEW: Get Current Volume ---
+      // Get Volume
       let currentVol = 0;
       if (this._hass && this._config.entity && this._hass.states[this._config.entity]) {
           currentVol = this._hass.states[this._config.entity].attributes.volume_level || 0;
       }
 
-      // --- Pass Volume State to Template ---
-      npEl.innerHTML = Templates.nowPlayingRow(trackData, this._isPlaying, showMini, isFav, qSettings.components, this._showVolumeView, currentVol);
+      // --- SMART PATCHING STATE ---
+      const newState = {
+          id: trackId,
+          title: trackData.name,
+          artist: trackData.artists ? trackData.artists[0].name : '',
+          img: trackData.image_url || (trackData.album?.images?.[0]?.url) || '',
+          playing: this._isPlaying,
+          fav: isFav,
+          view: this._showVolumeView,
+          vol: currentVol
+      };
 
-      // --- Play/Pause Button ---
+      const oldState = this._lastTrackState || {};
+      
+      // Check if DOM is valid (e.g. not empty state)
+      const domIsValid = npEl.querySelector('.queue-title') !== null;
+
+      // FIX: Only Full Render if View changes, First Load, or DOM is broken
+      const needsFullRender = !this._lastTrackState || oldState.view !== newState.view || !domIsValid;
+
+      // --- 1. FULL RENDER (First Load / View Switch / Recovery) ---
+      if (needsFullRender) {
+          let html = Templates.nowPlayingRow(trackData, this._isPlaying, showMini, isFav, qSettings.components, this._showVolumeView, currentVol);
+          
+          // Disable animation if image URL is same (e.g. view switch on same song)
+          if (oldState.img === newState.img) {
+               html = html.replace('style="background-image:', 'style="animation: none !important; background-image:');
+          }
+
+          npEl.innerHTML = html;
+          this._attachNowPlayingListeners(npEl, trackData, trackId);
+          this._startProgressTimer();
+      } 
+      // --- 2. FINE-GRAINED UPDATES (Track Change / State Toggle) ---
+      else {
+          
+          // A. Metadata Update (Title, Artist, Art) - DOM Preservation
+          if (oldState.id !== newState.id || oldState.title !== newState.title) {
+              const titleEl = npEl.querySelector('.queue-title');
+              const artistEl = npEl.querySelector('.queue-artist');
+              const artEl = npEl.querySelector('.queue-art.large');
+              
+              if (titleEl) titleEl.innerText = newState.title;
+              if (artistEl) artistEl.innerText = newState.artist;
+              
+              // Only update background image if URL actually changed
+              if (artEl && oldState.img !== newState.img) {
+                  artEl.style.backgroundImage = `url('${newState.img}')`;
+              }
+              
+              // Re-attach button listeners for new track ID
+              const favBtn = npEl.querySelector('[data-action="mini-fav"]');
+              if (favBtn) {
+                  favBtn.dataset.id = newState.id;
+                  favBtn.onclick = (e) => {
+                     e.stopPropagation();
+                     const isCurrentlyFav = favBtn.classList.contains('is-favorite');
+                     this._toggleTrackFavorite(newState.id, isCurrentlyFav, favBtn);
+                     this._favCache.set(newState.id, !isCurrentlyFav);
+                     this._renderNowPlaying(trackData); 
+                  };
+              }
+          }
+
+          // B. Play/Pause Toggle
+          if (oldState.playing !== newState.playing) {
+              const playBtn = npEl.querySelector('#queue-hero-play-btn');
+              if (playBtn) {
+                  playBtn.innerHTML = newState.playing 
+                    ? `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
+                    : `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
+              }
+          }
+
+          // C. Favorite Toggle
+          if (oldState.fav !== newState.fav && !newState.view) {
+              const favBtn = npEl.querySelector('[data-action="mini-fav"]');
+              if (favBtn) {
+                  if (newState.fav) favBtn.classList.add('is-favorite');
+                  else favBtn.classList.remove('is-favorite');
+              }
+          }
+
+          // D. Volume Slider Update
+          if (oldState.vol !== newState.vol && newState.view) {
+              const slider = npEl.querySelector('#mini-vol-slider');
+              if (slider && this.shadowRoot.activeElement !== slider) {
+                  slider.value = Math.round(newState.vol * 100);
+              }
+          }
+      }
+
+      // Save State
+      this._lastTrackState = newState;
+  }
+
+  _attachNowPlayingListeners(npEl, trackData, trackId) {
+      // Play Button
       const playBtn = npEl.querySelector('#queue-hero-play-btn');
       if (playBtn) {
           playBtn.addEventListener('click', (e) => {
@@ -2988,70 +3114,67 @@ class SpotifyBrowserCard extends HTMLElement {
               this._isPlaying = !this._isPlaying;
               this._api.togglePlayback(this._isPlaying);
               
-              const icon = this._isPlaying 
-                ? `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
-                : `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
-              playBtn.innerHTML = icon;
+              // Optimistic Update handled by next render cycle or manually here if desired
+              // But strictly, we wait for _renderNowPlaying to be called again by the state update logic
+              // OR we can force a re-render call effectively immediately
+              this._renderNowPlaying(trackData);
           });
       }
 
-      if (showMini) {
-          if (this._showVolumeView) {
-              // --- VOLUME SLIDER LOGIC ---
-              const slider = npEl.querySelector('#mini-vol-slider');
-              const closeBtn = npEl.querySelector('[data-action="close-volume"]');
-              
-              if (slider) {
-                  // Commit change on mouse up / touch end
-                  slider.addEventListener('change', (e) => {
-                      e.stopPropagation();
-                      const val = e.target.value / 100;
-                      this._api.setVolume(val);
-                  });
-              }
-              
-              if (closeBtn) {
-                  closeBtn.onclick = (e) => {
-                      e.stopPropagation();
-                      this._showVolumeView = false;
-                      this._renderNowPlaying(trackData); // Re-render to show controls
-                  };
-              }
-
-          } else {
-              // --- STANDARD CONTROLS LOGIC ---
-              const prevBtn = npEl.querySelector('[data-action="mini-prev"]');
-              const nextBtn = npEl.querySelector('[data-action="mini-skip"]');
-              const shuffleBtn = npEl.querySelector('[data-action="mini-shuffle"]'); 
-              const favBtn = npEl.querySelector('[data-action="mini-fav"]');
-              const volBtn = npEl.querySelector('[data-action="mini-volume"]');
-              
-              if(prevBtn) prevBtn.onclick = (e) => { e.stopPropagation(); this._api.fetchSpotifyPlus('player_media_skip_previous', {}, false); };
-              if(nextBtn) nextBtn.onclick = (e) => { e.stopPropagation(); this._api.fetchSpotifyPlus('player_media_skip_next', {}, false); };
-              
-              if(shuffleBtn) shuffleBtn.onclick = (e) => { 
-                  e.stopPropagation(); 
-                  this._api.fetchSpotifyPlus('player_shuffle', { state: 'true' }, false); 
-              };
-              
-              // NEW: Volume Button Toggle
-              if(volBtn) volBtn.onclick = (e) => {
+      if (this._showVolumeView) {
+          const slider = npEl.querySelector('#mini-vol-slider');
+          const closeBtn = npEl.querySelector('[data-action="close-volume"]');
+          
+          if (slider) {
+              slider.addEventListener('change', (e) => {
                   e.stopPropagation();
-                  this._showVolumeView = true;
-                  this._renderNowPlaying(trackData); // Re-render to show slider
-              };
-              
-              if(favBtn && trackId) {
-                 favBtn.onclick = (e) => {
-                     e.stopPropagation();
-                     const isCurrentlyFav = favBtn.classList.contains('is-favorite');
-                     this._toggleTrackFavorite(trackId, isCurrentlyFav, favBtn);
-                 };
-              }
+                  const val = e.target.value / 100;
+                  this._api.setVolume(val);
+              });
           }
-          this._startProgressTimer();
+          if (closeBtn) {
+              closeBtn.onclick = (e) => {
+                  e.stopPropagation();
+                  this._showVolumeView = false;
+                  this._renderNowPlaying(trackData);
+              };
+          }
+      } else {
+          const prevBtn = npEl.querySelector('[data-action="mini-prev"]');
+          const nextBtn = npEl.querySelector('[data-action="mini-skip"]');
+          const shuffleBtn = npEl.querySelector('[data-action="mini-shuffle"]'); 
+          const favBtn = npEl.querySelector('[data-action="mini-fav"]');
+          const volBtn = npEl.querySelector('[data-action="mini-volume"]');
+          
+          if(prevBtn) prevBtn.onclick = (e) => { e.stopPropagation(); this._api.fetchSpotifyPlus('player_media_skip_previous', {}, false); };
+          if(nextBtn) nextBtn.onclick = (e) => { e.stopPropagation(); this._api.fetchSpotifyPlus('player_media_skip_next', {}, false); };
+          
+          if(shuffleBtn) shuffleBtn.onclick = (e) => { 
+              e.stopPropagation(); 
+              this._api.fetchSpotifyPlus('player_shuffle', { state: 'true' }, false); 
+          };
+          
+          if(volBtn) volBtn.onclick = (e) => {
+              e.stopPropagation();
+              this._showVolumeView = true;
+              this._renderNowPlaying(trackData);
+          };
+          
+          if(favBtn && trackId) {
+             favBtn.onclick = (e) => {
+                 e.stopPropagation();
+                 const isCurrentlyFav = favBtn.classList.contains('is-favorite');
+                 this._toggleTrackFavorite(trackId, isCurrentlyFav, favBtn);
+                 // Manually update local state for immediate feedback
+                 this._favCache.set(trackId, !isCurrentlyFav);
+                 this._renderNowPlaying(trackData); 
+             };
+          }
       }
   }
+  
+  
+  
    _startProgressTimer() {
       if (this._progressTimer) clearInterval(this._progressTimer);
       
