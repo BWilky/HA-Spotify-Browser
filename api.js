@@ -2,24 +2,26 @@ export class SpotifyApi {
     constructor(hass, entityId, defaultDevice = null) {
         this.hass = hass;
         this.entityId = entityId;
-        this.defaultDevice = defaultDevice; // Store default device
+        this.defaultDevice = defaultDevice; 
     }
 
     updateHass(hass) {
         this.hass = hass;
     }
 
-    /**
-     * Call SpotifyPlus services.
-     * Automatically injects 'device_id' for player commands if configured.
-     */
     async fetchSpotifyPlus(service, params = {}, expectResponse = true) {
         if (!this.hass) return null;
         
-        // AUTO-INJECT DEVICE ID
-        // If we have a default device, the param is missing, and it's a player command...
+        // AUTO-INJECT DEVICE ID (Only if inactive)
+        // We replicate the logic here: only inject default if we aren't already playing
         if (this.defaultDevice && !params.device_id && service.startsWith('player_media_play')) {
-            params.device_id = this.defaultDevice;
+            const stateObj = this.hass.states[this.entityId];
+            const isActive = stateObj && ['playing', 'paused'].includes(stateObj.state);
+            
+            // Only force default device if we are NOT currently active
+            if (!isActive) {
+                params.device_id = this.defaultDevice;
+            }
         }
 
         try {
@@ -33,9 +35,7 @@ export class SpotifyApi {
                 }
             };
 
-            if (expectResponse) {
-                payload.return_response = true;
-            }
+            if (expectResponse) payload.return_response = true;
 
             const response = await this.hass.callWS(payload);
             
@@ -56,36 +56,42 @@ export class SpotifyApi {
         }
     }
 
-    /**
-     * Enhanced Play Media that leverages SpotifyPlus auto-wake capabilities
-     */
     async playMedia(uri, type, specificDevice = null) {
         if (!this.hass || !uri) return { success: false, error: "No URI" };
 
-        // Determine target device (Specific > Default > Active/None)
-        const deviceToUse = specificDevice || this.defaultDevice;
+        // 1. Check current state
+        const stateObj = this.hass.states[this.entityId];
+        // 'on' is sometimes used by players, but usually 'playing'/'paused' implies active session
+        const isActive = stateObj && ['playing', 'paused'].includes(stateObj.state);
+
+        // 2. Determine Device Strategy
+        let deviceToUse = specificDevice;
+
+        // SMART CHECK:
+        // If the requested device is the Default Device, AND we are already playing elsewhere,
+        // ignore the request and stick with the current active device.
+        if (deviceToUse === this.defaultDevice && isActive) {
+            deviceToUse = null; 
+        }
+
+        // If no device is selected/forced, and we are inactive, THEN use default to wake it up.
+        if (!deviceToUse && !isActive) {
+            deviceToUse = this.defaultDevice;
+        }
 
         const params = {};
         if (deviceToUse) params.device_id = deviceToUse;
 
         try {
-            // Case 1: Contexts (Playlist, Album, Artist, Show)
-            // Docs: "This service will auto-power on the player if it is currently turned off."
             if (['playlist', 'album', 'artist', 'show'].includes(type)) {
                 params.context_uri = uri;
                 await this.fetchSpotifyPlus('player_media_play_context', params, false);
             } 
-            // Case 2: Tracks
             else if (type === 'track') {
                 params.uris = uri; 
-                // We use track_favorites service which supports URIs and device_id
                 await this.fetchSpotifyPlus('player_media_play_track_favorites', params, false);
             }
-            // Case 3: Fallback (Standard Media Player)
             else {
-                // If we are here, it's an unknown type. We fallback to standard call.
-                // We lose the auto-wake capability here unless we do select_source,
-                // but this case is rare for this card.
                 await this.hass.callService('media_player', 'play_media', {
                     entity_id: this.entityId,
                     media_content_id: uri,
@@ -96,19 +102,6 @@ export class SpotifyApi {
         } catch (e) {
             console.error("[SpotifyBrowser] Play failed:", e);
             return { success: false, error: e };
-        }
-    }
-    
-        // --- NEW: Volume Control ---
-    async setVolume(volumeLevel) {
-        if (!this.hass) return;
-        try {
-            await this.hass.callService('media_player', 'volume_set', {
-                entity_id: this.entityId,
-                volume_level: volumeLevel
-            });
-        } catch (e) {
-            console.error("Failed to set volume:", e);
         }
     }
 
@@ -137,6 +130,18 @@ export class SpotifyApi {
         } catch (e) {
             console.error("Transfer failed:", e);
             return { success: false, error: e };
+        }
+    }
+
+    async setVolume(volumeLevel) {
+        if (!this.hass) return;
+        try {
+            await this.hass.callService('media_player', 'volume_set', {
+                entity_id: this.entityId,
+                volume_level: volumeLevel
+            });
+        } catch (e) {
+            console.error("Failed to set volume:", e);
         }
     }
 }
