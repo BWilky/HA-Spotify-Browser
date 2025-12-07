@@ -22,7 +22,7 @@ Spotify Browser Card is a card that allows you to browser, search, play and cont
 1. Open HACS in your Home Assistant instance
 2. Click the three dots in the top right corner
 3. Select "Custom repositories"
-4. Add `BWilky/HA-Spotify-Browser` as a repository
+4. Add `https://github.com/BWilky/HA-Spotify-Browser` as a repository
 5. Set category to "Dashboard"
 6. Click "Add"
 7. Search for "Spotify Browser Card"
