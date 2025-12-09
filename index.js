@@ -99,15 +99,35 @@ class SpotifyBrowserCard extends HTMLElement {
     this._subscribedConnection = null;
   }
   
-  // --- Lovelace Editor Configuration ---
-  
- 
+
 
   setConfig(config) {
-    const targetEntity = config.entity || config.entity_id;
-    if (!targetEntity) throw new Error("You need to define a spotify 'entity'");
+    // --- 1. Parse Accounts & Determine Default ---
+    let accounts = [];
+    if (Array.isArray(config.spotify_accounts)) {
+        accounts = config.spotify_accounts.map(acc => ({
+            entity: acc.entity,
+            name: acc.name,
+            // Normalize hash (add # if missing)
+            hash: acc.hash ? (acc.hash.startsWith('#') ? acc.hash : `#${acc.hash}`) : null,
+            isDefault: acc.default === true
+        }));
+    }
 
-    // --- 1. Homescreen Config ---
+    // Logic: 
+    // 1. Explicit "default: true" in list
+    // 2. First account in list
+    // 3. Legacy root 'entity' (Backwards compatibility)
+    const startupEntity = accounts.find(a => a.isDefault)?.entity || 
+                          accounts[0]?.entity || 
+                          config.entity || 
+                          config.entity_id;
+
+    if (!startupEntity) {
+        throw new Error("SpotifyBrowser: No entity found. Configure 'spotify_accounts' or a root 'entity'.");
+    }
+
+    // --- 2. Homescreen Config ---
     let homescreenConfig = { cache: true, expiry: 60 };
     if (Array.isArray(config.homescreen)) {
         config.homescreen.forEach(item => {
@@ -118,120 +138,78 @@ class SpotifyBrowserCard extends HTMLElement {
         homescreenConfig = { ...homescreenConfig, ...config.homescreen };
     }
 
-    // --- 2. Device Playback Config ---
-    let devicePlayback = { hide: [], show: [], default: null };
+    // --- 3. Device Config ---
+    let devicePlayback = { hide: [], show: [] };
     if (Array.isArray(config.device_playback)) {
         config.device_playback.forEach(entry => {
             if (entry.hide) devicePlayback.hide = devicePlayback.hide.concat(entry.hide);
             if (entry.show) devicePlayback.show = devicePlayback.show.concat(entry.show);
-            if (entry.default) devicePlayback.default = entry.default;
         });
     }
-    
-    
-    // *** remove ****
-    // Legacy support: Use root-level default_device if not set in device_playback
-    if (!devicePlayback.default && config.default_device) {
-        devicePlayback.default = config.default_device;
-    }
-    // *** remove ****
 
-    // --- 3. Queue / Miniplayer Config ---
-    // DEFAULTS: 
-    // - Enabled: False
-    // - Open Init: False
-    // - Components: Previous/Next/Like = True, Shuffle = False
+    // --- 4. Queue Config ---
     let queueSettings = { 
         enabled: false, 
         openInit: false, 
         components: { shuffle: false, previous: true, next: true, like: true, volume: true } 
     };
 
-    // 3a. Legacy Boolean Support (queue_miniplayer: true)
-    if (config.queue_miniplayer === true) {
-        queueSettings.enabled = true;
-    }
+    if (config.queue_miniplayer === true) queueSettings.enabled = true;
 
-    // 3b. New Nested YAML Support
     if (Array.isArray(config.queue)) {
         const desktopEntry = config.queue.find(item => item.desktop);
-        
         if (desktopEntry && Array.isArray(desktopEntry.desktop)) {
             desktopEntry.desktop.forEach(item => {
-                
-                // Parse 'open_init' (Auto-open on desktop)
-                if (item.open_init !== undefined) {
-                    queueSettings.openInit = item.open_init === true;
-                }
-
-                // Parse 'miniplayer' settings
+                if (item.open_init !== undefined) queueSettings.openInit = item.open_init === true;
                 if (item.miniplayer !== undefined) {
                     const miniConfig = item.miniplayer;
-
                     if (miniConfig === true) {
-                        // User set "- miniplayer: true", enable with defaults
                         queueSettings.enabled = true;
-                    } 
-                    else if (typeof miniConfig === 'object') {
-                        // User provided specific overrides
+                    } else if (typeof miniConfig === 'object') {
                         queueSettings.enabled = true;
-                        
-                        // Merge overrides into defaults. 
-                        // Using 'applyOverrides' ensures we handle both Array and Object syntax from YAML.
                         const applyOverrides = (source) => {
-                            // Only update keys that actually exist in the source
                             if (source.shuffle !== undefined) queueSettings.components.shuffle = source.shuffle;
                             if (source.previous !== undefined) queueSettings.components.previous = source.previous;
                             if (source.next !== undefined) queueSettings.components.next = source.next;
                             if (source.like !== undefined) queueSettings.components.like = source.like;
                             if (source.volume !== undefined) queueSettings.components.volume = source.volume;
                         };
-
-                        if (Array.isArray(miniConfig)) {
-                            miniConfig.forEach(c => applyOverrides(c));
-                        } else {
-                            applyOverrides(miniConfig);
-                        }
+                        if (Array.isArray(miniConfig)) miniConfig.forEach(c => applyOverrides(c));
+                        else applyOverrides(miniConfig);
                     }
                 }
             });
         }
     }
 
-    // --- 4. Made For You Config ---
+    // --- 5. Made For You Config ---
     let mfyContent = [];
-    let mfyPills = false; // Default
-
+    let mfyPills = false;
     if (Array.isArray(config.madeforyou)) {
-        // Legacy: Array at root
         mfyContent = config.madeforyou;
         if (config.desktop_madeforyou_pills) mfyPills = true;
     } else if (config.madeforyou && typeof config.madeforyou === 'object') {
-        // New: Object structure
         mfyPills = config.madeforyou.desktop_pills || false;
-        // Support 'items', 'content', or 'sections' as key for the array
-        mfyContent = config.madeforyou.items || config.madeforyou.content || config.madeforyou.sections || [];
+        mfyContent = config.madeforyou.items || config.madeforyou.content || [];
     }
 
-    // --- 5. Final Configuration Assembly ---
     this._config = {
-      auto_close_seconds: 0,
-      scan_interval: null,
-      
-      // Close on Disconnect (Default: true)
+      auto_close_seconds: 0, default_device: null, scan_interval: null,
       close_on_disconnect: config.closeondisconnect !== false,
-      
       ...config,
-      entity: targetEntity,
-      homescreen: homescreenConfig,
-      device_playback: devicePlayback,
-      default_device: devicePlayback.default, // Use the parsed default from device_playback
-      queue_settings: queueSettings,
-      madeforyou_content: mfyContent, 
-      madeforyou_pills: mfyPills
+      
+      // Active Entity (Changes when switching accounts)
+      entity: startupEntity, 
+      
+      // Default Entity (Fallback for generic #spotify-browser hash)
+      default_entity: startupEntity,
+      
+      spotify_accounts: accounts,
+      
+      homescreen: homescreenConfig, device_playback: devicePlayback,
+      queue_settings: queueSettings, madeforyou_content: mfyContent, madeforyou_pills: mfyPills
     };
     
-    // Change this line at the bottom of setConfig:
     this._api = new SpotifyApi(null, this._config.entity, this._config.default_device);
   }
   
@@ -1046,6 +1024,13 @@ class SpotifyBrowserCard extends HTMLElement {
       const menuBtn = target.closest('#menu-btn');
       const queueBtn = target.closest('#queue-btn');
       
+      
+      // --- ADD THIS AT THE TOP ---
+      if (target.closest('#close-btn')) {
+          this._closeBrowser();
+          return;
+      }
+      
       if (queueBtn) {
           e.stopPropagation();
           this._toggleQueue();
@@ -1077,13 +1062,13 @@ class SpotifyBrowserCard extends HTMLElement {
       if (menuItem) {
           e.stopPropagation();
           this._toggleMenu(); // Close menu
-          
           const action = menuItem.dataset.action;
           
           if (action === 'menu-device') {
               this._openDeviceMenu();
+          } else if (action === 'menu-accounts') {
+              this._openAccountsMenu(); // <--- NEW CALL
           } else if (action === 'menu-refresh') {
-              // FIX: Call the new refresh logic
               this._refreshCurrentPage();
           } else if (action === 'menu-library') {
               this._showToast('Library view coming soon...');
@@ -1291,6 +1276,10 @@ class SpotifyBrowserCard extends HTMLElement {
       // Close Device Popup
       if (target.closest('.device-close-btn') || target.classList.contains('device-popup-backdrop')) {
            this._closeDevicePopup();
+           
+           // Close accounts popup too
+           const accPopup = this.shadowRoot.getElementById('accounts-popup');
+           if (accPopup) accPopup.classList.remove('visible');
       }
   }
   
@@ -1715,7 +1704,7 @@ class SpotifyBrowserCard extends HTMLElement {
     const menuBtn = this.shadowRoot.getElementById('menu-btn');
     const wrapper = this.shadowRoot.getElementById('browser-wrapper');
 
-    if (closeBtn) closeBtn.addEventListener('click', this._boundCloseBrowser);
+
     if (backdrop) backdrop.addEventListener('click', this._boundBackdropClick);
     if (backBtn) backBtn.addEventListener('click', this._boundGoBack);
     if (searchBtn) searchBtn.addEventListener('click', this._boundToggleSearch);
@@ -1818,12 +1807,137 @@ class SpotifyBrowserCard extends HTMLElement {
   // --- Hash & Visibility Management ---
 
   _checkHash() {
-    const hash = window.location.hash;
-    if (hash === '#spotify-browser') {
-      this._openBrowser();
-    } else if (this._isOpen) {
-      this._closeUI(); 
+    const currentHash = window.location.hash;
+    
+    // 1. Check for Specific Account Hash
+    const matchedAccount = this._config.spotify_accounts?.find(acc => acc.hash === currentHash);
+
+    if (matchedAccount) {
+        // If we found a specific account hash, force switch to it
+        if (this._config.entity !== matchedAccount.entity) {
+            console.log(`[SpotifyBrowser] Switching account to: ${matchedAccount.name} (${matchedAccount.entity})`);
+            this._switchAccount(matchedAccount.entity);
+        }
+        this._openBrowser();
+    } 
+    // 2. Check for Default Hash
+    else if (currentHash === '#spotify-browser') {
+        // Just open whatever account was last active (or default)
+        this._openBrowser();
+    } 
+    // 3. Close if hash removed
+    else if (this._isOpen) {
+        this._closeUI(); 
     }
+  }
+  
+  
+  _openAccountsMenu() {
+      // 1. Close main dropdown if open
+      const menu = this.shadowRoot.getElementById('dropdown-menu');
+      if (menu) menu.classList.remove('visible');
+
+      // 2. Get Popup Elements
+      const popup = this.shadowRoot.getElementById('accounts-popup');
+      const listEl = this.shadowRoot.getElementById('accounts-list');
+      
+      if (!popup || !listEl) return;
+      
+      // 3. Check Config
+      const accounts = this._config.spotify_accounts || [];
+      if (accounts.length === 0) {
+          this._showToast("No accounts configured");
+          return;
+      }
+
+      // 4. Render Account List (Reusing Device Row CSS)
+      // We use the same CSS classes (.device-row, .device-icon) to maintain the look
+      listEl.innerHTML = accounts.map(acc => {
+          const isActive = acc.entity === this._config.entity;
+          const activeClass = isActive ? 'active' : '';
+          
+          // Green dot for active account
+          const activeIcon = isActive ? `<span class="device-active-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="#1db954"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg></span>` : '';
+          
+          // Generic User Icon
+          const icon = `<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>`;
+
+          return `
+            <div class="device-row ${activeClass}" data-entity="${acc.entity}" data-hash="${acc.hash || ''}">
+                <div class="device-icon">${icon}</div>
+                <div class="device-info">
+                    <div class="device-name ${isActive ? 'green-text' : ''}">
+                        ${acc.name}
+                    </div>
+                    <div class="device-type">${acc.entity}</div>
+                </div>
+                ${activeIcon}
+            </div>
+          `;
+      }).join('');
+
+      // 5. Attach Click Listeners
+      listEl.querySelectorAll('.device-row').forEach(row => {
+          row.addEventListener('click', (e) => {
+              e.stopPropagation();
+              const newEntity = row.dataset.entity;
+              const newHash = row.dataset.hash;
+              
+              if (newEntity !== this._config.entity) {
+                  this._switchAccount(newEntity, newHash);
+                  popup.classList.remove('visible');
+              } else {
+                  this._showToast("Account already active");
+              }
+          });
+      });
+
+      // 6. Show Popup
+      popup.classList.add('visible');
+  }
+
+  _switchAccount(newEntityId, newHash) {
+      // 1. Update Config & API Instance
+      this._config.entity = newEntityId;
+      this._api = new SpotifyApi(this._hass, newEntityId, this._config.default_device);
+
+      // 2. NUCLEAR CACHE WIPE (Critical for multi-user)
+      // We must clear everything so User A's playlists don't show for User B
+      this._pageCache.clear();
+      this._favCache.clear();
+      this._history = [];
+      this._followingPlaylistIds.clear();
+      this._lastQueueSignature = null;
+      this._lastTrackState = null;
+      this._currentTrackUri = null;
+      this._homeLastUpdated = 0; // Force home refresh
+      
+      // Reset Pagination
+      this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0, madeforyou: 0 };
+      this._totals = { favorites: null, artists: null, albums: null, recent: null };
+
+      // 3. Clear DOM Elements
+      const pageContainer = this.shadowRoot.getElementById('page-container');
+      if (pageContainer) pageContainer.innerHTML = '';
+      const queueList = this.shadowRoot.getElementById('queue-list');
+      if (queueList) queueList.innerHTML = '';
+      const npEl = this.shadowRoot.getElementById('queue-now-playing');
+      if (npEl) npEl.innerHTML = '';
+
+      // 4. Update URL Hash (if provided)
+      if (newHash && newHash !== 'undefined') {
+          // Update URL without triggering hashchange event loop
+          history.replaceState(null, null, newHash);
+      }
+
+      // 5. Navigate Home (Triggers fresh data fetch)
+      this._currentPageId = null;
+      this._navigateTo('home');
+      
+      // 6. Refresh Queue
+      this._loadQueue();
+
+      this._showToast(`Switched to ${newEntityId}`);
   }
 
   _openBrowser() {
@@ -1872,9 +1986,17 @@ class SpotifyBrowserCard extends HTMLElement {
   }
 
   _closeBrowser() {
-    if (window.location.hash === '#spotify-browser') {
+    const currentHash = window.location.hash;
+    
+    // Check if the current hash matches any configured account
+    const isAccountHash = this._config.spotify_accounts?.some(acc => acc.hash === currentHash);
+
+    // If it's the default hash OR a specific account hash, clear it.
+    if (currentHash === '#spotify-browser' || isAccountHash) {
+        // Remove hash from URL without refreshing
         history.replaceState(null, null, ' '); 
     }
+    
     this._closeUI();
     window.dispatchEvent(new Event('hashchange'));
   }
@@ -3064,6 +3186,7 @@ class SpotifyBrowserCard extends HTMLElement {
                   favBtn.dataset.id = newState.id;
                   favBtn.onclick = (e) => {
                      e.stopPropagation();
+                     fireHaptic('selection');
                      const isCurrentlyFav = favBtn.classList.contains('is-favorite');
                      this._toggleTrackFavorite(newState.id, isCurrentlyFav, favBtn);
                      this._favCache.set(newState.id, !isCurrentlyFav);
@@ -3161,11 +3284,25 @@ class SpotifyBrowserCard extends HTMLElement {
           };
           
           if(favBtn && trackId) {
+             // Verify Favorite Status from API
+             this._api.fetchSpotifyPlus('check_track_favorites', { ids: trackId }).then(res => {
+                 if (res && res.result) {
+                     const isLiked = res.result[trackId];
+                     // Sync Cache
+                     this._favCache.set(trackId, isLiked);
+                     // Sync UI directly
+                     if (isLiked) favBtn.classList.add('is-favorite');
+                     else favBtn.classList.remove('is-favorite');
+                 }
+             });
+
              favBtn.onclick = (e) => {
                  e.stopPropagation();
+                 
+                 // FIX: Haptic + Optimistic + State Sync
+                 fireHaptic('selection');
                  const isCurrentlyFav = favBtn.classList.contains('is-favorite');
                  this._toggleTrackFavorite(trackId, isCurrentlyFav, favBtn);
-                 // Manually update local state for immediate feedback
                  this._favCache.set(trackId, !isCurrentlyFav);
                  this._renderNowPlaying(trackData); 
              };
