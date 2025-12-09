@@ -51,10 +51,20 @@ resources:
 
 ```
 type: custom:spotify-browser-card
-entity: media_player.spotifyplus_bryce_peter
+entity: media_player.spotifyplus_bryce_peter ##use for single account setup
 
 closeondisconnect: true
 scan_interval: 5
+
+
+spotify_accounts:
+  - name: Husband
+    entity: media_player.spotifyplus_**
+    hash: spotify-husband
+    default: true
+  - name: Wife
+    entity: media_player.spotifyplus_**
+    hash: spotify-wife
 
 device_playback:
   - default: Office
