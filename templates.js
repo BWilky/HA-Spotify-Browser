@@ -3,6 +3,7 @@ import { msToTime } from './utils.js';
 export const Templates = {
     mainStructure: () => `
       <div class="editor-placeholder">
+          <!-- ... (keep existing placeholder code) ... -->
           <div class="editor-icon">
               <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.59 14.42c-.2.3-.59.4-.89.2-2.43-1.48-5.49-1.81-9.08-1-33 .07-.55-.16-.62-.47-.07-.33.16-.55.47-.62 3.92-.89 7.33-.52 10.1 1.17.29.19.38.58.19.89zm1.27-2.83c-.25.41-.78.53-1.19.28-2.99-1.84-7.55-2.37-11.09-1.3-.46.14-.95-.12-1.09-.58-.14-.46.12-.95.58-1.09 4.07-1.23 9.14-.62 12.6 1.51.41.24.53.77.28 1.19zm.13-2.97c-3.58-2.13-9.49-2.33-12.91-1.27-.54.17-1.12-.13-1.29-.67-.17-.54.13-1.12.67-1.29 4.02-1.21 10.56-.98 14.71 1.49.49.29.65.92.36 1.41-.29.49-.92.65-1.41.36z"/></svg>
           </div>
@@ -15,6 +16,7 @@ export const Templates = {
       <div class="backdrop" id="backdrop"></div>
       <div class="browser-wrapper" id="browser-wrapper">
         <div class="header">
+          <!-- ... (keep header-left, title, search-container, queue-btn) ... -->
           <div class="header-left">
             <button class="nav-btn" id="back-btn" style="display:none;">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6" /></svg>
@@ -46,11 +48,14 @@ export const Templates = {
             <div class="dropdown-menu" id="dropdown-menu">
                 <div class="menu-item" data-action="menu-library">Your Library</div>
                 <div class="menu-item" data-action="menu-device">Device Playback</div>
+                <!-- NEW: Switch Accounts Option -->
+                <div class="menu-item" data-action="menu-accounts">Switch Accounts</div>
                 <div class="menu-item" data-action="menu-refresh">Refresh Data</div>
             </div>
           </div>
         </div>
         
+        <!-- Queue Panel -->
         <div class="queue-panel" id="queue-panel">
             <div class="queue-header-wrapper">
                 <div class="mobile-drag-handle"></div>
@@ -61,6 +66,7 @@ export const Templates = {
             </div>
         </div>
 
+        <!-- Device Popup -->
         <div class="device-popup-backdrop" id="device-popup">
             <div class="device-popup-content">
                 <h3 class="device-popup-title">Connect to a device</h3>
@@ -68,13 +74,22 @@ export const Templates = {
                 <button class="device-close-btn">Close</button>
             </div>
         </div>
+
+        <!-- NEW: Accounts Popup (Reuses device-popup classes) -->
+        <div class="device-popup-backdrop" id="accounts-popup">
+            <div class="device-popup-content">
+                <h3 class="device-popup-title">Switch Account</h3>
+                <div class="device-list" id="accounts-list"></div>
+                <button class="device-close-btn" data-action="close-accounts">Close</button>
+            </div>
+        </div>
         
+        <!-- Alert & Page Container -->
         <div class="alert-backdrop" id="alert-backdrop">
             <div class="alert-content">
                 <h3 class="alert-title" id="alert-title">Alert</h3>
                 <div class="alert-message" id="alert-message">Something happened.</div>
-                <div class="alert-actions" id="alert-actions">
-                    </div>
+                <div class="alert-actions" id="alert-actions"></div>
             </div>
         </div>
 
