@@ -522,7 +522,32 @@ export const CARD_CSS = `
     }
     @media (hover: hover) { .queue-item:hover { background: var(--spf-border-subtle); } }
     
-    .queue-art { width: 40px; height: 40px; border-radius: 4px; background-size: cover; background-position: center; flex-shrink: 0; }
+    /* Animated Album Art */
+    .queue-art { 
+        width: 40px; height: 40px; 
+        border-radius: 4px; 
+        background-size: cover; 
+        background-position: center; 
+        flex-shrink: 0;
+        
+        /* FIX: Solid background hides the "empty" space while loading */
+        background-color: #282828;
+        
+        /* FIX: Fade animation hides the "scan line" loading effect */
+        animation: imageFadeIn 0.5s ease-out;
+    }
+
+    /* Keyframes for the smooth fade */
+    @keyframes imageFadeIn {
+        0% { opacity: 0; transform: scale(0.95); }
+        100% { opacity: 1; transform: scale(1); }
+    }
+
+    /* Larger Art (Header) - Inherits the animation automatically */
+    .queue-art.large { 
+        width: 64px; height: 64px; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3); 
+    }
     .queue-title { font-size: 13px; font-weight: 600; color: var(--spf-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .queue-artist { font-size: 12px; color: var(--spf-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
@@ -843,9 +868,34 @@ export const CARD_CSS = `
     .artist-top-track:active { background: var(--spf-active-white); }
     
     .artist-top-track.playing .track-title { color: var(--spf-brand); }
-    .track-art-left { width: 56px; height: 56px; background-size: cover; background-position: center; position: relative; flex-shrink: 0; margin-right: 12px; }
-    .artist-top-track .play-btn-overlay.mini { width: 32px; height: 32px; bottom: 12px; right: 12px; left: 12px; top: 12px; margin: auto; transform: translateY(0); opacity: 0; }
-    @media (hover: hover) { .artist-top-track:hover .play-btn-overlay.mini { opacity: 1; } }
+    .track-art-left { 
+        width: 56px; height: 56px; 
+        background-size: cover; background-position: center; 
+        position: relative; flex-shrink: 0; margin-right: 12px; 
+    }
+
+    /* FIX: Standardize positioning so it matches the hover transform */
+    .artist-top-track .play-btn-overlay.mini { 
+        width: 32px; height: 32px; 
+        
+        /* Reset the conflicting centering method */
+        bottom: auto; right: auto; margin: 0;
+        
+        /* Use standard centering (Top/Left 50%) */
+        top: 50%; left: 50%; 
+        transform: translate(-50%, -50%) scale(0.8); /* Start slightly smaller */
+        
+        opacity: 0; 
+        transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    /* On Row Hover: Reveal and scale to normal */
+    @media (hover: hover) { 
+        .artist-top-track:hover .play-btn-overlay.mini { 
+            opacity: 1; 
+            transform: translate(-50%, -50%) scale(1);
+        } 
+    }
     
     .track-info-middle { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
     .track-title { font-size: 14px; font-weight: 600; color: var(--spf-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
