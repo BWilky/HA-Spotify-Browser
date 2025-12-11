@@ -107,6 +107,13 @@ madeforyou:
         title: Daily Mix 1
   - playlists:
       - 3fKOnwgR2v4Qc0DH09KJKz
+advanced:
+  similar_artists:
+    provider: lastfm
+    limit: 10
+external_providers:
+  lastfm:
+    api_key: **** # Get a free api key @ https://www.last.fm/api/account/create
 
 
 ```
