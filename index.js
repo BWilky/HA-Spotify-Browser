@@ -1,5 +1,6 @@
 import { CARD_CSS } from './styles.js';
 import { SpotifyApi } from './api.js';
+import { fetchLastFmSimilarArtists } from './external_providers.js';
 import { Templates } from './templates.js';
 import { msToTime, fireHaptic } from './utils.js'; 
 
@@ -192,22 +193,35 @@ class SpotifyBrowserCard extends HTMLElement {
         mfyPills = config.madeforyou.desktop_pills || false;
         mfyContent = config.madeforyou.items || config.madeforyou.content || [];
     }
+    
+    // --- 6. External Providers & Advanced Config ---
+    let advConfig = { similar_artists: { provider: null, limit: 10 } };
+    if (config.advanced && config.advanced.similar_artists) {
+        advConfig.similar_artists = { ...advConfig.similar_artists, ...config.advanced.similar_artists };
+    }
+
+    let extProviders = {};
+    if (config.external_providers) {
+        extProviders = config.external_providers;
+    }
 
     this._config = {
-      auto_close_seconds: 0, default_device: null, scan_interval: null,
+      auto_close_seconds: 0, 
+      default_device: null, 
+      scan_interval: null,
       close_on_disconnect: config.closeondisconnect !== false,
       ...config,
-      
-      // Active Entity (Changes when switching accounts)
       entity: startupEntity, 
-      
-      // Default Entity (Fallback for generic #spotify-browser hash)
       default_entity: startupEntity,
-      
       spotify_accounts: accounts,
-      
-      homescreen: homescreenConfig, device_playback: devicePlayback,
-      queue_settings: queueSettings, madeforyou_content: mfyContent, madeforyou_pills: mfyPills
+      advanced: advConfig,
+      external_providers: extProviders,
+     
+      homescreen: homescreenConfig, 
+      device_playback: devicePlayback,
+      queue_settings: queueSettings, 
+      madeforyou_content: mfyContent, 
+      madeforyou_pills: mfyPills
     };
     
     this._api = new SpotifyApi(null, this._config.entity, this._config.default_device);
@@ -1517,7 +1531,6 @@ class SpotifyBrowserCard extends HTMLElement {
           imgUrl = data.album.images[0].url; // Standard Track
       }
 
-      console.log(`[SpotifyBrowser] DrillDown Image found: ${imgUrl}`);
 
       if (imgUrl && heroArt) {
         // 1. Set Small Art
@@ -2109,7 +2122,6 @@ class SpotifyBrowserCard extends HTMLElement {
       if (this._scanTimer) {
           clearInterval(this._scanTimer);
           this._scanTimer = null;
-          console.log("[SpotifyBrowser] Stopped Scan Interval");
       }
   }
 
@@ -2251,12 +2263,15 @@ class SpotifyBrowserCard extends HTMLElement {
 
   // --- Artist Data Loading ---
 
+
   async _loadArtistData(pageEl, artistId, artistName) {
       if (pageEl.dataset.loading === "true") return;
       pageEl.dataset.loading = "true";
 
       try {
           let name = artistName;
+          
+          // 1. Fetch Core Data (Artist, Tracks, Albums)
           const artistReq = this._api.fetchSpotifyPlus('get_artist', { artist_id: artistId });
           const market = this._userCountry || 'US';
           const tracksReq = this._api.fetchSpotifyPlus('get_artist_top_tracks', { 
@@ -2278,8 +2293,20 @@ class SpotifyBrowserCard extends HTMLElement {
               return r ? r.result : null;
           })();
 
-          const [tracksRes, albumsRes, playlistsRes] = await Promise.all([tracksReq, albumsReq, playlistsReq]);
+          // 2. Fetch Last.fm Names (Fast)
+          const simArtConfig = this._config.advanced?.similar_artists;
+          const lastFmKey = this._config.external_providers?.lastfm?.api_key;
+          let similarReq = Promise.resolve(null);
 
+          if (name && simArtConfig?.provider === 'lastfm' && lastFmKey) {
+              similarReq = fetchLastFmSimilarArtists(name, lastFmKey, simArtConfig.limit);
+          }
+
+          const [tracksRes, albumsRes, playlistsRes, similarRes] = await Promise.all([
+              tracksReq, albumsReq, playlistsReq, similarReq
+          ]);
+
+          // ... (Render Tracks, Albums, Playlists as before) ...
           let tracks = [];
           if (tracksRes && tracksRes.result) tracks = Array.isArray(tracksRes.result) ? tracksRes.result : tracksRes.result.tracks;
           const trackContainer = pageEl.querySelector('.artist-track-grid');
@@ -2300,12 +2327,86 @@ class SpotifyBrowserCard extends HTMLElement {
               plContainer.innerHTML = playlistsRes.playlists.items.map(item => Templates.mediaCard(item, 'playlist')).join('');
           }
 
+          // 3. Render Initial Similar Artists (Names Only + Grey Circles)
+          const simContainer = pageEl.querySelector('#artist-similar');
+          if (simContainer) {
+              const section = simContainer.closest('.home-section');
+              if (similarRes && similarRes.length > 0) {
+                  // Render basic cards
+                  simContainer.innerHTML = similarRes.map(item => Templates.mediaCard(item, 'artist')).join('');
+                  if(section) section.style.display = 'block';
+
+                  // 4. BACKGROUND HYDRATION (Fire and Forget)
+                  // We do NOT await this, so the spinner disappears immediately
+                  this._hydrateSimilarArtists(pageEl, similarRes);
+                  
+              } else {
+                  if(section) section.style.display = 'none';
+              }
+          }
+
           pageEl.dataset.loaded = "true";
           this._updateActiveElement(); 
       } catch (e) {
-          console.error("Error loading artist", e);
+          console.error("[SpotifyBrowser] Error loading artist:", e);
       } finally {
           pageEl.dataset.loading = "false";
+      }
+  }
+  
+  
+  // --- New Hydration Method (Enhanced Matching) ---
+  async _hydrateSimilarArtists(pageEl, artists) {
+      const container = pageEl.querySelector('#artist-similar');
+      if (!container) return;
+
+      const cards = container.querySelectorAll('.media-card');
+
+      for (let i = 0; i < artists.length; i++) {
+          const targetName = artists[i].name; // The name from Last.fm (e.g., "Seven Lions")
+          const card = cards[i];
+          if (!card) continue;
+
+          try {
+              // 1. Search with limit=3 to get candidates
+              const res = await this._api.fetchSpotifyPlus('search_artists', {
+                  criteria: targetName,
+                  limit: 3
+              });
+
+              if (res && res.result && res.result.items && res.result.items.length > 0) {
+                  const items = res.result.items;
+                  let match = null;
+
+                  // 2. STRATEGY A: Exact Name Match (Case Insensitive)
+                  // This fixes "Seven Lions" vs "Seven Red Lions"
+                  match = items.find(item => item.name.toLowerCase() === targetName.toLowerCase());
+
+                  // 3. STRATEGY B: Fallback to highest popularity
+                  // If no exact match, grab the first result (Spotify orders by relevance/popularity)
+                  if (!match) {
+                      match = items[0];
+                  }
+
+                  // 4. Update DOM
+                  if (match) {
+                      card.dataset.id = match.id;
+                      card.dataset.uri = match.uri;
+
+                      if (match.images && match.images.length > 0) {
+                          const imgDiv = card.querySelector('.media-image');
+                          if (imgDiv) {
+                              imgDiv.style.backgroundImage = `url('${match.images[0].url}')`;
+                              imgDiv.style.transition = 'opacity 0.5s';
+                              imgDiv.style.opacity = '0';
+                              requestAnimationFrame(() => imgDiv.style.opacity = '1');
+                          }
+                      }
+                  }
+              }
+          } catch (e) {
+              console.warn(`[SpotifyBrowser] Failed to hydrate ${targetName}`, e);
+          }
       }
   }
 
