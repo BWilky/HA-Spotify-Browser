@@ -9,11 +9,12 @@ export class SpotifyApi {
         this.hass = hass;
     }
 
+    // Generic wrapper for SpotifyPlus custom services
     async fetchSpotifyPlus(service, params = {}, expectResponse = true) {
         if (!this.hass) return null;
         
         // AUTO-INJECT DEVICE ID (Only if inactive)
-        // We replicate the logic here: only inject default if we aren't already playing
+        // Only inject default if we aren't already playing
         if (this.defaultDevice && !params.device_id && service.startsWith('player_media_play')) {
             const stateObj = this.hass.states[this.entityId];
             const isActive = stateObj && ['playing', 'paused'].includes(stateObj.state);
@@ -59,22 +60,17 @@ export class SpotifyApi {
     async playMedia(uri, type, specificDevice = null) {
         if (!this.hass || !uri) return { success: false, error: "No URI" };
 
-        // 1. Check current state
         const stateObj = this.hass.states[this.entityId];
-        // 'on' is sometimes used by players, but usually 'playing'/'paused' implies active session
         const isActive = stateObj && ['playing', 'paused'].includes(stateObj.state);
 
-        // 2. Determine Device Strategy
         let deviceToUse = specificDevice;
 
-        // SMART CHECK:
-        // If the requested device is the Default Device, AND we are already playing elsewhere,
-        // ignore the request and stick with the current active device.
+        // If requested device is Default, but we are already playing elsewhere, ignore it.
         if (deviceToUse === this.defaultDevice && isActive) {
             deviceToUse = null; 
         }
 
-        // If no device is selected/forced, and we are inactive, THEN use default to wake it up.
+        // If inactive and no device specified, wake up Default.
         if (!deviceToUse && !isActive) {
             deviceToUse = this.defaultDevice;
         }
@@ -83,20 +79,27 @@ export class SpotifyApi {
         if (deviceToUse) params.device_id = deviceToUse;
 
         try {
+            // 1. Context Playback (Playlists, Albums, Artists)
+            // Use 'player_media_play_context' which takes a context_uri
             if (['playlist', 'album', 'artist', 'show'].includes(type)) {
                 params.context_uri = uri;
                 await this.fetchSpotifyPlus('player_media_play_context', params, false);
             } 
-            else if (type === 'track') {
-                params.uris = uri; 
-                await this.fetchSpotifyPlus('player_media_play_track_favorites', params, false);
-            }
+            // 2. Track Playback (Single Songs / Popular Tracks)
+            // FIX: Use 'player_media_play_tracks' which takes a 'uris' string/list
             else {
-                await this.hass.callService('media_player', 'play_media', {
-                    entity_id: this.entityId,
-                    media_content_id: uri,
-                    media_content_type: type
-                });
+                if (deviceToUse) {
+                     // We use the custom service because it supports 'device_id' injection
+                     params.uris = uri; 
+                     await this.fetchSpotifyPlus('player_media_play_tracks', params, false);
+                } else {
+                    // Standard fallback (safest for general playback)
+                    await this.hass.callService('media_player', 'play_media', {
+                        entity_id: this.entityId,
+                        media_content_id: uri,
+                        media_content_type: type
+                    });
+                }
             }
             return { success: true };
         } catch (e) {
