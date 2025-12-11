@@ -249,6 +249,7 @@ export const Templates = {
         </div>
       </div>
       <div class="scroll-content" style="padding-top: 20px;">
+        
         <section class="home-section">
             <h3 class="section-title">Popular</h3>
             <div class="artist-track-grid">
@@ -257,6 +258,16 @@ export const Templates = {
                 `).join('')}
             </div>
         </section>
+
+        <section class="home-section" style="display:none;">
+            <h3 class="section-title">Fans Also Like</h3>
+            <div class="carousel-wrapper">
+                <div class="carousel-layout" id="artist-similar">
+                    ${Array(6).fill(0).map(() => cardSkeleton(true)).join('')}
+                </div>
+            </div>
+        </section>
+
         <section class="home-section">
             <h3 class="section-title">Discography</h3>
             <div class="carousel-wrapper">
@@ -265,6 +276,7 @@ export const Templates = {
                 </div>
             </div>
         </section>
+        
         <section class="home-section">
             <h3 class="section-title">Discovered On</h3>
             <div class="carousel-wrapper">
@@ -278,52 +290,66 @@ export const Templates = {
 
     cardSkeleton: (isCircle) => cardSkeleton(isCircle),
 
-    mediaCard: (item, type) => {
-        const id = item.id;
-        const uri = item.uri;
-        const title = item.name || item.title || 'Unknown';
+    // In templates.js inside the Templates object
+
+mediaCard: (item, type) => {
+    // 1. Extract IDs and Titles
+    // Last.fm items will have id: null, which is fine (handled in click logic)
+    const id = item.id;
+    const uri = item.uri;
+    const title = item.name || item.title || 'Unknown';
+    
+    // 2. Determine Subtitle
+    // For Last.fm artists, this falls through to the default 'Artist'
+    let subtitle = item.subtitle;
+    if (!subtitle && item.owner) subtitle = item.owner.display_name; 
+    if (!subtitle && item.artists && Array.isArray(item.artists)) subtitle = item.artists.map(a => a.name).join(', '); 
+    if (!subtitle) subtitle = type === 'artist' ? 'Artist' : '';
+
+    // 3. Extract Image
+    // This logic works for both Spotify (images array) and our Last.fm mapper (images array)
+    let img = '';
+    if (type === 'track' && item.album && item.album.images && item.album.images.length > 0) {
+        img = item.album.images[0].url;
+    } else if (item.images && item.images.length > 0) {
+        img = item.images[0].url;
+    } else if (item.album && item.album.images && item.album.images.length > 0) {
+        img = item.album.images[0].url;
+    }
+    
+    // 4. Safety & Styling
+    const safeTitle = title.replace(/"/g, '&quot;');
+    const safeSubtitle = subtitle.replace(/"/g, '&quot;');
+
+    // Artists get circular rendering
+    const isArtist = type === 'artist';
+    const imageStyle = isArtist ? 'border-radius: 50%;' : '';
+    const containerClass = isArtist ? 'media-card artist-card interactive' : 'media-card interactive';
+
+    // 5. HTML Template
+    return `
+      <div class="${containerClass}" 
+           data-id="${id}" 
+           data-type="${type}" 
+           data-uri="${uri || ''}" 
+           data-title="${safeTitle}"
+           data-subtitle="${safeSubtitle}">
         
-        let subtitle = item.subtitle;
-        if (!subtitle && item.owner) subtitle = item.owner.display_name; 
-        if (!subtitle && item.artists && Array.isArray(item.artists)) subtitle = item.artists.map(a => a.name).join(', '); 
-        if (!subtitle) subtitle = type === 'artist' ? 'Artist' : '';
-
-        let img = '';
-        if (type === 'track' && item.album && item.album.images && item.album.images.length > 0) {
-            img = item.album.images[0].url;
-        } else if (item.images && item.images.length > 0) {
-            img = item.images[0].url;
-        } else if (item.album && item.album.images && item.album.images.length > 0) {
-            img = item.album.images[0].url;
-        }
+        <div class="media-image-wrapper">
+            <div class="media-image" style="background-image: url('${img}'); background-color: #282828; ${imageStyle}"></div>
+            
+            ${!isArtist ? `
+            <button class="play-btn-overlay">
+                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            </button>
+            ` : ''}
+        </div>
         
-        const safeTitle = title.replace(/"/g, '&quot;');
-        const safeSubtitle = subtitle.replace(/"/g, '&quot;');
-
-        const isArtist = type === 'artist';
-        const imageStyle = isArtist ? 'border-radius: 50%;' : '';
-        const containerClass = isArtist ? 'media-card artist-card interactive' : 'media-card interactive';
-
-        return `
-          <div class="${containerClass}" 
-               data-id="${id}" 
-               data-type="${type}" 
-               data-uri="${uri || ''}" 
-               data-title="${safeTitle}"
-               data-subtitle="${safeSubtitle}">
-            <div class="media-image-wrapper">
-                <div class="media-image" style="background-image: url('${img}'); background-color: #282828; ${imageStyle}"></div>
-                ${!isArtist ? `
-                <button class="play-btn-overlay">
-                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-                </button>
-                ` : ''}
-            </div>
-            <div class="media-title" ${isArtist ? 'style="text-align:center;"' : ''}>${title}</div>
-            <div class="media-subtitle" ${isArtist ? 'style="text-align:center;"' : ''}>${subtitle}</div>
-          </div>
-        `;
-    },
+        <div class="media-title" ${isArtist ? 'style="text-align:center;"' : ''}>${title}</div>
+        <div class="media-subtitle" ${isArtist ? 'style="text-align:center;"' : ''}>${subtitle}</div>
+      </div>
+    `;
+},
 
     trackRow: (track, index, showArt = false) => {
         const duration = msToTime(track.duration_ms);
