@@ -17,6 +17,10 @@ class SpotifyBrowserCard extends HTMLElement {
     this._currentUserId = null; 
     this._api = null; // API Module Instance
 
+        // BIND THIS FUNCTION ONCE
+     // This ensures we can add and remove the listener cleanly
+    this._onHashChangeBound = this._checkHash.bind(this);
+
     // --- Playback State ---
     this._currentTrackUri = null;
     this._currentContextUri = null;
@@ -234,17 +238,19 @@ class SpotifyBrowserCard extends HTMLElement {
     this._hass = hass;
     if (this._api) this._api.updateHass(hass);
 
+    // --- 0. INITIAL RENDER (The Missing Piece) ---
+    // We check if the wrapper exists. If not, we draw the HTML and attach listeners.
+    if (!this.shadowRoot.getElementById('browser-wrapper')) {
+        this.render();
+        this._attachEventListeners();
+    }
+
     // --- 1. Connection Monitor (Close on Disconnect) ---
     if (this._config.close_on_disconnect && hass.connection) {
-        // Only attach if we haven't already, or if the connection object changed
         if (this._subscribedConnection !== hass.connection) {
-            
-            // Clean up old listener if it exists
             if (this._subscribedConnection) {
                 this._subscribedConnection.removeEventListener('disconnect', this._boundDisconnect);
             }
-            
-            // Attach new listener
             hass.connection.addEventListener('disconnect', this._boundDisconnect);
             this._subscribedConnection = hass.connection;
         }
@@ -253,8 +259,6 @@ class SpotifyBrowserCard extends HTMLElement {
     // --- 2. Edit Mode Detection ---
     try {
         const isPreview = this.closest('hui-card-preview') !== null;
-        
-        // Deep check for dashboard edit mode
         let isDashboardEdit = false;
         const main = document.querySelector("home-assistant")?.shadowRoot?.querySelector("home-assistant-main")?.shadowRoot;
         if (main) {
@@ -263,7 +267,6 @@ class SpotifyBrowserCard extends HTMLElement {
                  isDashboardEdit = true;
              }
         }
-
         if (isPreview || isDashboardEdit) {
             this.classList.add('edit-mode');
         } else {
@@ -274,10 +277,8 @@ class SpotifyBrowserCard extends HTMLElement {
     }
     
     // --- 3. State & Playback Updates ---
-    // Only proceed if we have a valid entity state
     if (this._config.entity && this._hass.states[this._config.entity]) {
         
-        // Check for optimistic updates (prevent jitter)
         if (Date.now() - this._lastOptimisticUpdate > 2000) {
             const stateObj = this._hass.states[this._config.entity];
             const attrs = stateObj.attributes;
@@ -286,7 +287,6 @@ class SpotifyBrowserCard extends HTMLElement {
             const newContextUri = attrs.sp_context_uri || null; 
             const isPlaying = stateObj.state === 'playing';
 
-            // If state changed, update internal state and UI
             if (newTrackUri !== this._currentTrackUri || newContextUri !== this._currentContextUri || isPlaying !== this._isPlaying) {
                 this._currentTrackUri = newTrackUri;
                 this._currentContextUri = newContextUri;
@@ -300,8 +300,6 @@ class SpotifyBrowserCard extends HTMLElement {
                 if (wrapper && wrapper.classList.contains('queue-open')) {
                     
                     // A. Instant Header Update
-                    // FIX: Only update header from Entity if we aren't locked by a recent click
-                    // This stops the artwork from "flashing" back to the old song
                     if (Date.now() > this._queueLockTime) {
                         this._renderNowPlaying(this._getEntityNowPlaying());
                     }
@@ -312,20 +310,19 @@ class SpotifyBrowserCard extends HTMLElement {
                         if (queueList) {
                             const allRows = Array.from(queueList.querySelectorAll('.queue-item'));
                             
-                            // Search for new song in the list
                             const matchIndex = allRows.findIndex(row => {
                                 const btn = row.querySelector('.queue-row-play-btn');
                                 return btn && btn.dataset.uri === newTrackUri;
                             });
 
                             if (matchIndex > -1) {
-                                // CASE A: "Next" (Found in list) -> Zipper Remove Upwards
+                                // "Next" -> Zipper Remove
                                 const rowsToRemove = allRows.slice(0, matchIndex + 1);
                                 rowsToRemove.forEach((r, i) => {
                                     setTimeout(() => r.classList.add('removing'), i * 30);
                                 });
                             } else {
-                                // CASE B: "Previous" / Jump (Not in list) -> Push Old Song Down
+                                // "Previous" / Jump -> Push Old Song Down
                                 if (this._lastTrackData && this._lastTrackData.uri !== newTrackUri) {
                                     const tempDiv = document.createElement('div');
                                     tempDiv.innerHTML = Templates.queueRow(this._lastTrackData);
@@ -346,10 +343,8 @@ class SpotifyBrowserCard extends HTMLElement {
                             }
                         }
                         
-                        // Background Refresh (Delayed to let animation finish)
                         setTimeout(() => this._loadQueue(), 800);
                     } else {
-                        // Manual click (already animated), refresh immediately
                         this._loadQueue();
                     }
                 }
@@ -364,50 +359,31 @@ class SpotifyBrowserCard extends HTMLElement {
             this._loadHomeData(homePage);
         }
     }
+    
+    // --- 5. CHECK HASH (The Render Loop Trigger) ---
+    // This now works because Section 0 ensured the wrapper exists.
+    if (this.shadowRoot) {
+        this._checkHash();
+    }
   }
   
 
   connectedCallback() {
-    // 1. Always Render first (Critical for Editor Preview)
-    if (!this.shadowRoot.getElementById('browser-wrapper')) {
-        this.render();
-        this._attachEventListeners();
-    }
-
-    // 2. Initialize Page State if missing
-    if (!this._currentPageId) {
-        this._navigateTo('home');
-    }
-
-    // 3. Singleton Check (Prevent multiple popups)
-    // If another instance is already active, we stop here.
-    // This allows the Editor Preview to render (Step 1) but prevents it
-    // from stealing global focus or hash events.
-    if (window.SpotifyBrowserActiveInstance && window.SpotifyBrowserActiveInstance.isConnected && window.SpotifyBrowserActiveInstance !== this) {
-        // console.log("SpotifyBrowser: Secondary instance detected (likely Editor). UI rendered, but logic disabled.");
-        return; 
-    }
-    
-    // 4. Register as the Main Active Instance
-    window.SpotifyBrowserActiveInstance = this;
-    this._checkHash();
+      // 1. Resize Observer
+      try {
+          const wrapper = this.shadowRoot.getElementById('browser-wrapper');
+          if (this._resizeObserver && wrapper) {
+              this._resizeObserver.observe(wrapper);
+          }
+      } catch (e) { 
+          // ignore errors
+      }
   }
 
   disconnectedCallback() {
-    if (window.SpotifyBrowserActiveInstance === this) {
-        window.SpotifyBrowserActiveInstance = null;
-    }
-    window.removeEventListener('hashchange', this._boundHashCheck);
-    window.removeEventListener('location-changed', this._boundHashCheck); 
-    this._stopAutoCloseListener();
-    this._stopSearchAutoClose();
-    this._stopScanTimer();
-    
-    // FIX: Remove Connection Listener
-    if (this._subscribedConnection) {
-        this._subscribedConnection.removeEventListener('disconnect', this._boundDisconnect);
-        this._subscribedConnection = null;
-    }
+      if (this._resizeObserver) {
+          this._resizeObserver.disconnect();
+      }
   }
   
   
@@ -1820,28 +1796,38 @@ class SpotifyBrowserCard extends HTMLElement {
   // --- Hash & Visibility Management ---
 
   _checkHash() {
-    const currentHash = window.location.hash;
-    
-    // 1. Check for Specific Account Hash
-    const matchedAccount = this._config.spotify_accounts?.find(acc => acc.hash === currentHash);
+      // 1. Get the current hash
+      const hash = window.location.hash;
+      if (!hash) return;
 
-    if (matchedAccount) {
-        // If we found a specific account hash, force switch to it
-        if (this._config.entity !== matchedAccount.entity) {
-            console.log(`[SpotifyBrowser] Switching account to: ${matchedAccount.name} (${matchedAccount.entity})`);
-            this._switchAccount(matchedAccount.entity);
-        }
-        this._openBrowser();
-    } 
-    // 2. Check for Default Hash
-    else if (currentHash === '#spotify-browser') {
-        // Just open whatever account was last active (or default)
-        this._openBrowser();
-    } 
-    // 3. Close if hash removed
-    else if (this._isOpen) {
-        this._closeUI(); 
-    }
+      // 2. CHECK GENERIC TRIGGER (#spotify-browser)
+      if (hash.includes('spotify-browser')) {
+          console.log("[SpotifyCard] Generic trigger detected.");
+          this._openBrowser();
+          history.replaceState(null, null, ' ');
+          return;
+      }
+
+      // 3. CHECK ACCOUNT TRIGGERS (e.g. #johns-spotify)
+      const accounts = this._config.spotify_accounts || [];
+      const matchedAccount = accounts.find(acc => acc.hash === hash);
+
+      if (matchedAccount) {
+          console.log(`[SpotifyCard] Account trigger detected: ${matchedAccount.name}`);
+          
+          // A. Switch the active account
+          // (This updates the entity, wipes the cache, and refreshes the view)
+          if (matchedAccount.entity !== this._config.entity) {
+              this._switchAccount(matchedAccount.entity, null); // null = don't set hash again
+          }
+
+          // B. Open the Browser
+          // We must open it because the user might be triggering this from the dashboard
+          this._openBrowser();
+
+          // C. Clear the Hash
+          history.replaceState(null, null, ' ');
+      }
   }
   
   
