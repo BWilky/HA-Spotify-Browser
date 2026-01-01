@@ -1,6 +1,6 @@
 import { CARD_CSS } from './styles.js';
 import { SpotifyApi } from './api.js';
-import { fetchLastFmSimilarArtists } from './external_providers.js';
+import { fetchLastFmSimilarArtists, fetchLastFmTrackRadio } from './external_providers.js';
 import { Templates } from './templates.js';
 import { msToTime, fireHaptic } from './utils.js'; 
 
@@ -16,27 +16,27 @@ class SpotifyBrowserCard extends HTMLElement {
     this._userCountry = 'US'; 
     this._currentUserId = null; 
     this._api = null; // API Module Instance
-
-        // BIND THIS FUNCTION ONCE
-     // This ensures we can add and remove the listener cleanly
-    this._onHashChangeBound = this._checkHash.bind(this);
+    
+    // --- FIX: ONE SINGLE BOUND FUNCTION & DEBOUNCE FLAG ---
+    this._boundHashCheck = this._checkHash.bind(this);
+    this._hashCheckPending = false; // New flag to prevent load spam
 
     // --- Playback State ---
     this._currentTrackUri = null;
     this._currentContextUri = null;
     this._isPlaying = false;
     this._lastOptimisticUpdate = 0; 
-    this._lastTrackData = null; // Stores previous track for queue animation logic
-    this._queueLockTime = 0;    // Prevents API race conditions on artwork
+    this._lastTrackData = null; 
+    this._queueLockTime = 0;    
     
-    // --- Connection Tracking (New) ---
+    // --- Connection Tracking ---
     this._subscribedConnection = null;
 
     // --- Timers ---
-    this._scanTimer = null;        // For sync interval
-    this._progressTimer = null;    // For miniplayer progress bar
-    this._timer = null;            // For auto-close inactivity
-    this._closeTimer = null;       // For close animation delay
+    this._scanTimer = null;        
+    this._progressTimer = null;    
+    this._timer = null;            
+    this._closeTimer = null;       
     this._searchDebounceTimer = null;
     this._searchAutoCloseTimer = null; 
 
@@ -46,7 +46,7 @@ class SpotifyBrowserCard extends HTMLElement {
     this._maxCacheSize = 15;
     this._currentPageId = null;
     this._homeLastUpdated = 0;
-    this._favCache = new Map(); // Stores Favorite status to prevent UI flicker
+    this._favCache = new Map(); 
 
     // --- Pagination State ---
     this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0, madeforyou: 0 };
@@ -72,16 +72,10 @@ class SpotifyBrowserCard extends HTMLElement {
     this._touchCurrentX = 0;
     this._touchStartTime = 0; 
     
-    // --- Pull-to-Refresh State ---
-    this._ptrStartY = 0;
-    this._ptrCurrentY = 0;
-    this._isDraggingPtr = false;
-    this._ptrLocked = false; 
     
     // --- Event Bindings ---
-    // (Crucial for passing 'this' context to event listeners)
     this._boundResetTimer = this._resetTimer.bind(this);
-    this._boundHashCheck = this._checkHash.bind(this);
+    // Note: _boundHashCheck is handled above
     this._boundCloseBrowser = this._closeBrowser.bind(this);
     this._boundBackdropClick = this._onBackdropClick.bind(this);
     this._boundGoBack = this._goBack.bind(this);
@@ -93,36 +87,29 @@ class SpotifyBrowserCard extends HTMLElement {
     this._boundPageScroll = this._onPageScroll.bind(this);
     this._boundSearchKeydown = this._handleSearchKeydown.bind(this);
     this._boundToggleMenu = this._toggleMenu.bind(this);
-    
-    // FIX: Bind the Disconnect Handler
     this._boundDisconnect = this._onDisconnect.bind(this);
     
     this._showVolumeView = false;
-    
     this._lastQueueSignature = null; 
-    
-    this._subscribedConnection = null;
   }
   
 
 
   setConfig(config) {
-    // --- 1. Parse Accounts & Determine Default ---
+    // --- 0. Performance Mode ---
+    this._performanceMode = config.performance_mode === true;
+
+    // --- 1. Parse Accounts ---
     let accounts = [];
     if (Array.isArray(config.spotify_accounts)) {
         accounts = config.spotify_accounts.map(acc => ({
             entity: acc.entity,
             name: acc.name,
-            // Normalize hash (add # if missing)
             hash: acc.hash ? (acc.hash.startsWith('#') ? acc.hash : `#${acc.hash}`) : null,
             isDefault: acc.default === true
         }));
     }
 
-    // Logic: 
-    // 1. Explicit "default: true" in list
-    // 2. First account in list
-    // 3. Legacy root 'entity' (Backwards compatibility)
     const startupEntity = accounts.find(a => a.isDefault)?.entity || 
                           accounts[0]?.entity || 
                           config.entity || 
@@ -143,12 +130,18 @@ class SpotifyBrowserCard extends HTMLElement {
         homescreenConfig = { ...homescreenConfig, ...config.homescreen };
     }
 
-    // --- 3. Device Config ---
+    // --- 3. Device Config (FIXED FOR YOUR YAML) ---
     let devicePlayback = { hide: [], show: [] };
+    let foundDefaultDevice = null; // New variable to capture your specific config style
+
     if (Array.isArray(config.device_playback)) {
         config.device_playback.forEach(entry => {
+            // Existing Logic
             if (entry.hide) devicePlayback.hide = devicePlayback.hide.concat(entry.hide);
             if (entry.show) devicePlayback.show = devicePlayback.show.concat(entry.show);
+            
+            // NEW: Capture the 'default' key from inside the list
+            if (entry.default) foundDefaultDevice = entry.default; 
         });
     }
 
@@ -156,7 +149,7 @@ class SpotifyBrowserCard extends HTMLElement {
     let queueSettings = { 
         enabled: false, 
         openInit: false, 
-        components: { shuffle: false, previous: true, next: true, like: true, volume: true } 
+        components: { shuffle: false, previous: true, next: true, like: true, volume: true, device: true } 
     };
 
     if (config.queue_miniplayer === true) queueSettings.enabled = true;
@@ -178,6 +171,7 @@ class SpotifyBrowserCard extends HTMLElement {
                             if (source.next !== undefined) queueSettings.components.next = source.next;
                             if (source.like !== undefined) queueSettings.components.like = source.like;
                             if (source.volume !== undefined) queueSettings.components.volume = source.volume;
+                            if (source.device !== undefined) queueSettings.components.device = source.device;
                         };
                         if (Array.isArray(miniConfig)) miniConfig.forEach(c => applyOverrides(c));
                         else applyOverrides(miniConfig);
@@ -198,29 +192,50 @@ class SpotifyBrowserCard extends HTMLElement {
         mfyContent = config.madeforyou.items || config.madeforyou.content || [];
     }
     
-    // --- 6. External Providers & Advanced Config ---
-    let advConfig = { similar_artists: { provider: null, limit: 10 } };
-    if (config.advanced && config.advanced.similar_artists) {
-        advConfig.similar_artists = { ...advConfig.similar_artists, ...config.advanced.similar_artists };
+    // --- 6. ADVANCED & EXTERNAL CONFIG ---
+    let advConfig = { 
+        similar_artists: { provider: null, limit: 10 },
+        radio_track: { enabled: false } 
+    };
+
+    if (config.advanced) {
+        if (config.advanced.similar_artists) {
+            advConfig.similar_artists = { ...advConfig.similar_artists, ...config.advanced.similar_artists };
+        }
+        if (config.advanced.radio_track) {
+            const rt = config.advanced.radio_track;
+            if (rt.provider) {
+                advConfig.radio_track = {
+                    enabled: true,
+                    provider: rt.provider,
+                    limit: rt.limit !== undefined ? rt.limit : 30,
+                    dontstopthemusic: rt.dontstopthemusic !== undefined ? rt.dontstopthemusic : true
+                };
+            }
+        }
     }
 
-    let extProviders = {};
-    if (config.external_providers) {
-        extProviders = config.external_providers;
-    }
+    let extProviders = config.external_providers || {};
 
+    // --- FINAL CONFIG OBJECT ---
     this._config = {
       auto_close_seconds: 0, 
-      default_device: null, 
       scan_interval: null,
       close_on_disconnect: config.closeondisconnect !== false,
+      
+      // Merge root config first
       ...config,
+
+      // Apply our logic overrides
       entity: startupEntity, 
       default_entity: startupEntity,
       spotify_accounts: accounts,
+      
+      // CRITICAL FIX: Use the default found in the list, OR fall back to root config
+      default_device: foundDefaultDevice || config.default_device || null,
+
       advanced: advConfig,
       external_providers: extProviders,
-     
       homescreen: homescreenConfig, 
       device_playback: devicePlayback,
       queue_settings: queueSettings, 
@@ -229,6 +244,10 @@ class SpotifyBrowserCard extends HTMLElement {
     };
     
     this._api = new SpotifyApi(null, this._config.entity, this._config.default_device);
+
+    if (this.shadowRoot.getElementById('browser-wrapper')) {
+        this.render();
+    }
   }
   
   
@@ -238,14 +257,10 @@ class SpotifyBrowserCard extends HTMLElement {
     this._hass = hass;
     if (this._api) this._api.updateHass(hass);
 
-    // --- 0. INITIAL RENDER (The Missing Piece) ---
-    // We check if the wrapper exists. If not, we draw the HTML and attach listeners.
-    if (!this.shadowRoot.getElementById('browser-wrapper')) {
-        this.render();
-        this._attachEventListeners();
-    }
+    // --- RENDER CHECK REMOVED (Handled in connectedCallback) --- 
+    // This makes the card feel faster because it doesn't wait for data to render.
 
-    // --- 1. Connection Monitor (Close on Disconnect) ---
+    // --- 1. Connection Monitor ---
     if (this._config.close_on_disconnect && hass.connection) {
         if (this._subscribedConnection !== hass.connection) {
             if (this._subscribedConnection) {
@@ -272,79 +287,66 @@ class SpotifyBrowserCard extends HTMLElement {
         } else {
             this.classList.remove('edit-mode');
         }
-    } catch (e) {
-        // Ignore errors during DOM traversal
-    }
+    } catch (e) { }
     
     // --- 3. State & Playback Updates ---
     if (this._config.entity && this._hass.states[this._config.entity]) {
         
-        if (Date.now() - this._lastOptimisticUpdate > 2000) {
-            const stateObj = this._hass.states[this._config.entity];
-            const attrs = stateObj.attributes;
-            
-            const newTrackUri = attrs.media_content_id || null;
-            const newContextUri = attrs.sp_context_uri || null; 
-            const isPlaying = stateObj.state === 'playing';
+        const stateObj = this._hass.states[this._config.entity];
+        const attrs = stateObj.attributes;
+        
+        const newTrackUri = attrs.media_content_id || null;
+        const newContextUri = attrs.sp_context_uri || null; 
+        const isPlaying = stateObj.state === 'playing';
 
-            if (newTrackUri !== this._currentTrackUri || newContextUri !== this._currentContextUri || isPlaying !== this._isPlaying) {
-                this._currentTrackUri = newTrackUri;
-                this._currentContextUri = newContextUri;
-                this._isPlaying = isPlaying;
+        // Detect State Changes
+        const trackChanged = newTrackUri !== this._currentTrackUri;
+        const stateChanged = isPlaying !== this._isPlaying;
+
+        if (trackChanged || newContextUri !== this._currentContextUri || stateChanged) {
+            this._currentTrackUri = newTrackUri;
+            this._currentContextUri = newContextUri;
+            this._isPlaying = isPlaying;
+            
+            this._updateActiveElement();
+            this._updateHeroPlayButton(); 
+            
+            // Check if Queue is open
+            const wrapper = this.shadowRoot.getElementById('browser-wrapper');
+            // ... inside set hass ...
+            if (wrapper && wrapper.classList.contains('queue-open')) {
                 
-                this._updateActiveElement();
-                this._updateHeroPlayButton(); 
+                const entityData = this._getEntityNowPlaying();
                 
-                // Check if Queue is open and needs update
-                const wrapper = this.shadowRoot.getElementById('browser-wrapper');
-                if (wrapper && wrapper.classList.contains('queue-open')) {
+                if (entityData) {
+                    // Check if the incoming data matches the Stale ID
+                    // (Handle both URI and ID formats just to be safe)
+                    const incomingId = entityData.uri ? entityData.uri.split(':')[2] : null;
+                    const isStale = this._staleTrackId && (
+                        (entityData.uri && entityData.uri.endsWith(this._staleTrackId)) ||
+                        (incomingId && incomingId === this._staleTrackId)
+                    );
                     
-                    // A. Instant Header Update
-                    if (Date.now() > this._queueLockTime) {
-                        this._renderNowPlaying(this._getEntityNowPlaying());
+                    const isLocked = Date.now() < this._queueLockTime;
+
+                    // 1. BLOCK: If Locked AND Stale -> IGNORE completely.
+                    // This stops the "Old Song" from overwriting your "New Song" UI.
+                    if (isLocked && isStale) {
+                        return; 
+                    } 
+                    
+                    // 2. UNLOCK: If Locked but Data is NEW -> RENDER immediately.
+                    // This fixes the "Long Wait". If Spotify updates in 0.5s, we show it instantly.
+                    else if (isLocked && !isStale && this._staleTrackId) {
+                        this._queueLockTime = 0; // Break the lock
+                        this._staleTrackId = null; // Clear the stale ID
+                        this._renderNowPlaying(entityData);
+                        this._loadQueue();
                     }
                     
-                    // B. Smart Animation Logic (Queue List)
-                    if (Date.now() > this._queueLockTime) {
-                        const queueList = this.shadowRoot.getElementById('queue-list');
-                        if (queueList) {
-                            const allRows = Array.from(queueList.querySelectorAll('.queue-item'));
-                            
-                            const matchIndex = allRows.findIndex(row => {
-                                const btn = row.querySelector('.queue-row-play-btn');
-                                return btn && btn.dataset.uri === newTrackUri;
-                            });
-
-                            if (matchIndex > -1) {
-                                // "Next" -> Zipper Remove
-                                const rowsToRemove = allRows.slice(0, matchIndex + 1);
-                                rowsToRemove.forEach((r, i) => {
-                                    setTimeout(() => r.classList.add('removing'), i * 30);
-                                });
-                            } else {
-                                // "Previous" / Jump -> Push Old Song Down
-                                if (this._lastTrackData && this._lastTrackData.uri !== newTrackUri) {
-                                    const tempDiv = document.createElement('div');
-                                    tempDiv.innerHTML = Templates.queueRow(this._lastTrackData);
-                                    const newRow = tempDiv.firstElementChild;
-                                    
-                                    newRow.classList.add('adding-top');
-                                    queueList.prepend(newRow);
-                                    
-                                    const playBtn = newRow.querySelector('.queue-row-play-btn');
-                                    if (playBtn) {
-                                        const uri = this._lastTrackData.uri;
-                                        playBtn.addEventListener('click', (e) => {
-                                            e.stopPropagation();
-                                            this._playMediaSafe(uri, 'track');
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                        
-                        setTimeout(() => this._loadQueue(), 800);
-                    } else {
+                    // 3. NORMAL: Not locked -> Always Render.
+                    else if (!isLocked) {
+                        this._renderNowPlaying(entityData);
                         this._loadQueue();
                     }
                 }
@@ -359,31 +361,54 @@ class SpotifyBrowserCard extends HTMLElement {
             this._loadHomeData(homePage);
         }
     }
-    
-    // --- 5. CHECK HASH (The Render Loop Trigger) ---
-    // This now works because Section 0 ensured the wrapper exists.
-    if (this.shadowRoot) {
-        this._checkHash();
-    }
   }
   
 
   connectedCallback() {
-      // 1. Resize Observer
+      // 1. Resize Observer (Existing)
       try {
           const wrapper = this.shadowRoot.getElementById('browser-wrapper');
           if (this._resizeObserver && wrapper) {
               this._resizeObserver.observe(wrapper);
           }
-      } catch (e) { 
-          // ignore errors
+      } catch (e) {}
+
+      // 2. Ensure HTML exists
+      if (!this.shadowRoot.getElementById('browser-wrapper')) {
+          this.render();
       }
+      
+      // 3. CRITICAL FIX: Always re-attach listeners on connect
+      // We removed them in disconnectedCallback, so we MUST add them back here.
+      // We call this blindly because _attachEventListeners handles duplicates safely 
+      // (or we can add a safety check inside _attachEventListeners if strictly needed, 
+      // but standard addEventListener ignores duplicates if parameters match exactly).
+      
+      // To be safe, we remove first to ensure we don't double-bind if the browser behaves oddly
+      window.removeEventListener('hashchange', this._boundHashCheck);
+      window.removeEventListener('location-changed', this._boundHashCheck);
+      
+      this._attachEventListeners();
+
+      // 4. Immediate Hash Check
+      this._checkHash();
   }
 
   disconnectedCallback() {
+      // 1. Clean up Resize Observer
       if (this._resizeObserver) {
           this._resizeObserver.disconnect();
       }
+
+      // 2. Clean up Global Listeners (Fixes the Zombie bug)
+      // Using the exact same reference created in constructor
+      window.removeEventListener('hashchange', this._boundHashCheck);
+      window.removeEventListener('location-changed', this._boundHashCheck);
+      
+      // 3. Stop Timers
+      this._stopScanTimer();
+      if (this._progressTimer) clearInterval(this._progressTimer);
+      if (this._timer) clearTimeout(this._timer);
   }
   
   
@@ -399,10 +424,25 @@ class SpotifyBrowserCard extends HTMLElement {
   }
   
   render() {
-    this.shadowRoot.innerHTML = `
-      <style>${CARD_CSS}</style>
-      ${Templates.mainStructure()}
-    `;
+      // 1. Inject CSS & Template
+      this.shadowRoot.innerHTML = `
+          <style>${CARD_CSS}</style>
+          ${Templates.mainStructure()}
+      `;
+
+      // 2. Apply Performance Mode
+      if (this._performanceMode) {
+          const wrapper = this.shadowRoot.getElementById('browser-wrapper');
+          if (wrapper) wrapper.classList.add('perf-mode');
+      }
+
+      // 3. Initialize Listeners
+      this._attachEventListeners();
+      
+      // 4. Load Home (Now Safe)
+      // We attempt to pass the element, but _loadHomeData handles it if we fail.
+      const homePage = this.shadowRoot.getElementById('page-home');
+      this._loadHomeData(homePage);
   }
   
   // --- Navigation & State ---
@@ -554,138 +594,10 @@ class SpotifyBrowserCard extends HTMLElement {
         c.addEventListener('scroll', this._boundCarouselScroll, { passive: true });
     });
 
-    this._attachPullToRefresh(page);
     return page;
   }
 
   
-  _attachPullToRefresh(pageEl) {
-      const ptrEl = pageEl.querySelector('.pull-to-refresh');
-      const spinner = pageEl.querySelector('.ptr-spinner');
-      const contentEl = pageEl.querySelector('.scroll-content');
-      
-      // FIX: Select EITHER .hero-banner (Playlist/Album) OR .artist-hero (Artist)
-      const heroBanner = pageEl.querySelector('.hero-banner, .artist-hero');
-      const hasHero = !!heroBanner;
-      
-      if (!ptrEl) return;
-
-      // 1. Touch Start
-      pageEl.addEventListener('touchstart', (e) => {
-          if (pageEl.scrollTop === 0) {
-              this._ptrStartY = e.touches[0].clientY;
-              this._isDraggingPtr = true;
-              this._ptrLocked = false; 
-              
-              // CRITICAL: Disable transitions for instant 1:1 drag physics
-              if (contentEl) contentEl.style.transition = 'none';
-              if (heroBanner) heroBanner.style.transition = 'none';
-              ptrEl.style.transition = 'none';
-          }
-      }, { passive: true });
-
-      // 2. Touch Move
-      pageEl.addEventListener('touchmove', (e) => {
-          if (!this._isDraggingPtr) return;
-          
-          const y = e.touches[0].clientY;
-          const dist = y - this._ptrStartY;
-
-          // Only drag if pulling DOWN and at top
-          if (dist > 0 && pageEl.scrollTop <= 0) {
-              if (e.cancelable && dist > 10) e.preventDefault(); 
-              
-              // Resistance Physics (0.4 friction)
-              const move = Math.pow(dist, 0.85) * 0.6; 
-              
-              // --- BRANCHING LOGIC ---
-              if (hasHero) {
-                  // OPTION A: Hero Page -> Height Stretch
-                  // Default is 300px. Add drag distance to it.
-                  const newHeight = 300 + move;
-                  heroBanner.style.height = `${newHeight}px`;
-                  
-                  // Move spinner down to keep it centered visually
-                  ptrEl.style.transform = `translateY(${move * 0.4}px)`;
-                  ptrEl.style.opacity = Math.min(1, move / 40);
-                  
-              } else {
-                  // OPTION B: Standard Page -> Slide Content Down
-                  if (contentEl) contentEl.style.transform = `translateY(${move}px)`;
-                  ptrEl.style.opacity = Math.min(1, move / 40);
-                  ptrEl.style.transform = `translateY(${move * 0.5}px)`;
-              }
-
-              // Rotate Spinner
-              if(spinner) spinner.style.transform = `rotate(${move * 2}deg)`;
-              
-              // Haptic Feedback (Thump at 100px)
-              if (dist > 100 && !this._ptrLocked) {
-                  this._ptrLocked = true; 
-                  fireHaptic('medium');   
-                  if(spinner) spinner.style.color = '#fff'; 
-              } else if (dist < 100 && this._ptrLocked) {
-                  this._ptrLocked = false; 
-                  if(spinner) spinner.style.color = ''; 
-              }
-              
-          } else {
-              // Cancel Drag
-              this._isDraggingPtr = false;
-              this._resetPullState(ptrEl, contentEl, heroBanner, spinner);
-          }
-      }, { passive: false });
-
-      // 3. Touch End
-      pageEl.addEventListener('touchend', (e) => {
-          if (!this._isDraggingPtr) return;
-          this._isDraggingPtr = false;
-          this._ptrLocked = false;
-          
-          // Re-enable Transitions for the "Snap" effect
-          if (contentEl) contentEl.style.transition = 'transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
-          if (heroBanner) heroBanner.style.transition = 'height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
-          ptrEl.style.transition = 'opacity 0.3s, transform 0.3s';
-          
-          const y = e.changedTouches[0].clientY;
-          const dist = y - this._ptrStartY;
-          
-          if (dist > 100) { 
-              // --- TRIGGER REFRESH ---
-              
-              // 1. Add Class: Activates CSS "Hold" state (Height: 360px or Transform: 60px)
-              pageEl.classList.add('is-refreshing');
-              
-              // 2. Clear Inline Styles: Let the CSS class take over
-              // Since transition is re-enabled, this will smoothly snap from DragPos -> 360px
-              if (hasHero) heroBanner.style.height = ''; 
-              if (contentEl) contentEl.style.transform = ''; 
-              ptrEl.style.transform = ''; 
-              
-              this._refreshCurrentPage();
-              
-              // 3. Finish (After Delay)
-              setTimeout(() => {
-                  pageEl.classList.remove('is-refreshing'); // Snaps back to 300px / 0px
-                  this._resetPullState(ptrEl, contentEl, heroBanner, spinner);
-              }, 1500);
-          } else {
-              // --- CANCEL ---
-              // Snap back to 0 immediately
-              this._resetPullState(ptrEl, contentEl, heroBanner, spinner);
-          }
-      });
-  }
-
-  // Helper
-  _resetPullState(ptrEl, contentEl, heroBanner, spinner) {
-      if (ptrEl) { ptrEl.style.opacity = ''; ptrEl.style.transform = ''; }
-      if (contentEl) contentEl.style.transform = '';
-      if (heroBanner) heroBanner.style.height = ''; 
-      if (spinner) { spinner.style.transform = ''; spinner.style.color = ''; }
-  }
-
-
 
 
   
@@ -720,42 +632,45 @@ class SpotifyBrowserCard extends HTMLElement {
   // --- Data Loading ---
 
   async _loadHomeData(pageEl) {
-    if (pageEl.dataset.loading === "true") return;
-    try {
-      if (!this._hass) return;
-      pageEl.dataset.loading = "true";
-      
-      if (!this._currentUserId) this._userCountry = 'US'; 
+      // --- SAFETY CHECK ---
+      // If called without arguments, find the element manually
+      if (!pageEl) {
+          pageEl = this.shadowRoot.getElementById('page-home');
+      }
+      if (!pageEl) return; // Exit if DOM isn't ready
 
-      // Reset offsets
-      this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0, madeforyou: 0 };
-      this._followingPlaylistIds.clear();
+      if (pageEl.dataset.loading === "true") return;
+      
+      try {
+          if (!this._hass) return;
+          pageEl.dataset.loading = "true";
+          
+          if (!this._currentUserId) this._userCountry = 'US'; 
 
-      // FIX: Dynamic Fetching based on Order
-      // 1. Filter order list to only include valid sections
-      const validSections = ['recent', 'favorites', 'artists', 'albums', 'madeforyou'];
-      const order = (this._config.home_order || validSections).filter(k => validSections.includes(k));
-      
-      // 2. Build Fetch List
-      const fetchList = order.map(key => {
-          // Skip Made For You if empty
-          if (key === 'madeforyou' && (!this._config.madeforyou || this._config.madeforyou.length === 0)) {
-              return Promise.resolve();
-          }
-          return this._fetchSectionData(key, pageEl);
-      });
+          this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0, madeforyou: 0 };
+          this._followingPlaylistIds.clear();
 
-      await Promise.allSettled(fetchList);
-      
-      this._updateActiveElement(); 
-      this._homeLastUpdated = Date.now();
-      
-    } catch (err) {
-      console.error("SpotifyBrowser: Error loading home data:", err);
-    } finally {
-        pageEl.dataset.loaded = "true";
-        pageEl.dataset.loading = "false";
-    }
+          const validSections = ['recent', 'favorites', 'artists', 'albums', 'madeforyou'];
+          const order = (this._config.home_order || validSections).filter(k => validSections.includes(k));
+          
+          const fetchList = order.map(key => {
+              if (key === 'madeforyou' && (!this._config.madeforyou || this._config.madeforyou.length === 0)) {
+                  return Promise.resolve();
+              }
+              return this._fetchSectionData(key, pageEl);
+          });
+
+          await Promise.allSettled(fetchList);
+          
+          this._updateActiveElement(); 
+          this._homeLastUpdated = Date.now();
+          
+      } catch (err) {
+          console.error("Home Load Error:", err);
+      } finally {
+          pageEl.dataset.loaded = "true";
+          pageEl.dataset.loading = "false";
+      }
   }
   
   _refreshCurrentPage() {
@@ -1005,271 +920,262 @@ class SpotifyBrowserCard extends HTMLElement {
       }
   }
 
-  // --- Event Handling ---
-
-  _onGlobalClick(e) {
+ _onGlobalClick(e) {
       const target = e.target;
+
+      // -----------------------------------------------------------
+      // 1. TRACK CONTEXT MENU
+      // -----------------------------------------------------------
+      const openBtn = target.closest('.track-action-btn');
+      if (openBtn && openBtn.dataset.action === 'menu') {
+          e.stopPropagation();
+          const rawData = openBtn.dataset.trackData;
+          if (rawData) {
+              try {
+                  const data = JSON.parse(rawData);
+                  this._openTrackPopup(data);
+              } catch (err) {
+                  console.error("[SpotifyBrowser] JSON Parse Error:", err);
+              }
+          }
+          return;
+      }
       
-      // 1. HEADER CONTROLS (Menu & Queue) - Priority Handling
-      const menuBtn = target.closest('#menu-btn');
-      const queueBtn = target.closest('#queue-btn');
-      
-      
-      // --- ADD THIS AT THE TOP ---
+      // -----------------------------------------------------------
+      // 2. POPUP CLOSING
+      // -----------------------------------------------------------
+      const popupItem = target.closest('.track-popup-item');
+      if (popupItem) {
+          e.stopPropagation();
+          this._handleTrackPopupAction(popupItem.dataset.action);
+          return;
+      }
+
+      if (target.classList.contains('device-popup-backdrop') || target.closest('.device-close-btn')) {
+          e.stopPropagation();
+          this._closeDevicePopup();
+          this._closeTrackPopup();
+          const acc = this.shadowRoot.getElementById('accounts-popup');
+          if (acc) acc.classList.remove('visible');
+          return;
+      }
+
+      // -----------------------------------------------------------
+      // 3. NAVIGATION & HEADER
+      // -----------------------------------------------------------
       if (target.closest('#close-btn')) {
           this._closeBrowser();
           return;
       }
-      
-      if (queueBtn) {
+      if (target.closest('.spotify-logo') || (target.closest('.header-left') && !target.closest('#back-btn'))) {
+          e.stopPropagation();
+          this._resetToHome();
+          return;
+      }
+      if (target.closest('#queue-btn') || target.id === 'queue-panel') {
           e.stopPropagation();
           this._toggleQueue();
           return;
       }
-
-      // FIX: Close Queue if clicking the blurred background area
-      // (The pseudo-element ::before registers as a click on the panel itself)
-      if (target.id === 'queue-panel') {
-          e.stopPropagation();
-          this._toggleQueue(); // Close it
-          return;
-      }
-
-      if (menuBtn) {
+      if (target.closest('#menu-btn')) {
           e.stopPropagation();
           this._toggleMenu();
           return;
       }
 
-      if (queueBtn) {
-          e.stopPropagation();
-          this._toggleQueue();
-          return;
-      }
-
-      // 2. Check Menu Items
       const menuItem = target.closest('.menu-item');
       if (menuItem) {
           e.stopPropagation();
-          this._toggleMenu(); // Close menu
+          this._toggleMenu(); 
           const action = menuItem.dataset.action;
-          
-          if (action === 'menu-device') {
-              this._openDeviceMenu();
-          } else if (action === 'menu-accounts') {
-              this._openAccountsMenu(); // <--- NEW CALL
-          } else if (action === 'menu-refresh') {
-              this._refreshCurrentPage();
-          } else if (action === 'menu-library') {
-              this._showToast('Library view coming soon...');
-          }
+          if (action === 'menu-device') this._openDeviceMenu();
+          else if (action === 'menu-accounts') this._openAccountsMenu();
+          else if (action === 'menu-refresh') this._refreshCurrentPage();
+          else if (action === 'menu-library') this._showToast('Library view coming soon...');
           return;
       }
 
-      // 3. Hero Action Buttons (Play/Follow)
+      // -----------------------------------------------------------
+      // 4. HERO PLAYBACK (Context)
+      // -----------------------------------------------------------
       const heroBtn = target.closest('.hero-btn-play, .hero-btn-fav');
       if (heroBtn) {
           e.stopPropagation();
           const action = heroBtn.dataset.action;
+
           if (action === 'play-context') {
-              this._playMediaSafe(heroBtn.dataset.uri, 'playlist'); 
-          } else if (action === 'pause' || action === 'resume') {
+              const uri = heroBtn.dataset.uri;
+              
+              // Scrape first track for optimistic UI
+              let meta = { title: 'Loading...', artist: '', image: '' };
+              
+              // Grab Art from Hero
+              const heroArt = this.shadowRoot.querySelector('.hero-art');
+              if (heroArt) {
+                  const bg = heroArt.style.backgroundImage;
+                  if (bg && bg !== 'none') meta.image = bg.replace(/^url\(['"]?/, '').replace(/['"]?\)$/, '');
+              }
+
+              // Grab Text from First Row
+              const firstTrack = this.shadowRoot.querySelector('.track-row');
+              if (firstTrack) {
+                  const tEl = firstTrack.querySelector('.track-name');
+                  const aEl = firstTrack.querySelector('.track-artist');
+                  if (tEl) meta.title = tEl.innerText;
+                  if (aEl) meta.artist = aEl.innerText;
+              }
+
+              // Use new helper (Context URI is same as Target URI for Playlists/Albums)
+              this._triggerOptimisticPlayback(uri, 'playlist', meta, uri);
+          } 
+          else if (action === 'pause' || action === 'resume') {
               this._api.togglePlayback(action === 'resume');
-          } else if (action === 'toggle-album-fav') {
+          } 
+          else if (action === 'toggle-album-fav') {
               this._toggleAlbumFavorite(heroBtn.dataset.id, heroBtn.classList.contains('is-favorite'), heroBtn);
-          } else if (action === 'toggle-artist-follow') {
+          } 
+          else if (action === 'toggle-artist-follow') {
               this._toggleArtistFollow(heroBtn.dataset.id, heroBtn.classList.contains('is-favorite'), heroBtn);
           }
           return;
       }
 
-      // 4. Track Actions (Save/Queue)
-      const actionBtn = target.closest('.track-action-btn');
-      if (actionBtn) {
-          e.stopPropagation();
-          const action = actionBtn.dataset.action;
-          const trackItem = actionBtn.closest('.artist-top-track, .track-row');
-          if (trackItem) {
-             const id = trackItem.dataset.trackId || trackItem.dataset.id;
-             if (action === 'save') {
-                 this._toggleTrackFavorite(id, actionBtn.classList.contains('is-favorite'), actionBtn);
-             } else if (action === 'queue') {
-                 const uri = trackItem.dataset.uri;
-                 console.log("[SpotifyBrowser] Queue Add URI:", uri); // DEBUG LOG
-
-                 if (uri && uri !== 'undefined') {
-                     // Try sending as a string first (standard for YAML)
-                     // Some integrations prefer a list: [uri], but start with string matching your YAML.
-                     this._api.fetchSpotifyPlus('add_player_queue_items', { uris: uri }, false)
-                        .then(() => {
-                            this._showToast("Added to Queue");
-                            
-                            // Refresh queue if open
-                            const wrapper = this.shadowRoot.getElementById('browser-wrapper');
-                            if (wrapper && wrapper.classList.contains('queue-open')) {
-                                setTimeout(() => this._loadQueue(), 1000); 
-                            }
-                        })
-                        .catch(err => {
-                            console.error("[SpotifyBrowser] Queue Add Failed:", err);
-                            this._showToast("Failed to add");
-                        });
-                 } else {
-                     console.warn("[SpotifyBrowser] No URI found on track element");
-                     this._showToast("Error: No Track URI");
-                 }
-             }
-          }
-          return;
-      }
-
-      // 5. Section Controls (See All / Scroll)
-      
-      const sectionBtn = target.closest('[data-action="toggle-view"], [data-action="scroll-right"], [data-action="search-view-all"]');
-      if (sectionBtn) {
-          e.stopPropagation();
-          const action = sectionBtn.dataset.action;
-          
-          if (action === 'search-view-all') {
-              const type = sectionBtn.getAttribute('data-search-type');
-              const query = sectionBtn.getAttribute('data-search-query');
-              
-              console.log(`[SpotifyBrowser] See All Clicked: Type=${type}, Query=${query}`);
-              
-              if (query && query !== 'undefined') {
-                  this._navigateTo(`search-all:${type}:${encodeURIComponent(query)}`);
-              }
-              return;
-          }
-      
-          const section = sectionBtn.closest('.home-section');
-          if (!section) return;
-          
-          const carousel = section.querySelector('.carousel-layout, .grid-layout');
-          
-          if (action === 'scroll-right') {
-               if (carousel) carousel.scrollBy({ left: 300, behavior: 'smooth' });
-          } 
-          else if (action === 'toggle-view') {
-               const isGrid = carousel.classList.contains('grid-layout');
-               const scrollBtn = section.querySelector('.scroll-btn');
-               
-               if (isGrid) {
-                   carousel.classList.remove('grid-layout');
-                   carousel.classList.add('carousel-layout');
-                   sectionBtn.innerText = "See All";
-                   if(scrollBtn) scrollBtn.style.display = 'flex';
-               } else {
-                   carousel.classList.remove('carousel-layout');
-                   carousel.classList.add('grid-layout');
-                   sectionBtn.innerText = "Collapse";
-                   if(scrollBtn) scrollBtn.style.display = 'none';
-                   
-                   const sectionId = section.dataset.sectionId;
-                   if (sectionId && !sectionId.startsWith('search')) {
-                       const homePage = this.shadowRoot.getElementById('page-home');
-                       if (homePage) this._fetchSectionData(sectionId, homePage);
-                   }
-               }
-          }
-          return;
-      }
-
-      // 6. Play Overlay (Thumbnail Click)
+      // -----------------------------------------------------------
+      // 5. MEDIA CARDS (Square Thumbnails)
+      // -----------------------------------------------------------
       const playBtn = target.closest('.play-btn-overlay');
-      if (playBtn) {
-          e.stopPropagation();
-          const card = playBtn.closest('.media-card, .artist-top-track');
-          
-          if (card) {
-              const type = card.dataset.type;
-              const uri = card.dataset.uri;
+      const card = playBtn ? playBtn.closest('.media-card') : null;
 
-              // Special Case: Liked Songs
-              if (type === 'likedsongs') {
-                  this._api.fetchSpotifyPlus('player_media_play_track_favorites', { 
-                      device_id: '*', 
-                      shuffle: true, 
-                      delay: 0.5 
-                  }, false);
-                  this._showToast("Playing Liked Songs...");
-              } 
-              // FIX: Recommended Playlists must be played as Context
-              else if (type === 'playlist-recommended') {
-                  this._api.fetchSpotifyPlus('player_media_play_context', {
-                      context_uri: uri
-                  }, false);
-                  this._showToast("Starting Playlist...");
+      if (playBtn && card) {
+          e.stopPropagation();
+          const type = card.dataset.type;
+          const uri = card.dataset.uri;
+          
+          if (type === 'likedsongs') {
+              this._playMediaSafe(null, 'likedsongs');
+              this._showToast("Playing Liked Songs...");
+          } else if (type === 'playlist-recommended') {
+              this._playMediaSafe(uri, 'playlist');
+              this._showToast("Starting Playlist...");
+          } else {
+              // Scrape Metadata
+              const title = card.dataset.title;
+              const subtitle = card.dataset.subtitle;
+              let imgUrl = '';
+              const imgDiv = card.querySelector('.media-image');
+              if (imgDiv) {
+                   const bg = imgDiv.style.backgroundImage;
+                   if (bg) imgUrl = bg.replace(/^url\(['"]?/, '').replace(/['"]?\)$/, '');
               }
-              // Standard Playback (Artist/Album/Track)
-              else {
-                  this._playMediaSafe(uri, type);
+
+              // Use new helper
+              this._triggerOptimisticPlayback(uri, type, {
+                  title: title,
+                  artist: subtitle,
+                  image: imgUrl
+              }, uri);
+          }
+          return;
+      }
+
+      // -----------------------------------------------------------
+      // 6. TRACK ACTIONS (Save / Queue)
+      // -----------------------------------------------------------
+      const trackActionBtn = target.closest('.track-action-btn');
+      if (trackActionBtn) {
+          e.stopPropagation();
+          const action = trackActionBtn.dataset.action;
+          const trackItem = trackActionBtn.closest('.artist-top-track, .track-row');
+
+          if (trackItem) {
+              const id = trackItem.dataset.trackId || trackItem.dataset.id;
+              const uri = trackItem.dataset.uri;
+
+              if (action === 'save') {
+                  this._toggleTrackFavorite(id, trackActionBtn.classList.contains('is-favorite'), trackActionBtn);
+              } else if (action === 'queue' && uri && uri !== 'undefined') {
+                  this._api.fetchSpotifyPlus('add_player_queue_items', { uris: uri })
+                      .then(() => {
+                          this._showToast("Added to Queue");
+                          // Refresh queue if open
+                          const wrapper = this.shadowRoot.getElementById('browser-wrapper');
+                          if (wrapper && wrapper.classList.contains('queue-open')) {
+                              setTimeout(() => this._loadQueue(), 1000);
+                          }
+                      })
+                      .catch(err => {
+                          console.error("Queue Add Failed:", err);
+                          this._showToast("Failed to add");
+                      });
               }
           }
           return;
       }
 
-      // 7. Track Row Click (Context Playback)
-      const trackRow = target.closest('.track-row');
+      // -----------------------------------------------------------
+      // 7. TRACK PLAYBACK (List Rows)
+      // -----------------------------------------------------------
+      const trackRow = target.closest('.track-row, .artist-top-track');
       if (trackRow) {
            const trackUri = trackRow.dataset.uri;
-           const listContainer = trackRow.closest('.track-list');
+           
+           // Determine Context (Is this inside a playlist/album view?)
+           const listContainer = trackRow.closest('.track-list, .artist-track-grid');
            let contextUri = listContainer ? listContainer.dataset.contextUri : null;
            
-           if (contextUri) {
-               // FIX: Swap URI for Liked Songs playback
-               // Spotify API requires 'spotify:collection:tracks' to play Favorites with an offset
-               if (contextUri === 'spotify:user:me:collection') {
-                   contextUri = 'spotify:collection:tracks';
-               }
+           if (contextUri === 'spotify:user:me:collection') contextUri = 'spotify:collection:tracks';
 
-               this._api.fetchSpotifyPlus('player_media_play_context', { 
-                   context_uri: contextUri, 
-                   offset_uri: trackUri 
-               }, false);
+           // Scrape Metadata
+           const title = trackRow.querySelector('.track-name, .track-title')?.innerText || 'Unknown';
+           const artist = trackRow.querySelector('.track-artist, .track-meta')?.innerText.split('•')[0].trim() || '';
+           
+           let imgUrl = '';
+           const rowArt = trackRow.querySelector('.track-art-small, .track-art-left');
+           if (rowArt) {
+               const bg = rowArt.style.backgroundImage;
+               if (bg) imgUrl = bg.replace(/^url\(['"]?/, '').replace(/['"]?\)$/, '');
            } else {
-               // Play single track
-               this._api.playMedia(trackUri, 'track', this._config.default_device);
+               // Fallback to Hero Art
+               const heroArt = this.shadowRoot.querySelector('.hero-art');
+               if (heroArt) {
+                   const bg = heroArt.style.backgroundImage;
+                   if (bg) imgUrl = bg.replace(/^url\(['"]?/, '').replace(/['"]?\)$/, '');
+               }
            }
+
+           // Use new helper
+           this._triggerOptimisticPlayback(trackUri, 'track', {
+               title: title,
+               artist: artist,
+               image: imgUrl,
+               id: trackRow.dataset.trackId || trackRow.dataset.id
+           }, contextUri);
+           
            return;
       }
 
-      // 7. Navigation & Cards (Click on Card Body)
-      const card = target.closest('.interactive');
-      if (card && !playBtn && !trackRow) {
-          
-          // FIX: Block Drilldown for Recommended Playlists
-          // (These use a restricted API that doesn't allow fetching track lists)
-          if (card.dataset.type === 'playlist-recommended') {
-              this._showToast("Cannot Expand Playlist Due to Spotify API Limitation");
+      // -----------------------------------------------------------
+      // 8. CARD NAVIGATION (Drilldown)
+      // -----------------------------------------------------------
+      const interactiveCard = target.closest('.interactive');
+      if (interactiveCard) {
+          if (interactiveCard.dataset.type === 'playlist-recommended') {
+              this._showToast("Cannot Expand Playlist");
               return;
           }
-
-          const id = card.dataset.id;
-          const type = card.dataset.type;
-          const title = card.dataset.title;
-          const subtitle = card.dataset.subtitle;
-          
+          const { id, type, title, subtitle } = interactiveCard.dataset;
           if (id && type) {
               this._navigateTo(`${type}:${id}`, { title, type, subtitle });
           }
+          return;
       }
-      
-      // 8. Global Auto-Close Logic (Menus & Popups)
+
+      // -----------------------------------------------------------
+      // 9. CLEANUP
+      // -----------------------------------------------------------
       const menu = this.shadowRoot.getElementById('dropdown-menu');
-      
-      // Close Menu if open and we didn't click the menu button (handled at top)
       if (menu && menu.classList.contains('visible')) {
           menu.classList.remove('visible');
-      }
-      
-      // Close Device Popup
-      if (target.closest('.device-close-btn') || target.classList.contains('device-popup-backdrop')) {
-           this._closeDevicePopup();
-           
-           // Close accounts popup too
-           const accPopup = this.shadowRoot.getElementById('accounts-popup');
-           if (accPopup) accPopup.classList.remove('visible');
       }
   }
   
@@ -1570,13 +1476,14 @@ class SpotifyBrowserCard extends HTMLElement {
   }
   
   _setupSwipeGestures() {
+      /*
       const wrapper = this.shadowRoot.getElementById('browser-wrapper');
       const queuePanel = this.shadowRoot.getElementById('queue-panel');
       const queueList = this.shadowRoot.getElementById('queue-list');
       const pageContainer = this.shadowRoot.getElementById('page-container');
       
       if (!wrapper || !queuePanel || !queueList) return;
-
+      
       // 1. Touch/Mouse Start
       queuePanel.addEventListener('touchstart', (e) => {
           if (queueList.scrollTop > 0) return;
@@ -1678,6 +1585,8 @@ class SpotifyBrowserCard extends HTMLElement {
           this._touchCurrentX = 0;
           this._touchCurrentY = 0;
       });
+      
+      */
   }
 
   // --- Attach Listeners ---
@@ -1717,119 +1626,341 @@ class SpotifyBrowserCard extends HTMLElement {
     }
   }
   
-  _handleQueueItemClick(e) {
-      // 1. Check if we clicked a Play Button
-      const btn = e.target.closest('.queue-row-play-btn');
-      if (!btn) return; 
+  _handleQueueItemClick(arg) {
+      // 1. Determine if 'arg' is an Event or a DOM Element
+      let row;
+      let event = null;
+
+      if (arg instanceof Event || (arg.target && arg.stopPropagation)) {
+          // It's an Event (Legacy caller, e.g., Now Playing click)
+          event = arg;
+          event.stopPropagation();
+          row = event.target.closest('.queue-item') || event.target.closest('#queue-now-playing');
+      } else {
+          // It's a DOM Element (New Event Delegation caller)
+          row = arg;
+      }
+
+      if (!row) return;
+
+      // 2. Extract Data (Safely)
+      // Check dataset first, then fall back to attribute if dataset is missing
+      const uri = row.dataset?.uri || row.getAttribute('data-uri');
+      const realId = row.dataset?.id || row.dataset?.trackId || row.getAttribute('data-id');
       
-      e.stopPropagation();
-      const uri = btn.dataset.uri;
+      // If we clicked the header/now-playing, it might not have a URI on the row itself
+      // In that case, we might just be opening the player, so we check.
       if (!uri) return;
 
-      // --- OPTIMISTIC UI UPDATE ---
-      const row = btn.closest('.queue-item');
-      
-      if (row) {
-          // 1. Scrape Data for Header
-          const titleEl = row.querySelector('.queue-title');
-          const artistEl = row.querySelector('.queue-artist');
-          const artEl = row.querySelector('.queue-art');
-          
-          let imgUrl = '';
-          if (artEl) {
-              const bg = window.getComputedStyle(artEl).backgroundImage;
-              if (bg && bg !== 'none') {
-                  imgUrl = bg.replace(/^url\(['"]?/, '').replace(/['"]?\)$/, '');
-              }
-          }
+      // 3. Scrape Visual Data (for optimistic UI)
+      let title = 'Unknown';
+      let artist = '';
+      let imgUrl = '';
 
-          const optimisticTrack = {
-              name: titleEl ? titleEl.innerText : 'Loading...',
-              artists: artistEl ? [{ name: artistEl.innerText }] : [],
-              image_url: imgUrl,
-              uri: uri
-          };
-          
-          this._isPlaying = true; 
-          this._renderNowPlaying(optimisticTrack);
-          
-          // FIX: Lock the header for 3 seconds. 
-          // This prevents the immediate API refresh from reverting the text.
-          this._queueLockTime = Date.now() + 3000;
-          this._lastOptimisticUpdate = Date.now(); 
-          
-          // 2. ANIMATE REMOVAL (The Slide Up Effect)
+      const titleEl = row.querySelector('.queue-title') || row.querySelector('.title');
+      const artistEl = row.querySelector('.queue-artist') || row.querySelector('.subtitle');
+      const artEl = row.querySelector('.queue-art') || row.querySelector('.cover');
+      
+      if (titleEl) title = titleEl.innerText;
+      if (artistEl) artist = artistEl.innerText;
+      if (artEl) {
+          const bg = window.getComputedStyle(artEl).backgroundImage;
+          if (bg && bg !== 'none') imgUrl = bg.replace(/^url\(['"]?/, '').replace(/['"]?\)$/, '');
+      }
+
+      // 4. Trigger Playback
+      this._triggerOptimisticPlayback(uri, 'track', {
+          title: title,
+          artist: artist,
+          image: imgUrl,
+          id: realId 
+      }, this._currentContextUri); 
+      
+      // 5. Animate Zipper Removal (Only if it's a list item, not the header)
+      if (row.classList.contains('queue-item')) {
           const listEl = this.shadowRoot.getElementById('queue-list');
           if (listEl) {
               const allRows = Array.from(listEl.querySelectorAll('.queue-item'));
               const clickedIndex = allRows.indexOf(row);
               
               if (clickedIndex > -1) {
-                  // Remove clicked row AND everything before it
                   const rowsToRemove = allRows.slice(0, clickedIndex + 1);
-                  
                   rowsToRemove.forEach((r, i) => {
-                      setTimeout(() => {
-                          r.classList.add('removing');
-                      }, i * 30); 
+                      setTimeout(() => r.classList.add('removing'), i * 30); 
                   });
               }
           }
+          // Refresh Queue shortly after
+          setTimeout(() => this._loadQueue(), 1200);
+      }
+  }
+  
+  _addOptimisticQueueRow(track) {
+      const listEl = this.shadowRoot.getElementById('queue-list');
+      if (!listEl) return;
+
+      // 1. Remove "Loading..." or Empty State
+      const emptyState = listEl.querySelector('.empty-state, .loading-msg');
+      if (emptyState || listEl.innerText.includes('Loading') || listEl.innerText.includes('No queue')) {
+          listEl.innerHTML = '';
       }
 
-      // --- API ACTIONS ---
-      if (this._currentContextUri) {
-          this._api.fetchSpotifyPlus('player_media_play_context', { 
-              context_uri: this._currentContextUri,
-              offset_uri: uri 
-          }, false);
-      } else {
-          this._playMediaSafe(uri, 'track');
+      // 2. Create the Row DOM
+      const temp = document.createElement('div');
+      temp.innerHTML = Templates.queueRow(track);
+      const newRow = temp.firstElementChild;
+
+      if (newRow) {
+          // 3. Add Animation Class
+          newRow.classList.add('optimistic-fade-in');
+          
+          // 4. Append to the bottom
+          listEl.appendChild(newRow);
+          
+          // REMOVED: listEl.scrollTop = listEl.scrollHeight; 
+          // (Now it silently adds to the bottom without moving your view)
       }
+  }
+  
+  
+  // -------------------------------------------------------
+  // --- TRACK CONTEXT MENU & RADIO LOGIC ------------------
+  // -------------------------------------------------------
+
+ // --- Track Context Menu Logic (Specific) ---
+
+  // --- TRACK POPUP HELPER METHODS ---
+
+  _openTrackPopup(trackData) {
+      this._popupTrackData = trackData;
       
-      // 3. Trigger actual refresh (Wait for animation to finish)
-      setTimeout(() => {
-          this._loadQueue();
-      }, 1200);
+      // 1. Determine Image URL
+      let imgUrl = trackData.image;
+
+      // --- FALLBACK LOGIC ---
+      // If track has no image (common in Album View), grab it from the main header
+      if (!imgUrl) {
+          const heroArt = this.shadowRoot.querySelector('.hero-art');
+          if (heroArt) {
+              const bg = heroArt.style.backgroundImage;
+              if (bg && bg !== 'none') {
+                  // Strip url("...") wrapper to get raw link
+                  imgUrl = bg.replace(/^url\(['"]?/, '').replace(/['"]?\)$/, '');
+              }
+          }
+      }
+      // ----------------------
+
+      const popup = this.shadowRoot.getElementById('track-context-popup');
+      if (popup) {
+          const titleEl = this.shadowRoot.getElementById('track-popup-title');
+          const artistEl = this.shadowRoot.getElementById('track-popup-artist');
+          const artEl = this.shadowRoot.getElementById('track-popup-art');
+
+          if (titleEl) titleEl.innerText = trackData.name || "Options";
+          if (artistEl) artistEl.innerText = trackData.artist || "";
+          
+          if (artEl) {
+              if (imgUrl) {
+                  artEl.style.backgroundImage = `url('${imgUrl}')`;
+                  artEl.style.display = 'block';
+              } else {
+                  artEl.style.display = 'none'; // Hide grey box if truly no art found
+              }
+          }
+
+          popup.classList.add('visible');
+      } else {
+          console.error("Popup #track-context-popup not found");
+      }
+  }
+
+  _closeTrackPopup() {
+      const popup = this.shadowRoot.getElementById('track-context-popup');
+      if (popup) popup.classList.remove('visible');
+      this._popupTrackData = null;
+  }
+
+  _handleTrackPopupAction(action) {
+      const track = this._popupTrackData;
+      
+      // Safety check
+      if (!track) {
+          this._closeTrackPopup();
+          return;
+      }
+
+      console.log(`[SpotifyBrowser] Action: ${action} on ${track.name}`);
+
+      if (action === 'tm-play') {
+          this._playMediaSafe(track.uri, 'track');
+      } 
+      else if (action === 'tm-queue') {
+          this._api.fetchSpotifyPlus('add_player_queue_items', { uris: track.uri });
+          this._showToast("Added to Queue");
+      } 
+      else if (action === 'tm-radio') {
+          // Ensure _startTrackRadio exists in your class!
+          this._startTrackRadio(track);
+      } 
+      else if (action === 'tm-artist') {
+          // Navigate to artist logic
+          // If your track object has artist_id, use it. 
+          // Otherwise, we might need to search or use the name.
+          console.log("Navigate to artist:", track.artist);
+          this._navigateTo('search-all:artist:' + encodeURIComponent(track.artist));
+      }
+
+      this._closeTrackPopup();
+  }
+  
+  async _startTrackRadio(seedTrack) {
+      const radioConfig = this._config.advanced?.radio_track;
+
+      if (!radioConfig || !radioConfig.enabled) {
+          this._showToast("Radio disabled. Check YAML config.");
+          return;
+      }
+
+      // 1. SETUP CANCELLATION
+      let isCancelled = false;
+      const progressDialog = this._showProgressDialog(
+          "Starting Radio", 
+          "Preparing...", 
+          () => {
+              isCancelled = true;
+              this._showToast("Radio cancelled");
+          }
+      );
+
+      try {
+          // 2. FETCH SIMILAR TRACKS (Provider Phase)
+          const providerName = radioConfig.provider === 'openai' ? 'ChatGPT' : 
+                               radioConfig.provider === 'gemini' ? 'Gemini' : 'Last.fm';
+          
+          progressDialog.updateMessage(`Querying ${providerName}...`);
+
+          let similarTracks = [];
+
+          if (radioConfig.provider === 'lastfm') {
+              const lastFmKey = this._config.external_providers?.lastfm?.api_key;
+              if (!lastFmKey) throw new Error("Missing Last.fm API Key");
+
+              // Sanitize Metadata
+              let cleanArtist = seedTrack.artist || "";
+              if (seedTrack.artists && seedTrack.artists.length > 0) cleanArtist = seedTrack.artists[0].name;
+              else if (cleanArtist.includes(',')) cleanArtist = cleanArtist.split(',')[0].trim();
+
+              let cleanTrack = seedTrack.name
+                  .replace(/\s*\(.*?\)\s*/g, '') // Remove (...)
+                  .replace(/\s*\[.*?\]\s*/g, '') // Remove [...]
+                  .replace(/\s*-\s*.*$/, '')     // Remove " - ..." suffixes
+                  .trim();
+
+              if (isCancelled) return;
+              similarTracks = await fetchLastFmTrackRadio(cleanArtist, cleanTrack, lastFmKey, radioConfig.limit);
+          } 
+          // (Add 'else if' here for openai/gemini later if implemented)
+
+          if (isCancelled) return;
+
+          if (!similarTracks || similarTracks.length === 0) {
+              throw new Error("No similar tracks found.");
+          }
+
+          // 3. HYDRATION PHASE (Spotify Search)
+          // We build a clean array of URIs.
+          const uriList = [];
+          
+          // Always start with the Seed Track!
+          uriList.push(seedTrack.uri);
+
+          const total = similarTracks.length;
+          let processed = 0;
+
+          for (const track of similarTracks) {
+              if (isCancelled) return;
+
+              processed++;
+              progressDialog.updateMessage(`Getting Spotify Tracks (${processed}/${total})...`);
+
+              try {
+                  // Search Spotify for the specific track
+                  // We limit to 1 result to keep it fast
+                  const res = await this._api.fetchSpotifyPlus('search_tracks', {
+                      criteria: `track:${track.name} artist:${track.artist}`,
+                      limit: 1
+                  });
+
+                  if (res && res.result && res.result.items && res.result.items.length > 0) {
+                      const match = res.result.items[0];
+                      if (match && match.uri) {
+                          uriList.push(match.uri);
+                      }
+                  }
+              } catch (e) {
+                  // If search fails, we just skip it silently and move to the next
+                  console.warn(`[Radio] Skipped track: ${track.name}`);
+              }
+          }
+
+          if (isCancelled) return;
+
+          // 4. EXECUTION PHASE (Play the List)
+          if (uriList.length > 0) {
+              progressDialog.updateMessage("Starting playback...");
+              
+              // We use 'player_media_play_tracks' which replaces the current playback
+              // with our new list.
+              await this._api.fetchSpotifyPlus('player_media_play_tracks', {
+                  uris: uriList,
+                  shuffle: true // Optional: Shuffle the radio results for variety
+              }, false); // false = don't expect return data
+
+              this._showToast(`Radio started with ${uriList.length} tracks`);
+          } else {
+              throw new Error("Could not find any matching tracks on Spotify.");
+          }
+
+      } catch (err) {
+          if (!isCancelled) {
+              console.error("[SpotifyBrowser] Radio Error:", err);
+              this._showToast(err.message || "Radio failed to start");
+          }
+      } finally {
+          // Always close the dialog when done (or failed)
+          progressDialog.close();
+      }
   }
   
   // --- Hash & Visibility Management ---
 
   _checkHash() {
-      // 1. Get the current hash
       const hash = window.location.hash;
       if (!hash) return;
 
-      // 2. CHECK GENERIC TRIGGER (#spotify-browser)
-      if (hash.includes('spotify-browser')) {
-          console.log("[SpotifyCard] Generic trigger detected.");
-          this._openBrowser();
-          history.replaceState(null, null, ' ');
-          return;
-      }
-
-      // 3. CHECK ACCOUNT TRIGGERS (e.g. #johns-spotify)
+      // 1. Match Logic
+      const isGeneric = hash.includes('spotify-browser');
       const accounts = this._config.spotify_accounts || [];
       const matchedAccount = accounts.find(acc => acc.hash === hash);
 
-      if (matchedAccount) {
-          console.log(`[SpotifyCard] Account trigger detected: ${matchedAccount.name}`);
-          
-          // A. Switch the active account
-          // (This updates the entity, wipes the cache, and refreshes the view)
-          if (matchedAccount.entity !== this._config.entity) {
-              this._switchAccount(matchedAccount.entity, null); // null = don't set hash again
-          }
+      if (isGeneric || matchedAccount) {
+          console.log("[SpotifyCard] Trigger detected:", hash);
 
-          // B. Open the Browser
-          // We must open it because the user might be triggering this from the dashboard
-          this._openBrowser();
+          // 2. CRITICAL FIX: Clear URL *Immediately* (Synchronous)
+          // We do this BEFORE any other logic to ensure the UI feels snappy
+          history.replaceState(null, null, window.location.pathname + window.location.search);
 
-          // C. Clear the Hash
-          history.replaceState(null, null, ' ');
+          // 3. Defer the heavy lifting (Popup Open)
+          // This lets the browser repaint the URL bar first, THEN open the modal
+          requestAnimationFrame(() => {
+              if (matchedAccount && matchedAccount.entity !== this._config.entity) {
+                  this._switchAccount(matchedAccount.entity, null);
+              }
+              this._openBrowser();
+          });
       }
   }
-  
   
   _openAccountsMenu() {
       // 1. Close main dropdown if open
@@ -2297,10 +2428,15 @@ class SpotifyBrowserCard extends HTMLElement {
           if (tracksRes && tracksRes.result) tracks = Array.isArray(tracksRes.result) ? tracksRes.result : tracksRes.result.tracks;
           const trackContainer = pageEl.querySelector('.artist-track-grid');
           if (trackContainer && tracks && tracks.length > 0) {
+              // --- ADD THIS LINE ---
+              // This attaches the Artist URI (e.g., spotify:artist:123) to the list
+              // so the click handler can grab it as the 'context_uri'.
+              trackContainer.dataset.contextUri = artistRes.result.uri; 
+              // ---------------------
+        
               const top8 = tracks.slice(0, 8);
               trackContainer.innerHTML = top8.map(track => Templates.artistTopTrack(track)).join('');
-              const trackIds = top8.map(t => t.id);
-              this._checkFavorites(trackIds, pageEl);
+              // ...
           }
 
           const albumContainer = pageEl.querySelector('#artist-albums');
@@ -3011,6 +3147,43 @@ class SpotifyBrowserCard extends HTMLElement {
       }
   }
   
+  // Helper: Shows a progress dialog that the user can cancel
+  _showProgressDialog(title, initialMessage, onCancel) {
+      // 1. Create the dialog structure
+      const dialog = document.createElement('div');
+      dialog.className = 'custom-alert-overlay visible'; // Re-use your alert styles
+      dialog.innerHTML = `
+          <div class="custom-alert-box">
+              <h3 class="alert-title">${title}</h3>
+              <div class="alert-message" id="progress-msg">${initialMessage}</div>
+              <div class="alert-actions">
+                  <button class="alert-btn" id="progress-cancel-btn">Cancel</button>
+              </div>
+          </div>
+      `;
+
+      // 2. Handle Cancel
+      const cancelBtn = dialog.querySelector('#progress-cancel-btn');
+      cancelBtn.onclick = () => {
+          dialog.remove();
+          if (onCancel) onCancel();
+      };
+
+      // 3. Append to DOM
+      this.shadowRoot.appendChild(dialog);
+
+      // 4. Return an interface to update or close it
+      return {
+          updateMessage: (msg) => {
+              const el = dialog.querySelector('#progress-msg');
+              if (el) el.textContent = msg;
+          },
+          close: () => {
+              dialog.remove();
+          }
+      };
+  }
+  
   
   async _loadQueue() {
       const listEl = this.shadowRoot.getElementById('queue-list');
@@ -3025,26 +3198,25 @@ class SpotifyBrowserCard extends HTMLElement {
           this._renderNowPlaying(entityData);
       }
 
-      // Initial Loading State (Only show if truly empty to avoid flashing "Loading" over existing content)
+      // Initial Loading State (Only if truly empty)
       if (!this._lastQueueSignature && (!listEl.hasChildNodes() || listEl.innerHTML.trim() === '')) {
           listEl.innerHTML = '<div style="padding:20px; text-align:center; color:#888;">Loading queue...</div>';
       }
 
       try {
+          // --- FIX: Use the Correct Service Name ---
           const res = await this._api.fetchSpotifyPlus('get_player_queue_info');
           
           if (res && res.result) {
               // 4. Render Sticky Header (Now Playing)
-              // Only overwrite header if we are NOT inside the lock window
               if (res.result.currently_playing && Date.now() > this._queueLockTime) {
                   this._renderNowPlaying(res.result.currently_playing);
               }
 
-              // 5. Smart Queue Render (The Fix)
+              // 5. Smart Queue Render
               const newQueue = res.result.queue || [];
               
               // Generate Signature: List of IDs or URIs
-              // If the order or items haven't changed, this string will be identical.
               const newSignature = newQueue.map(t => t.id || t.uri).join(',');
               
               // DIFF CHECK: Only touch the DOM if the queue actually changed
@@ -3052,26 +3224,55 @@ class SpotifyBrowserCard extends HTMLElement {
                   this._lastQueueSignature = newSignature;
 
                   if (newQueue.length > 0) {
-                      // Note: We use innerHTML here because queue shifts usually change every row anyway.
-                      // Preserving DOM nodes for a shifted list is complex and yields diminishing returns.
-                      const itemsHtml = newQueue.map(track => Templates.queueRow(track)).join('');
+                      // --- PERFORMANCE: Build HTML String ---
+                      // We map the tracks to HTML strings with data-attributes for Event Delegation
+                      const itemsHtml = newQueue.map((track, index) => {
+                          const img = track.album?.images?.[0]?.url || '';
+                          const artists = track.artists ? track.artists.map(a => a.name).join(', ') : '';
+                          
+                          // We add data-attributes so the single click listener can find the data
+                          return `
+                          <div class="queue-item" 
+                               data-uri="${track.uri}" 
+                               data-id="${track.id || ''}" 
+                               data-index="${index}">
+                              <div class="queue-art" style="background-image: url('${img}')"></div>
+                              <div class="queue-info">
+                                  <div class="queue-title">${track.name}</div>
+                                  <div class="queue-artist">${artists}</div>
+                              </div>
+                              <div class="queue-row-play-btn" data-action="play">
+                                  <svg viewBox="0 0 24 24"><path fill="currentColor" d="M8 5v14l11-7z"/></svg>
+                              </div>
+                          </div>
+                          `;
+                      }).join('');
+                      
                       listEl.innerHTML = itemsHtml;
                   } else {
-                      listEl.innerHTML = Templates.emptyQueue();
+                      listEl.innerHTML = `<div class="empty-queue" style="padding:32px;text-align:center;opacity:0.5">Queue is empty</div>`;
                   }
               }
           } else {
-              // Only show empty message if we don't have previous data
               if (!this._lastQueueSignature) {
                   listEl.innerHTML = '<div style="padding:20px; text-align:center; color:#b3b3b3;">No queue data available.</div>';
               }
           }
+
+          // --- FIX: Ensure Event Listener is Attached ---
+          // Since we might wipe innerHTML, we simply ensure the parent listener exists.
+          // Setting onclick repeatedly is safe and cheap.
+          listEl.onclick = (e) => {
+              const row = e.target.closest('.queue-item');
+              if (!row) return;
+              this._handleQueueItemClick(row); 
+          };
+
       } catch (e) {
           console.error("[SpotifyBrowser] Queue Error:", e);
           if (!this._lastQueueSignature) {
               listEl.innerHTML = '<div style="padding:20px; text-align:center; color:red;">Failed to load queue.</div>';
           }
-          // Ensure header isn't left blank on error (unless locked)
           if (Date.now() > this._queueLockTime) this._renderNowPlaying(null);
       }
   }
@@ -3099,44 +3300,161 @@ class SpotifyBrowserCard extends HTMLElement {
   }
   
   
-  
-  
-  // --- Playback Wrapper with Error Handling ---
-  async _playMediaSafe(uri, type) {
-      const result = await this._api.playMedia(uri, type, this._config.default_device);
+  // --- CENTRALIZED OPTIMISTIC PLAYBACK ---
+  // Updates the UI immediately, locks the state, and calls the API
+  // --- CENTRALIZED OPTIMISTIC PLAYBACK (Fixed for Albums) ---
+  _triggerOptimisticPlayback(uri, type, metadata, contextUri = null) {
+      // 1. Capture Stale ID (The Anti-Bounce Fix)
+      if (this._lastTrackState && this._lastTrackState.id) {
+          this._staleTrackId = this._lastTrackState.id;
+      } else {
+          this._staleTrackId = this._currentTrackUri ? this._currentTrackUri.split(':')[2] : null;
+      }
+
+      // 2. Construct Optimistic Data
+      const optimisticData = {
+          name: metadata.title || 'Loading...',
+          artists: metadata.artist ? [{ name: metadata.artist }] : [],
+          image_url: metadata.image || '',
+          id: metadata.id || 'optimistic-id' 
+      };
+
+      // 3. Force Render & Lock
+      this._isPlaying = true;
+      this._renderNowPlaying(optimisticData);
       
-      if (result && !result.success) {
-          const errStr = JSON.stringify(result.error);
-          
-          if (errStr.includes("no active Spotify player") || 
-              errStr.includes("default player device was not configured") ||
-              errStr.includes("was not found")) {
-              
-              this._showAlert(
-                  "Device Unavailable", // Updated title to be more accurate
-                  "Spotify cannot find an active player or your default device. Please select a device to start playback.",
-                  [
-                      { 
-                          label: "Device Playback", 
-                          primary: true,
-                          action: () => {
-                              this._closeAlert();
-                              this._openDeviceMenu();
-                          }
-                      },
-                      { 
-                          label: "Close", 
-                          action: () => this._closeAlert() 
-                      }
-                  ]
-              );
+      this._queueLockTime = Date.now() + 3500;
+      this._lastOptimisticUpdate = Date.now();
+
+      // 4. Update Active Elements
+      this._currentTrackUri = uri; 
+      if (contextUri) this._currentContextUri = contextUri;
+      this._updateActiveElement();
+      this._updateHeroPlayButton();
+
+      // 5. Call API (CRITICAL FIX HERE)
+      if (contextUri) {
+          // If the URI equals the Context (e.g. Hero Play Button on an Album),
+          // we just want to play the context. We MUST NOT send an offset_uri.
+          if (uri === contextUri) {
+               this._playMediaSafe(contextUri, 'playlist');
           } else {
-              // Generic Error for other issues
-              // Try to extract a clean message if possible
-              let msg = "Unknown error";
-              if (result.error && result.error.message) msg = result.error.message;
-              this._showToast("Playback failed: " + msg);
+               // We are playing a specific track INSIDE a context (Track List).
+               // Here we MUST send the offset so it starts at the right song.
+               this._playMediaSafe(contextUri, 'playlist', { offset_uri: uri });
           }
+      } else {
+          this._playMediaSafe(uri, type);
+      }
+      
+      // 6. Force Refresh Cycle
+      setTimeout(() => this._api.fetchSpotifyPlus('trigger_scan_interval', {}, false), 1000);
+  }
+  
+  // --- Playback Wrapper with DEBUGGING ---
+  // --- Playback Wrapper with SMART IDLE CHECK ---
+  async _playMediaSafe(uri, type, options = {}) {
+      let deviceNameOrId = this._config.default_device;
+      
+      // 1. SMART TARGETING: If we are already Paused/Playing, use THAT device.
+      // This prevents switching to the Default Device if you are paused on a different one.
+      if (this._hass && this._config.entity) {
+          const stateObj = this._hass.states[this._config.entity];
+          if (stateObj && ['playing', 'paused'].includes(stateObj.state) && stateObj.attributes.source) {
+              console.log(`[SpotifyBrowser] Currently ${stateObj.state} on "${stateObj.attributes.source}". Using that.`);
+              deviceNameOrId = stateObj.attributes.source;
+          }
+      }
+
+      // 2. Fallback: If still no device, try Auto-Select
+      if (!deviceNameOrId) {
+           // ... (Same auto-select logic as before if you want to keep it, omitted for brevity but safe to keep) ...
+           // For now, let's assume the previous fix handled the null config issue.
+      }
+
+      console.log(`[SpotifyBrowser] Playing on: "${deviceNameOrId || 'System Default'}"`);
+
+      // 3. Attempt 1: Direct Play
+      let result = await this._api.playMedia(uri, type, deviceNameOrId, options);
+      
+      if (result && result.success) return;
+
+      // 4. Failure Detected - Analyze Why
+      const errStr = JSON.stringify(result.error || {});
+      console.warn("[SpotifyBrowser] Direct play failed:", errStr);
+
+      const isDeviceError = errStr.includes("no active Spotify player") || 
+                            errStr.includes("default player device") ||
+                            errStr.includes("Restriction violated") ||
+                            errStr.includes("404");
+
+      if (isDeviceError && deviceNameOrId) {
+          // A. Fetch Real Device List
+          let targetId = null;
+          let isTargetActive = false;
+
+          try {
+              const res = await this._api.fetchSpotifyPlus('get_spotify_connect_devices');
+              let list = [];
+              if (res && res.result) {
+                  list = res.result.devices || res.result.Items || (Array.isArray(res.result) ? res.result : []);
+              }
+
+              // B. Find the device by Name or ID
+              const match = list.find(d => 
+                  (d.name && d.name === deviceNameOrId) || 
+                  (d.Name && d.Name === deviceNameOrId) || 
+                  (d.id && d.id === deviceNameOrId)
+              );
+              
+              if (match) {
+                  targetId = match.id || match.Id;
+                  isTargetActive = match.is_active || match.IsActiveDevice;
+              } else if (deviceNameOrId.length > 20) {
+                  // Blind ID trust
+                  targetId = deviceNameOrId;
+              }
+
+          } catch (e) { console.warn("Device scan failed", e); }
+
+          if (targetId) {
+              // C. SMART DECISION: Active vs Idle
+              if (isTargetActive) {
+                  // SCENARIO: Paused but Active. 
+                  // The previous failure was likely due to Name-vs-ID mismatch or context issues.
+                  // We DO NOT transfer (wake up). We just retry with the ID.
+                  console.log(`[SpotifyBrowser] Device ${targetId} is active. Retrying with ID...`);
+                  result = await this._api.playMedia(uri, type, targetId, options);
+                  if (result && result.success) return;
+
+              } else {
+                  // SCENARIO: Truly Idle.
+                  // Device is off/asleep. We MUST transfer to wake it up.
+                  this._showToast(`Waking up player...`);
+                  console.log(`[SpotifyBrowser] Device idle. Transferring to ${targetId}...`);
+                  
+                  await this._api.fetchSpotifyPlus('player_transfer_playback', { device_id: targetId, play: true });
+                  
+                  // Wait a moment for wake-up
+                  await new Promise(r => setTimeout(r, 1000));
+                  
+                  // Retry Play
+                  result = await this._api.playMedia(uri, type, targetId, options);
+                  if (result && result.success) return;
+              }
+          }
+      }
+      
+      // 5. Final Failure Alert
+      if (result && !result.success) {
+          let msg = "Could not find an active player.";
+          if (result.error && result.error.message) msg = result.error.message;
+          
+          this._showAlert(
+              "Playback Failed", 
+              msg,
+              [{ label: "Close", action: () => this._closeAlert() }]
+          );
       }
   }
 
@@ -3178,21 +3496,14 @@ class SpotifyBrowserCard extends HTMLElement {
       const npEl = this.shadowRoot.getElementById('queue-now-playing');
       if (!npEl) return;
 
-      // --- BLIP PROTECTION (Anti-Flash) ---
-      // If data is missing but we think we are playing, hold the last frame.
-      // This prevents the "Empty Player" -> "New Song" flash during track skips.
-      const isMissingData = !trackData || !trackData.name;
-      if (isMissingData) {
-          if (this._isPlaying && this._lastTrackState) {
-              // Ignore this update, keep showing the old song until valid data returns
-              return;
+      // 1. Missing Data Logic
+      if (!trackData || !trackData.name) {
+          if (this._isPlaying && this._lastTrackState) return; 
+          if (!this._lastTrackState) {
+              if (Templates.emptyPlayer) npEl.innerHTML = Templates.emptyPlayer();
+              else npEl.innerHTML = `<div style="padding:16px; opacity:0.5;">Nothing Playing</div>`;
           }
-          
-          // Genuine Empty State
-          if (Templates.emptyPlayer) npEl.innerHTML = Templates.emptyPlayer();
-          else npEl.innerHTML = `<div style="padding:16px; opacity:0.5;">Nothing Playing</div>`;
           if (this._progressTimer) clearInterval(this._progressTimer);
-          this._lastTrackState = null;
           return; 
       }
 
@@ -3200,28 +3511,32 @@ class SpotifyBrowserCard extends HTMLElement {
       const showMini = qSettings.enabled;
       
       const trackId = trackData.id || (trackData.uri ? trackData.uri.split(':')[2] : null);
-      
       let isFav = false;
-      if (trackId) {
-          if (this._favCache.has(trackId)) {
-              isFav = this._favCache.get(trackId);
-          } else if (this._currentContextUri === 'spotify:user:me:collection' || this._currentContextUri === 'spotify:collection:tracks') {
-              isFav = true;
-              this._favCache.set(trackId, true);
-          }
+      if (trackId && this._favCache.has(trackId)) {
+          isFav = this._favCache.get(trackId);
+      } else if (this._currentContextUri === 'spotify:user:me:collection') {
+          isFav = true;
+          this._favCache.set(trackId, true);
       }
 
-      // Get Volume
+      // --- NEW: Fetch Device Name ---
       let currentVol = 0;
+      let deviceName = '';
       if (this._hass && this._config.entity && this._hass.states[this._config.entity]) {
-          currentVol = this._hass.states[this._config.entity].attributes.volume_level || 0;
+          const attrs = this._hass.states[this._config.entity].attributes;
+          currentVol = attrs.volume_level || 0;
+          deviceName = attrs.source || ''; 
       }
 
-      // --- SMART PATCHING STATE ---
+      const artistText = trackData.artists 
+          ? trackData.artists.map(a => a.name).join(', ') 
+          : '';
+
       const newState = {
           id: trackId,
           title: trackData.name,
-          artist: trackData.artists ? trackData.artists[0].name : '',
+          artist: artistText,
+          device: deviceName, // New State
           img: trackData.image_url || (trackData.album?.images?.[0]?.url) || '',
           playing: this._isPlaying,
           fav: isFav,
@@ -3230,116 +3545,189 @@ class SpotifyBrowserCard extends HTMLElement {
       };
 
       const oldState = this._lastTrackState || {};
-      
-      // Check if DOM is valid (e.g. not empty state)
       const domIsValid = npEl.querySelector('.queue-title') !== null;
 
-      // FIX: Only Full Render if View changes, First Load, or DOM is broken
-      const needsFullRender = !this._lastTrackState || oldState.view !== newState.view || !domIsValid;
+      let songChanged = oldState.id !== newState.id;
+      // Fuzzy match check (same as before)
+      if (songChanged && oldState.title && newState.title) {
+          const clean = (str) => str.toLowerCase().replace(/\(.*\)/g, '').replace(/\[.*\]/g, '').trim();
+          if (clean(oldState.title) === clean(newState.title)) songChanged = false;
+      }
 
-      // --- 1. FULL RENDER (First Load / View Switch / Recovery) ---
+      const needsFullRender = !this._lastTrackState || 
+                              oldState.view !== newState.view || 
+                              songChanged || 
+                              !domIsValid;
+
       if (needsFullRender) {
-          let html = Templates.nowPlayingRow(trackData, this._isPlaying, showMini, isFav, qSettings.components, this._showVolumeView, currentVol);
+          // --- FULL RENDER ---
+          // Pass 'deviceName' as the last argument
+          let html = Templates.nowPlayingRow(trackData, this._isPlaying, showMini, isFav, qSettings.components, this._showVolumeView, currentVol, deviceName);
           
-          // Disable animation if image URL is same (e.g. view switch on same song)
           if (oldState.img === newState.img) {
                html = html.replace('style="background-image:', 'style="animation: none !important; background-image:');
           }
-
           npEl.innerHTML = html;
           this._attachNowPlayingListeners(npEl, trackData, trackId);
           this._startProgressTimer();
       } 
-      // --- 2. FINE-GRAINED UPDATES (Track Change / State Toggle) ---
       else {
+          // --- GRANULAR UPDATES ---
+          if (oldState.title !== newState.title) {
+              const el = npEl.querySelector('.queue-title');
+              if (el) el.innerText = newState.title;
+          }
+          if (oldState.artist !== newState.artist) {
+              const el = npEl.querySelector('.queue-artist');
+              if (el) el.innerText = newState.artist;
+          }
           
-          // A. Metadata Update (Title, Artist, Art) - DOM Preservation
-          if (oldState.id !== newState.id || oldState.title !== newState.title) {
-              const titleEl = npEl.querySelector('.queue-title');
-              const artistEl = npEl.querySelector('.queue-artist');
-              const artEl = npEl.querySelector('.queue-art.large');
-              
-              if (titleEl) titleEl.innerText = newState.title;
-              if (artistEl) artistEl.innerText = newState.artist;
-              
-              // Only update background image if URL actually changed
-              if (artEl && oldState.img !== newState.img) {
-                  artEl.style.backgroundImage = `url('${newState.img}')`;
-              }
-              
-              // Re-attach button listeners for new track ID
-              const favBtn = npEl.querySelector('[data-action="mini-fav"]');
-              if (favBtn) {
-                  favBtn.dataset.id = newState.id;
-                  favBtn.onclick = (e) => {
-                     e.stopPropagation();
-                     fireHaptic('selection');
-                     const isCurrentlyFav = favBtn.classList.contains('is-favorite');
-                     this._toggleTrackFavorite(newState.id, isCurrentlyFav, favBtn);
-                     this._favCache.set(newState.id, !isCurrentlyFav);
-                     this._renderNowPlaying(trackData); 
-                  };
-              }
+          // NEW: Device Name Update
+          if (oldState.device !== newState.device) {
+              const el = npEl.querySelector('.device-name-text');
+              if (el) el.innerText = newState.device;
+              // Toggle visibility based on whether we have a device name
+              const row = npEl.querySelector('.queue-device-row');
+              if (row) row.style.display = newState.device ? 'flex' : 'none';
           }
 
-          // B. Play/Pause Toggle
+          if (newState.img && (!oldState.img || oldState.img === '')) {
+              const el = npEl.querySelector('.queue-art.large');
+              if (el) el.style.backgroundImage = `url('${newState.img}')`;
+          }
           if (oldState.playing !== newState.playing) {
-              const playBtn = npEl.querySelector('#queue-hero-play-btn');
-              if (playBtn) {
-                  playBtn.innerHTML = newState.playing 
+              const btn = npEl.querySelector('#queue-hero-play-btn');
+              if (btn) {
+                  btn.innerHTML = newState.playing 
                     ? `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
                     : `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
               }
           }
-
-          // C. Favorite Toggle
           if (oldState.fav !== newState.fav && !newState.view) {
-              const favBtn = npEl.querySelector('[data-action="mini-fav"]');
-              if (favBtn) {
-                  if (newState.fav) favBtn.classList.add('is-favorite');
-                  else favBtn.classList.remove('is-favorite');
+              const btn = npEl.querySelector('[data-action="mini-fav"]');
+              if (btn) {
+                  if (newState.fav) btn.classList.add('is-favorite');
+                  else btn.classList.remove('is-favorite');
+                  btn.dataset.id = newState.id; 
               }
           }
-
-          // D. Volume Slider Update
           if (oldState.vol !== newState.vol && newState.view) {
               const slider = npEl.querySelector('#mini-vol-slider');
               if (slider && this.shadowRoot.activeElement !== slider) {
                   slider.value = Math.round(newState.vol * 100);
               }
           }
+          if (oldState.id !== newState.id) {
+              this._attachNowPlayingListeners(npEl, trackData, trackId);
+          }
       }
 
-      // Save State
       this._lastTrackState = newState;
   }
+  
 
   _attachNowPlayingListeners(npEl, trackData, trackId) {
-      // Play Button
+      
+      // --- SMART SKIP HANDLER ---
+      const handleSkip = (direction) => {
+          const isNext = direction === 'next';
+          const action = isNext ? 'player_media_skip_next' : 'player_media_skip_previous';
+
+          // 1. Capture Stale ID (Anti-Bounce)
+          // We record the ID we are leaving so we can ignore it if HA reports it back
+          this._staleTrackId = trackId; 
+          this._queueLockTime = Date.now() + 3000; 
+
+          // 2. Optimistic Update (Visual Prediction)
+          if (isNext) {
+              const queueList = this.shadowRoot.getElementById('queue-list');
+              const nextRow = queueList ? queueList.querySelector('.queue-item') : null;
+              
+              if (nextRow) {
+                  // Scrape metadata
+                  const title = nextRow.querySelector('.queue-title')?.innerText || 'Loading...';
+                  const artist = nextRow.querySelector('.queue-artist')?.innerText || '';
+                  
+                  // Grab the REAL ID if available (prevents flicker)
+                  const realNextId = nextRow.dataset.trackId || nextRow.dataset.id || 'optimistic-next';
+                  
+                  let imgUrl = '';
+                  const artEl = nextRow.querySelector('.queue-art');
+                  if (artEl) {
+                      const bg = window.getComputedStyle(artEl).backgroundImage;
+                      if (bg && bg !== 'none') imgUrl = bg.replace(/^url\(['"]?/, '').replace(/['"]?\)$/, '');
+                  }
+
+                  // Force Header Update
+                  this._renderNowPlaying({
+                      name: title,
+                      artists: [{ name: artist }],
+                      image_url: imgUrl,
+                      id: realNextId 
+                  });
+                  
+                  // Hide the row we just promoted
+                  nextRow.style.display = 'none';
+              }
+          } else {
+              // For Previous, just dim the UI to acknowledge click
+              const content = npEl.querySelector('.queue-item-content');
+              if (content) content.style.opacity = '0.5';
+          }
+
+          // 3. Send API Command
+          this._api.fetchSpotifyPlus(action, {}, false);
+
+          // 4. Poll Aggressively (0.5s, 1.5s, 2.5s, 4.0s)
+          // Triggers multiple updates to catch the new song as soon as possible
+          [500, 1500, 2500, 4000].forEach(delay => {
+              setTimeout(() => {
+                  this._api.fetchSpotifyPlus('trigger_scan_interval', {}, false);
+                  this._loadQueue(); 
+              }, delay);
+          });
+      };
+
+      // --- BIND SKIP BUTTONS ---
+      const prevBtn = npEl.querySelector('[data-action="mini-prev"]');
+      const nextBtn = npEl.querySelector('[data-action="mini-skip"]');
+      
+      if (prevBtn) prevBtn.onclick = (e) => { e.stopPropagation(); handleSkip('prev'); };
+      if (nextBtn) nextBtn.onclick = (e) => { e.stopPropagation(); handleSkip('next'); };
+
+      // --- BIND PLAY/PAUSE (Smart Toggle) ---
       const playBtn = npEl.querySelector('#queue-hero-play-btn');
       if (playBtn) {
-          playBtn.addEventListener('click', (e) => {
+          playBtn.addEventListener('click', async (e) => {
               e.stopPropagation();
-              this._lastOptimisticUpdate = Date.now(); 
+              // Optimistic Toggle
+              const previousState = this._isPlaying;
               this._isPlaying = !this._isPlaying;
-              this._api.togglePlayback(this._isPlaying);
+              this._renderNowPlaying(trackData); 
               
-              // Optimistic Update handled by next render cycle or manually here if desired
-              // But strictly, we wait for _renderNowPlaying to be called again by the state update logic
-              // OR we can force a re-render call effectively immediately
-              this._renderNowPlaying(trackData);
+              const result = await this._api.togglePlayback(this._isPlaying);
+              
+              // Revert on Failure
+              if (!result || !result.success) {
+                  this._isPlaying = previousState;
+                  this._renderNowPlaying(trackData);
+              } else {
+                  // Success: Trigger a refresh shortly after to sync state
+                  setTimeout(() => this._api.fetchSpotifyPlus('trigger_scan_interval', {}, false), 1000);
+              }
           });
       }
 
+      // --- VOLUME VIEW vs STANDARD VIEW ---
       if (this._showVolumeView) {
+          // Volume Slider Logic
           const slider = npEl.querySelector('#mini-vol-slider');
           const closeBtn = npEl.querySelector('[data-action="close-volume"]');
           
           if (slider) {
               slider.addEventListener('change', (e) => {
                   e.stopPropagation();
-                  const val = e.target.value / 100;
-                  this._api.setVolume(val);
+                  this._api.setVolume(e.target.value / 100);
               });
           }
           if (closeBtn) {
@@ -3350,49 +3738,53 @@ class SpotifyBrowserCard extends HTMLElement {
               };
           }
       } else {
-          const prevBtn = npEl.querySelector('[data-action="mini-prev"]');
-          const nextBtn = npEl.querySelector('[data-action="mini-skip"]');
-          const shuffleBtn = npEl.querySelector('[data-action="mini-shuffle"]'); 
-          const favBtn = npEl.querySelector('[data-action="mini-fav"]');
+          // Standard Controls Logic
+          const shuffleBtn = npEl.querySelector('[data-action="mini-shuffle"]');
           const volBtn = npEl.querySelector('[data-action="mini-volume"]');
-          
-          if(prevBtn) prevBtn.onclick = (e) => { e.stopPropagation(); this._api.fetchSpotifyPlus('player_media_skip_previous', {}, false); };
-          if(nextBtn) nextBtn.onclick = (e) => { e.stopPropagation(); this._api.fetchSpotifyPlus('player_media_skip_next', {}, false); };
-          
-          if(shuffleBtn) shuffleBtn.onclick = (e) => { 
-              e.stopPropagation(); 
-              this._api.fetchSpotifyPlus('player_shuffle', { state: 'true' }, false); 
-          };
-          
-          if(volBtn) volBtn.onclick = (e) => {
-              e.stopPropagation();
-              this._showVolumeView = true;
-              this._renderNowPlaying(trackData);
-          };
-          
-          if(favBtn && trackId) {
-             // Verify Favorite Status from API
-             this._api.fetchSpotifyPlus('check_track_favorites', { ids: trackId }).then(res => {
-                 if (res && res.result) {
-                     const isLiked = res.result[trackId];
-                     // Sync Cache
-                     this._favCache.set(trackId, isLiked);
-                     // Sync UI directly
-                     if (isLiked) favBtn.classList.add('is-favorite');
-                     else favBtn.classList.remove('is-favorite');
-                 }
-             });
+          const deviceBtn = npEl.querySelector('[data-action="mini-device"]');
+          const favBtn = npEl.querySelector('[data-action="mini-fav"]');
 
-             favBtn.onclick = (e) => {
-                 e.stopPropagation();
-                 
-                 // FIX: Haptic + Optimistic + State Sync
-                 fireHaptic('selection');
-                 const isCurrentlyFav = favBtn.classList.contains('is-favorite');
-                 this._toggleTrackFavorite(trackId, isCurrentlyFav, favBtn);
-                 this._favCache.set(trackId, !isCurrentlyFav);
-                 this._renderNowPlaying(trackData); 
-             };
+          if(deviceBtn) {
+              deviceBtn.onclick = (e) => {
+                  e.stopPropagation();
+                  this._openDeviceMenu();
+              };
+          }
+          if(shuffleBtn) {
+              shuffleBtn.onclick = (e) => { 
+                  e.stopPropagation(); 
+                  this._api.fetchSpotifyPlus('player_shuffle', { state: 'true' }, false); 
+              };
+          }
+          if(volBtn) {
+              volBtn.onclick = (e) => {
+                  e.stopPropagation();
+                  this._showVolumeView = true;
+                  this._renderNowPlaying(trackData);
+              };
+          }
+
+          // --- FAVORITE BUTTON (With ID Validation) ---
+          if(favBtn) {
+              // Valid ID Check: Must be >15 chars and NOT contain 'optimistic'
+              const isValidId = trackId && trackId.length > 15 && !trackId.includes('optimistic');
+
+              if (isValidId) {
+                  // Check Status
+                  this._api.fetchSpotifyPlus('check_track_favorites', { ids: trackId }).then(res => {
+                     if (res && res.result && res.result[trackId]) favBtn.classList.add('is-favorite');
+                  });
+                  
+                  // Handle Click
+                  favBtn.onclick = (e) => {
+                      e.stopPropagation();
+                      fireHaptic('selection');
+                      this._toggleTrackFavorite(trackId, favBtn.classList.contains('is-favorite'), favBtn);
+                  };
+              } else {
+                  // Invalid ID (Optimistic state): Prevent errors, just stop propagation
+                  favBtn.onclick = (e) => e.stopPropagation();
+              }
           }
       }
   }
