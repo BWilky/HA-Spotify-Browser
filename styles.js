@@ -108,9 +108,12 @@ export const CARD_CSS = `
         }
         
         .queue-header-wrapper {
-            box-shadow: none !important; 
-            border-bottom: 1px solid var(--spf-border) !important; 
+            position: relative;
+            padding: 0 !important; /* Critical: Remove wrapper padding */
+            overflow: hidden;      /* Clips the bar if it overflows */
             background: var(--spf-bg);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 5;
         }
         
         .page-container {
@@ -298,27 +301,18 @@ export const CARD_CSS = `
     .list-item-subtitle { font-size: 14px; color: var(--spf-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .list-item-action { color: var(--spf-text-sub); display: flex; justify-content: center; }
 
-    /* --- Pull to Refresh --- */
-    .pull-to-refresh {
-        position: absolute; top: 80px; left: 0; width: 100%; height: 40px;
-        display: flex; align-items: center; justify-content: center;
-        pointer-events: none; z-index: 20; opacity: 0; transition: opacity 0.2s;
-    }
-    .ptr-spinner { width: 24px; height: 24px; color: var(--spf-brand); }
-    
-    .scroll-content {
-        position: relative; z-index: 1; background: var(--spf-bg);
-        will-change: transform; padding: 24px; padding-bottom: 100px;
-        transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
-    
-    .page.is-refreshing .scroll-content { transform: translateY(60px); }
-    .page.is-refreshing.has-hero-header .scroll-content { transform: none !important; }
-    .page.is-refreshing .pull-to-refresh { opacity: 1; }
-    .page.is-refreshing .ptr-spinner { animation: spin 1s linear infinite; }
-    @keyframes spin { 100% { transform: rotate(360deg); } }
 
     /* --- Page & Transitions --- */
+    
+    .scroll-content {
+        position: relative;
+        z-index: 1;
+        /* This is the margin you lost */
+        padding: 24px; 
+        /* This ensures you can scroll past the bottom player */
+        padding-bottom: 100px; 
+    }
+
     .page-container { position: relative; flex: 1; overflow: hidden; background: var(--spf-bg); }
     .page {
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -342,41 +336,180 @@ export const CARD_CSS = `
     @keyframes slideOutRight { from { transform: translateX(0); } to { transform: translateX(100%); } }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-    /* --- Queue Panel --- */
+
+
+
+
+    /* ================================================= */
+    /* QUEUE PANEL & MINI PLAYER                         */
+    /* ================================================= */
+
+    /* --- 1. Main Slide-out Panel --- */
     .queue-panel {
-        position: absolute; top: 64px; right: 0; bottom: 0;
+        position: absolute; 
+        top: 64px; 
+        right: 0; 
+        bottom: 0;
         width: 350px; 
         background: var(--spf-bg); 
         border-left: 1px solid var(--spf-border);
-        z-index: 100; display: flex; flex-direction: column;
+        z-index: 100; 
+        display: flex; 
+        flex-direction: column;
     }
 
+    /* --- 2. Sticky Header (Now Playing) --- */
     .queue-header-wrapper {
         flex-shrink: 0;
         background: var(--spf-bg);
         border-bottom: 1px solid var(--spf-border-subtle);
-        z-index: 2; position: relative;
+        z-index: 5; 
+        position: relative;
         box-shadow: 0 4px 12px rgba(0,0,0,0.4); 
-        padding: 0;
+        
+        /* FIX: Zero padding ensures progress bar hits the edge */
+        padding: 0 !important; 
+        overflow: hidden;
     }
 
-    /* --- Queue Mini Player & Volume --- */
-    .queue-mini-controls {
-        display: flex; align-items: center; justify-content: center; gap: 32px; 
-        
-        /* LOCK HEIGHT: Matches volume container exactly to prevent jumps */
-        margin-top: 0; 
-        padding: 0 24px 10px 24px; 
-        min-height: 44px; 
-        box-sizing: border-box;
-        
-        position: relative; z-index: 10;
+    .queue-now-playing-row {
+        position: relative; /* Anchor for absolute elements */
+        padding: 16px 16px 12px 16px; /* Content breathing room */
+        display: flex;
+        flex-direction: column;
     }
+
+    .queue-item-content { 
+        display: flex; 
+        align-items: center; 
+        gap: 16px; 
+    }
+
+    /* --- 3. Header Album Art --- */
+    .queue-art.large { 
+        width: 64px; 
+        height: 64px; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3); 
+        border-radius: 4px;
+        background-size: cover;
+        background-position: center;
+        flex-shrink: 0;
+        background-color: #282828;
+        animation: imageFadeIn 0.5s ease-out;
+    }
+
+    @keyframes imageFadeIn {
+        0% { opacity: 0; transform: scale(0.95); }
+        100% { opacity: 1; transform: scale(1); }
+    }
+
+    /* --- 4. Header Text Info Stack --- */
+    .queue-info { 
+        flex: 1; 
+        overflow: hidden; 
+        display: flex; 
+        flex-direction: column; 
+        justify-content: center; 
+        
+        /* Space from Right Play Button */
+        margin-right: 12px; 
+        
+        /* Tight grouping logic */
+        gap: 0; 
+        min-width: 0; /* Critical for ellipsis */
+    }
+
+    .queue-title { 
+        font-size: 14px; 
+        font-weight: 700; 
+        color: var(--spf-text-main); 
+        white-space: nowrap; 
+        overflow: hidden; 
+        text-overflow: ellipsis;
+        
+        /* Tight to Artist */
+        line-height: 1.2;
+        margin-bottom: 1px;
+    }
+    .queue-title.active { color: var(--spf-brand); }
+
+    .queue-artist {
+        font-size: 13px;
+        color: var(--spf-text-sub);
+        white-space: nowrap; 
+        overflow: hidden; 
+        text-overflow: ellipsis;
+        
+        /* Separated from Device */
+        line-height: 1.2;
+        margin-bottom: 4px;
+    }
+
+    .queue-device-row {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        
+        font-size: 11px; 
+        font-weight: 500;
+        color: var(--spf-brand); /* Green indicator */
+        opacity: 0.9;
+        
+        margin-top: 0;
+        line-height: 1.2;
+        
+        white-space: nowrap; 
+        overflow: hidden; 
+        text-overflow: ellipsis;
+    }
+    .queue-device-row svg {
+        width: 12px; height: 12px;
+        fill: currentColor;
+        flex-shrink: 0;
+    }
+    .device-name-text {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    /* --- 5. Controls Rows (Buttons & Volume) --- */
     
+    /* Unified Container Rules */
+    .queue-mini-controls,
+    .volume-control-container {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        
+        /* LOCK DIMENSIONS to prevent jumps */
+        height: 48px;       
+        margin-top: 4px;    
+        padding: 0 8px;    
+        box-sizing: border-box;
+    }
+
+    /* Standard Buttons Layout */
+    .queue-mini-controls {
+        justify-content: space-between; 
+    }
+
+    /* Volume Slider Layout */
+    .volume-control-container {
+        justify-content: center; 
+        animation: fadeIn 0.2s ease;
+    }
+
+    /* Mini Buttons (General) */
     .mini-btn {
-        background: transparent; border: none; 
-        color: var(--spf-text-sub); cursor: pointer; padding: 6px; 
-        display: flex; align-items: center; justify-content: center;
+        background: transparent; 
+        border: none; 
+        color: var(--spf-text-sub); 
+        cursor: pointer; 
+        padding: 8px; /* Consistent hit area */
+        display: flex; 
+        align-items: center; 
+        justify-content: center;
         transition: color 0.2s, transform 0.2s;
     }
     .mini-btn:hover { color: var(--spf-text-main); transform: scale(1.1); }
@@ -384,173 +517,106 @@ export const CARD_CSS = `
     .mini-btn.is-favorite { color: var(--spf-brand); }
     .mini-btn.is-favorite svg { fill: var(--spf-brand); }
 
-    
-    /* --- Volume Slider View (Alternate State) --- */
-    .volume-control-container {
-        display: flex; align-items: center; gap: 16px;
-        
-        /* LOCK HEIGHT: Exact match of above */
-        padding: 0 24px 10px 24px; 
-        min-height: 44px; 
-        box-sizing: border-box;
-        width: 100%; 
-        
-        animation: fadeIn 0.2s ease;
-    }
-
-    /* Volume Icon (Left) */
+    /* Volume Slider Styling */
     .vol-icon {
-        color: var(--spf-text-sub);
         display: flex; align-items: center; justify-content: center;
-        width: 24px; height: 24px; flex-shrink: 0;
+        width: 24px; color: var(--spf-text-sub);
     }
-    .vol-icon svg { width: 20px; height: 20px; fill: currentColor; }
-
-    /* The Slider Track */
+    
     .volume-slider {
-        flex: 1; -webkit-appearance: none; appearance: none;
-        
-        /* Height adjusted to 36px to sit nicely inside the 44px container */
-        height: 36px; 
-        
-        background: rgba(255,255,255,0.1); /* Dark grey track */
-        border-radius: 12px; 
-        outline: none; cursor: pointer;
-        overflow: hidden; /* Clips the fill shadow */
-        border: none;
-        margin: 0;
+        flex: 1; 
+        -webkit-appearance: none;
+        height: 4px;
+        background: rgba(255,255,255,0.2);
+        border-radius: 2px;
+        outline: none;
+        margin: 0 12px; 
     }
-    
-    /* Slider Thumb (The White Vertical Bar) */
     .volume-slider::-webkit-slider-thumb {
-        -webkit-appearance: none; appearance: none;
-        width: 4px; /* Thin Vertical Bar */
-        height: 22px; /* Shorter than track to look floating */
-        background: #ffffff; 
-        border-radius: 2px;
-        cursor: pointer; 
-        transition: transform 0.1s;
-        
-        /* The Fill Effect (White bar to the left) */
-        box-shadow: -100vw 0 0 100vw rgba(255, 255, 255, 0.3); 
-    }
-    
-    .volume-slider::-webkit-slider-thumb:active {
-        transform: scaleY(1.1); 
-        background: var(--spf-brand); 
-    }
-
-    /* Firefox Support */
-    .volume-slider::-moz-range-thumb {
-        width: 4px; height: 22px;
-        background: #ffffff; border: none;
-        border-radius: 2px;
+        -webkit-appearance: none;
+        width: 14px; height: 14px;
+        background: #fff;
+        border-radius: 50%;
         cursor: pointer;
-        box-shadow: -100vw 0 0 100vw rgba(255, 255, 255, 0.3);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.4);
     }
 
+    /* Large Side Play Button */
+    .queue-play-btn.large-side-btn {
+        width: 48px; height: 48px;
+        border-radius: 50%;
+        background: var(--spf-text-main); 
+        color: black; 
+        border: none;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+        display: flex; align-items: center; justify-content: center;
+        cursor: pointer; 
+        transition: transform 0.2s;
+        flex-shrink: 0;
+    }
+    .queue-play-btn.large-side-btn:hover {
+        transform: scale(1.05);
+        background: var(--spf-brand-hover);
+    }
+    .queue-play-btn.large-side-btn svg { fill: black; }
+
+    /* --- 6. Progress Bar (The Divider) --- */
     .queue-progress-container {
-        width: 100%; height: 2px; background: rgba(255,255,255,0.1);
-        position: relative; margin-top: 4px; 
+        position: absolute; 
+        bottom: 0;          
+        left: 0;            
+        width: 100%;        
+        height: 3px;        
+        margin: 0;
+        padding: 0;
+        background: rgba(255, 255, 255, 0.1);
+        z-index: 10;
     }
     
     .queue-progress-bar {
-        height: 100%; background: var(--spf-brand);
-        width: 0%; transition: width 0.5s linear;
-        border-radius: 0 2px 2px 0; position: relative;
+        height: 100%;
+        background: var(--spf-brand);
+        width: 0%;
+        border-radius: 0 4px 4px 0;
+        transition: width 1s linear;
     }
+    /* Dot indicator on hover */
     .queue-progress-bar::after {
         content: ''; position: absolute; right: -3px; top: -3px;
         width: 8px; height: 8px; background: var(--spf-text-main);
         border-radius: 50%; opacity: 0; transition: opacity 0.2s;
     }
     .queue-header-wrapper:hover .queue-progress-bar::after { opacity: 1; }
-    
-    .queue-item.adding-top {
-        animation: slideDownEnter 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-        overflow: hidden; background: rgba(255, 255, 255, 0.05);
-    }
-    
-    @keyframes slideDownEnter {
-        0% { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin: 0; transform: translateY(-20px); }
-        100% { opacity: 1; max-height: 60px; padding: 8px 12px 8px 4px; transform: translateY(0); }
-    }
-    
-    .queue-item.removing, .track-row.removing {
-        animation: collapseRow 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-        overflow: hidden; pointer-events: none; 
-    }
-    
-    @keyframes collapseRow {
-        0% { opacity: 1; max-height: 60px; transform: scale(1); margin-bottom: 0; }
-        50% { opacity: 0; transform: scale(0.9); }
-        100% { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin: 0; border: none; transform: scale(0.9); }
-    }
-    
-    .queue-now-playing-row { padding: 16px 16px 4px 16px; }
-    
-    .queue-item-content { display: flex; align-items: center; gap: 16px; }
-    .queue-art.large { width: 64px; height: 64px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); } 
-    .queue-info { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
-    .queue-title.active { color: var(--spf-brand); font-size: 15px; margin-bottom: 4px; }
-    .queue-artist { font-size: 13px; }
-    
-    .queue-play-btn {
-        width: 56px; height: 56px; border-radius: 50%;
-        background: var(--spf-text-main); color: black; border: none;
-        box-shadow: 0 0 0 1px rgba(255,255,255,0.3); 
-        display: flex; align-items: center; justify-content: center;
-        cursor: pointer; transition: transform 0.2s, box-shadow 0.2s;
-    }
-    .queue-play-btn:hover { transform: scale(1.05); background: var(--spf-brand-hover); box-shadow: 0 0 0 2px rgba(255,255,255,0.5); }
-    .queue-play-btn svg { fill: black; } 
 
-    /* Scrollable List */
-    .queue-list { flex: 1; overflow-y: auto; padding: 0 0 16px 0; }
-
-
+    /* --- 7. The Queue List --- */
+    .queue-list { 
+        flex: 1; 
+        overflow-y: auto; 
+        padding: 0 0 16px 0; 
+        background: var(--spf-bg);
+    }
 
     .queue-item {
-        display: flex; align-items: center; 
-        
+        display: flex; 
+        align-items: center; 
         padding: 8px 16px 8px 8px; 
-        
         gap: 12px; 
         cursor: default;
         transition: background 0.2s;
         border-bottom: 1px solid rgba(255,255,255,0.03);
     }
     @media (hover: hover) { .queue-item:hover { background: var(--spf-border-subtle); } }
-    
-    /* Animated Album Art */
+
+    /* List Item Art (Smaller) */
     .queue-art { 
         width: 40px; height: 40px; 
         border-radius: 4px; 
         background-size: cover; 
         background-position: center; 
         flex-shrink: 0;
-        
-        /* FIX: Solid background hides the "empty" space while loading */
         background-color: #282828;
-        
-        /* FIX: Fade animation hides the "scan line" loading effect */
         animation: imageFadeIn 0.5s ease-out;
     }
-
-    /* Keyframes for the smooth fade */
-    @keyframes imageFadeIn {
-        0% { opacity: 0; transform: scale(0.95); }
-        100% { opacity: 1; transform: scale(1); }
-    }
-
-    /* Larger Art (Header) - Inherits the animation automatically */
-    .queue-art.large { 
-        width: 64px; height: 64px; 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3); 
-    }
-    .queue-title { font-size: 13px; font-weight: 600; color: var(--spf-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .queue-artist { font-size: 12px; color: var(--spf-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-
 
     .queue-row-play-btn {
         background: transparent; border: none; color: var(--spf-text-sub);
@@ -560,6 +626,36 @@ export const CARD_CSS = `
     .queue-row-play-btn:hover { color: var(--spf-text-main); transform: scale(1.1); }
     .queue-row-play-btn svg { width: 24px; height: 24px; }
 
+    /* List Animation Logic */
+    .queue-item.adding-top {
+        animation: slideDownEnter 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        overflow: hidden; background: rgba(255, 255, 255, 0.05);
+    }
+    @keyframes slideDownEnter {
+        0% { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin: 0; transform: translateY(-20px); }
+        100% { opacity: 1; max-height: 60px; padding: 8px 12px 8px 4px; transform: translateY(0); }
+    }
+
+    .queue-item.removing {
+        animation: collapseRow 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+        overflow: hidden; pointer-events: none; 
+    }
+    @keyframes collapseRow {
+        0% { opacity: 1; max-height: 60px; transform: scale(1); margin-bottom: 0; }
+        50% { opacity: 0; transform: scale(0.9); }
+        100% { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; margin: 0; border: none; transform: scale(0.9); }
+    }
+
+    .queue-item.optimistic-fade-in {
+        animation: slideInFade 0.4s ease-out forwards;
+        opacity: 0; transform: translateY(10px);
+    }
+    @keyframes slideInFade {
+        0% { opacity: 0; transform: translateY(10px); }
+        100% { opacity: 1; transform: translateY(0); }
+    }
+
+    /* --- 8. Empty States & Labels --- */
     .queue-empty-state {
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         height: 200px; text-align: center; opacity: 0.5;
@@ -567,7 +663,19 @@ export const CARD_CSS = `
     .empty-text { margin-top: 16px; font-weight: 700; font-size: 16px; }
     .empty-sub { font-size: 13px; }
     
-    .queue-section-label { padding: 12px 16px 4px; font-size: 12px; font-weight: 700; color: var(--spf-text-sub); text-transform: uppercase; letter-spacing: 1px; }
+    .queue-section-label { 
+        padding: 12px 16px 4px; 
+        font-size: 12px; 
+        font-weight: 700; 
+        color: var(--spf-text-sub); 
+        text-transform: uppercase; 
+        letter-spacing: 1px; 
+    }
+
+
+
+
+
 
     /* --- Device Popup --- */
     .device-popup-backdrop {
@@ -822,6 +930,7 @@ export const CARD_CSS = `
 
     /* Track Rows */
     .track-row {
+        overflow: visible;
         display: grid; 
         grid-template-columns: 40px 1fr auto 80px; 
         padding: 8px 16px; border-radius: 4px; align-items: center; cursor: pointer;
@@ -847,11 +956,158 @@ export const CARD_CSS = `
     .track-artist { color: var(--spf-text-sub); font-size: 13px; }
     .track-duration { color: var(--spf-text-sub); font-size: 14px; text-align: right; }
 
-    .track-actions-right { display: flex; align-items: center; gap: 8px; }
+    .track-actions-right {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end; /* Keeps them grouped on the right side */
+        
+        /* ADD THIS to shift them leftwards away from the edge */
+        padding-right: 24px;       /* Increase this number to move them further left */
+        gap: 8px;                  /* Space between the buttons themselves */
+    }
+    
+    
     .track-action-btn { background: transparent; border: none; color: var(--spf-text-sub); cursor: pointer; padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: color 0.2s, background 0.2s; }
     @media (hover: hover) { .track-action-btn:hover { color: var(--spf-text-main); background: var(--spf-hover-white); } }
     .track-action-btn.is-favorite { color: var(--spf-brand); }
     .track-action-btn.is-favorite svg { fill: var(--spf-brand); }
+    
+    
+/* --- TRACK MENU HEADER (CSS Grid Fix) --- */
+
+/* 1. Main Container: Use GRID instead of Flex */
+#track-context-popup .track-popup-header {
+    display: grid !important;
+    grid-template-columns: 56px 1fr !important; /* Col 1: 56px, Col 2: The rest */
+    grid-template-rows: auto !important;
+    align-items: center !important;
+    gap: 16px !important;
+    
+    padding-bottom: 16px !important;
+    margin-bottom: 12px !important;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
+/* 2. Album Art: Fills the 1st Column */
+#track-context-popup #track-popup-art {
+    width: 100% !important; /* Fill the 56px grid column */
+    height: 56px !important;
+    background-color: #282828; 
+    background-size: cover;
+    background-position: center;
+    border-radius: 4px;       
+    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
+    display: block !important;
+    margin: 0 !important;
+}
+
+/* 3. Text Wrapper: Fills the 2nd Column */
+#track-context-popup .track-popup-info {
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: flex-start !important;
+    
+    /* CRITICAL: Reset Widths */
+    width: auto !important; 
+    min-width: 0 !important; /* Required for text truncation in Grid */
+    margin: 0 !important;
+}
+
+/* 4. Song Title */
+#track-context-popup #track-popup-title {
+    font-size: 1.1rem !important; 
+    font-weight: 700 !important;
+    color: #ffffff !important;   
+    line-height: 1.2 !important; 
+    
+    display: block !important;
+    width: 100% !important;
+    margin: 0 0 2px 0 !important;
+    text-align: left !important;
+    
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+/* 5. Artist Name */
+#track-context-popup #track-popup-artist {
+    font-size: 1rem !important;
+    font-weight: 400 !important;
+    color: #b3b3b3 !important;   
+    line-height: 1.2 !important;
+    
+    display: block !important;
+    width: 100% !important;
+    margin: 0 !important;
+    text-align: left !important;
+    
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+}
+
+
+/* --- TRACK MENU ACTION BUTTONS --- */
+
+/* 1. Main Button Container */
+.track-popup-item {
+    /* Flex Layout: Icon | Text */
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;       /* Vertically Center */
+    justify-content: flex-start !important; /* Align to the LEFT */
+    gap: 20px !important;                 /* Space between Icon and Text */
+    
+    /* Dimensions & Reset */
+    width: 100% !important;
+    padding: 14px 8px !important;         /* Vertical spacing */
+    margin: 0 !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 4px !important;        /* Subtle rounding */
+    
+    /* Typography */
+    font-size: 16px !important;           /* Readable size */
+    font-weight: 400 !important;          /* Standard weight */
+    color: #ffffff !important;            /* Force White Text */
+    text-align: left !important;          /* Ensure text aligns left */
+    cursor: pointer !important;
+    
+    /* Interaction */
+    pointer-events: auto !important;
+    transition: background 0.2s, opacity 0.2s !important;
+}
+
+/* 2. Icon Styling */
+.track-popup-item svg {
+    width: 24px !important;
+    height: 24px !important;
+    fill: #b3b3b3 !important;             /* Spotify uses Grey Icons */
+    flex-shrink: 0 !important;            /* Prevent icon squishing */
+    pointer-events: none !important;      /* Clicks pass through */
+}
+
+/* 3. Hover Effects */
+.track-popup-item:active,
+.track-popup-item:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important; /* Subtle highlight */
+}
+
+.track-popup-item:hover svg {
+    fill: #ffffff !important;             /* Brighten icon on hover */
+}
+
+/* 4. Cancel Button (Optional Polish) */
+#track-popup-close {
+    margin-top: 16px !important;
+    font-weight: 700 !important;
+    color: #ffffff !important;
+    border: none !important;
+}
 
     /* Artist / Skeleton Styles */
     .skeleton-pulse { animation: pulse 1.5s infinite ease-in-out; background: var(--spf-bg-card-hover); }
@@ -1026,5 +1282,48 @@ export const CARD_CSS = `
         ::-webkit-scrollbar-thumb:hover {
             background-color: rgba(255, 255, 255, 0.5) !important;
         }
+    }
+    
+    /* --- PERFORMANCE MODE OVERRIDES --- */
+
+    /* 1. Kill the Blur (Biggest GPU Saver) */
+    .perf-mode .browser-header,
+    .perf-mode .queue-panel,
+    .perf-mode .track-popup-content,
+    .perf-mode .device-popup-content,
+    .perf-mode .search-bar-container {
+        backdrop-filter: none !important;
+        -webkit-backdrop-filter: none !important;
+        background: #121212 !important; /* Solid fallback color */
+        border-bottom: 1px solid #282828;
+    }
+    
+    /* 2. Simplified Transparencies */
+    .perf-mode .queue-panel {
+        background: #000000 !important; /* Solid black for queue */
+    }
+    
+    /* 3. Disable Smooth Transitions (CPU Saver) */
+    .perf-mode * {
+        transition: none !important;
+        animation: none !important;
+    }
+    
+    /* 4. Remove Expensive Shadows */
+    .perf-mode .media-card, 
+    .perf-mode .queue-now-playing {
+        box-shadow: none !important;
+        border: 1px solid #333; /* Use simple border instead of shadow depth */
+    }
+    
+    /* 5. Optimize Images */
+    .perf-mode .hero-art,
+    .perf-mode .queue-art {
+        filter: none !important; /* Remove any brightness/contrast filters */
+    }
+    
+    /* 6. Simplified Text Rendering */
+    .perf-mode {
+        text-rendering: auto !important; /* Disable optimizeLegibility */
     }
 `;
