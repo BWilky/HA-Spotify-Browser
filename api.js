@@ -57,56 +57,77 @@ export class SpotifyApi {
         }
     }
 
-    async playMedia(uri, type, specificDevice = null) {
-        if (!this.hass || !uri) return { success: false, error: "No URI" };
+    // Inside api.js -> playMedia()
 
-        const stateObj = this.hass.states[this.entityId];
-        const isActive = stateObj && ['playing', 'paused'].includes(stateObj.state);
+  async playMedia(uri, type, specificDevice = null, extraOptions = {}) {
+      if (!this.hass) return { success: false, error: "No HASS" };
 
-        let deviceToUse = specificDevice;
+      const stateObj = this.hass.states[this.entityId];
+      const isActive = stateObj && ['playing', 'paused'].includes(stateObj.state);
+      let deviceToUse = specificDevice;
 
-        // If requested device is Default, but we are already playing elsewhere, ignore it.
-        if (deviceToUse === this.defaultDevice && isActive) {
-            deviceToUse = null; 
-        }
+      // Device Selection Logic
+      if (deviceToUse === this.defaultDevice && isActive) deviceToUse = null;
+      if (!deviceToUse && !isActive) deviceToUse = this.defaultDevice;
 
-        // If inactive and no device specified, wake up Default.
-        if (!deviceToUse && !isActive) {
-            deviceToUse = this.defaultDevice;
-        }
+      if (!deviceToUse && !isActive) {
+          console.warn("[SpotifyBrowser] Cannot play: No active session/device.");
+          return { success: false, error: { message: "no active Spotify player" } };
+      }
 
-        const params = {};
-        if (deviceToUse) params.device_id = deviceToUse;
+      const params = { ...extraOptions };
+      if (deviceToUse) params.device_id = deviceToUse;
 
-        try {
-            // 1. Context Playback (Playlists, Albums, Artists)
-            // Use 'player_media_play_context' which takes a context_uri
-            if (['playlist', 'album', 'artist', 'show'].includes(type)) {
-                params.context_uri = uri;
-                await this.fetchSpotifyPlus('player_media_play_context', params, false);
-            } 
-            // 2. Track Playback (Single Songs / Popular Tracks)
-            // FIX: Use 'player_media_play_tracks' which takes a 'uris' string/list
-            else {
-                if (deviceToUse) {
-                     // We use the custom service because it supports 'device_id' injection
-                     params.uris = uri; 
-                     await this.fetchSpotifyPlus('player_media_play_tracks', params, false);
-                } else {
-                    // Standard fallback (safest for general playback)
-                    await this.hass.callService('media_player', 'play_media', {
-                        entity_id: this.entityId,
-                        media_content_id: uri,
-                        media_content_type: type
-                    });
-                }
-            }
-            return { success: true };
-        } catch (e) {
-            console.error("[SpotifyBrowser] Play failed:", e);
-            return { success: false, error: e };
-        }
-    }
+      try {
+          // A. Context Playback (Playlists, Albums)
+          if (['playlist', 'album', 'artist', 'show'].includes(type)) {
+              params.context_uri = uri;
+              if (extraOptions.offset_uri) {
+                  params.offset_uri = extraOptions.offset_uri;
+              }
+              
+              // --- SMART HYBRID LOGIC ---
+              const res = await this.fetchSpotifyPlus('player_media_play_context', params, false);
+              
+              // Check for failure (usually returns null on catch, or object with error)
+              // If failed AND we were trying to offset to a specific song...
+              if ((!res || res.error) && extraOptions.offset_uri) {
+                  console.warn("[SpotifyAPI] Context jump failed. Song likely not in context. Falling back to Track Play.");
+                  
+                  // RECURSIVE FALLBACK:
+                  // Play just the song (Track Mode)
+                  return await this.playMedia(extraOptions.offset_uri, 'track', specificDevice);
+              }
+              
+              return { success: true };
+          } 
+          
+          // B. Liked Songs
+          else if (type === 'likedsongs') {
+              params.shuffle = true; 
+              await this.fetchSpotifyPlus('player_media_play_track_favorites', params, false);
+              return { success: true };
+          } 
+          
+          // C. Tracks / Fallback
+          else {
+              if (deviceToUse) {
+                   params.uris = Array.isArray(uri) ? uri : [uri]; 
+                   await this.fetchSpotifyPlus('player_media_play_tracks', params, false);
+              } else {
+                   const contentId = Array.isArray(uri) ? uri[0] : uri;
+                   await this.hass.callService('media_player', 'play_media', {
+                       entity_id: this.entityId,
+                       media_content_id: contentId,
+                       media_content_type: type
+                   });
+              }
+              return { success: true };
+          }
+      } catch (e) {
+          return { success: false, error: e };
+      }
+  }
 
     async togglePlayback(play) {
         if (!this.hass) return;
