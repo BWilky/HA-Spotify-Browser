@@ -83,19 +83,55 @@ export const Templates = {
                 <button class="device-close-btn" data-action="close-accounts">Close</button>
             </div>
         </div>
-        
-        <!-- Alert & Page Container -->
-        <div class="alert-backdrop" id="alert-backdrop">
-            <div class="alert-content">
-                <h3 class="alert-title" id="alert-title">Alert</h3>
-                <div class="alert-message" id="alert-message">Something happened.</div>
-                <div class="alert-actions" id="alert-actions"></div>
+
+        <div class="device-popup-backdrop" id="track-context-popup">
+            <div class="device-popup-content">
+                
+                <div class="track-popup-header">
+                    <div class="track-popup-art" id="track-popup-art"></div>
+                    <div class="track-popup-info">
+                        <div class="track-popup-title-text" id="track-popup-title">Track Options</div>
+                        <div class="track-popup-artist-text" id="track-popup-artist"></div>
+                    </div>
+                </div>
+    
+                <button class="track-popup-item" data-action="tm-play">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                    Play Now
+                </button>
+                
+                <button class="track-popup-item" data-action="tm-queue">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+                    Add to Queue
+                </button>
+                
+                <button class="track-popup-item" data-action="tm-radio">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.22-7.51-3.22V17.5z"/></svg>
+                    Start Radio
+                </button>
+                
+                <button class="track-popup-item" data-action="tm-artist">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                    Go to Artist
+                </button>
+    
+                <button class="device-close-btn" id="track-popup-close">
+                    Cancel
+                </button>
             </div>
         </div>
 
-        <div class="page-container" id="page-container"></div>
-      </div>
-    `,
+    <div class="alert-backdrop" id="alert-backdrop">
+        <div class="alert-content">
+            <h3 class="alert-title" id="alert-title">Alert</h3>
+            <div class="alert-message" id="alert-message">...</div>
+            <div class="alert-actions" id="alert-actions"></div>
+        </div>
+    </div>
+
+    <div class="page-container" id="page-container"></div>
+  </div>
+`,
 
     // --- HOME TEMPLATES ---
 
@@ -115,7 +151,6 @@ export const Templates = {
         const html = order.map(key => sections[key] || '').join('');
 
         return `
-            ${Templates.refreshSpinner()}
             <div class="scroll-content">
                 ${html}
             </div>
@@ -140,7 +175,6 @@ export const Templates = {
         const html = order.map(key => sections[key] || '').join('');
 
         return `
-            ${Templates.refreshSpinner()}
             <div class="scroll-content">
                 ${html}
             </div>
@@ -148,7 +182,6 @@ export const Templates = {
     },
 
     search: (query) => `
-      ${Templates.refreshSpinner()}
       <div class="scroll-content">
         <h2 class="page-title">Top Results for "${query}"</h2>
         ${renderCarouselSection('Songs', 'search-songs', { query, type: 'track' })}
@@ -158,7 +191,6 @@ export const Templates = {
       </div>
     `,
     searchResults: (type, query) => `
-        ${Templates.refreshSpinner()}
         
         <div class="scroll-content" data-search-type="${type}" data-search-query="${query}">
             <div class="search-list-layout" id="search-results-grid">
@@ -175,13 +207,7 @@ export const Templates = {
 
     // --- COMPONENT TEMPLATES ---
 
-    refreshSpinner: () => `
-        <div class="pull-to-refresh">
-            <div class="ptr-spinner">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 4v6h-6"></path><path d="M1 20v-6h6"></path><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
-            </div>
-        </div>
-    `,
+
 
     recentPill: (item) => {
         const id = item.id;
@@ -211,7 +237,6 @@ export const Templates = {
         const type = data?.type || 'playlist';
         
         return `
-          ${Templates.refreshSpinner()}
           <div class="hero-banner">
             <div class="hero-bg"></div>
             <div class="hero-content">
@@ -239,7 +264,6 @@ export const Templates = {
     },
 
     artist: (data) => `
-      ${Templates.refreshSpinner()}
       <div class="artist-hero">
         <div class="hero-bg"></div>
         <div class="hero-gradient"></div>
@@ -292,64 +316,64 @@ export const Templates = {
 
     // In templates.js inside the Templates object
 
-mediaCard: (item, type) => {
-    // 1. Extract IDs and Titles
-    // Last.fm items will have id: null, which is fine (handled in click logic)
-    const id = item.id;
-    const uri = item.uri;
-    const title = item.name || item.title || 'Unknown';
-    
-    // 2. Determine Subtitle
-    // For Last.fm artists, this falls through to the default 'Artist'
-    let subtitle = item.subtitle;
-    if (!subtitle && item.owner) subtitle = item.owner.display_name; 
-    if (!subtitle && item.artists && Array.isArray(item.artists)) subtitle = item.artists.map(a => a.name).join(', '); 
-    if (!subtitle) subtitle = type === 'artist' ? 'Artist' : '';
-
-    // 3. Extract Image
-    // This logic works for both Spotify (images array) and our Last.fm mapper (images array)
-    let img = '';
-    if (type === 'track' && item.album && item.album.images && item.album.images.length > 0) {
-        img = item.album.images[0].url;
-    } else if (item.images && item.images.length > 0) {
-        img = item.images[0].url;
-    } else if (item.album && item.album.images && item.album.images.length > 0) {
-        img = item.album.images[0].url;
-    }
-    
-    // 4. Safety & Styling
-    const safeTitle = title.replace(/"/g, '&quot;');
-    const safeSubtitle = subtitle.replace(/"/g, '&quot;');
-
-    // Artists get circular rendering
-    const isArtist = type === 'artist';
-    const imageStyle = isArtist ? 'border-radius: 50%;' : '';
-    const containerClass = isArtist ? 'media-card artist-card interactive' : 'media-card interactive';
-
-    // 5. HTML Template
-    return `
-      <div class="${containerClass}" 
-           data-id="${id}" 
-           data-type="${type}" 
-           data-uri="${uri || ''}" 
-           data-title="${safeTitle}"
-           data-subtitle="${safeSubtitle}">
+    mediaCard: (item, type) => {
+        // 1. Extract IDs and Titles
+        // Last.fm items will have id: null, which is fine (handled in click logic)
+        const id = item.id;
+        const uri = item.uri;
+        const title = item.name || item.title || 'Unknown';
         
-        <div class="media-image-wrapper">
-            <div class="media-image" style="background-image: url('${img}'); background-color: #282828; ${imageStyle}"></div>
+        // 2. Determine Subtitle
+        // For Last.fm artists, this falls through to the default 'Artist'
+        let subtitle = item.subtitle;
+        if (!subtitle && item.owner) subtitle = item.owner.display_name; 
+        if (!subtitle && item.artists && Array.isArray(item.artists)) subtitle = item.artists.map(a => a.name).join(', '); 
+        if (!subtitle) subtitle = type === 'artist' ? 'Artist' : '';
+    
+        // 3. Extract Image
+        // This logic works for both Spotify (images array) and our Last.fm mapper (images array)
+        let img = '';
+        if (type === 'track' && item.album && item.album.images && item.album.images.length > 0) {
+            img = item.album.images[0].url;
+        } else if (item.images && item.images.length > 0) {
+            img = item.images[0].url;
+        } else if (item.album && item.album.images && item.album.images.length > 0) {
+            img = item.album.images[0].url;
+        }
+        
+        // 4. Safety & Styling
+        const safeTitle = title.replace(/"/g, '&quot;');
+        const safeSubtitle = subtitle.replace(/"/g, '&quot;');
+    
+        // Artists get circular rendering
+        const isArtist = type === 'artist';
+        const imageStyle = isArtist ? 'border-radius: 50%;' : '';
+        const containerClass = isArtist ? 'media-card artist-card interactive' : 'media-card interactive';
+    
+        // 5. HTML Template
+        return `
+          <div class="${containerClass}" 
+               data-id="${id}" 
+               data-type="${type}" 
+               data-uri="${uri || ''}" 
+               data-title="${safeTitle}"
+               data-subtitle="${safeSubtitle}">
             
-            ${!isArtist ? `
-            <button class="play-btn-overlay">
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            </button>
-            ` : ''}
-        </div>
-        
-        <div class="media-title" ${isArtist ? 'style="text-align:center;"' : ''}>${title}</div>
-        <div class="media-subtitle" ${isArtist ? 'style="text-align:center;"' : ''}>${subtitle}</div>
-      </div>
-    `;
-},
+            <div class="media-image-wrapper">
+                <div class="media-image" style="background-image: url('${img}'); background-color: #282828; ${imageStyle}"></div>
+                
+                ${!isArtist ? `
+                <button class="play-btn-overlay">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                </button>
+                ` : ''}
+            </div>
+            
+            <div class="media-title" ${isArtist ? 'style="text-align:center;"' : ''}>${title}</div>
+            <div class="media-subtitle" ${isArtist ? 'style="text-align:center;"' : ''}>${subtitle}</div>
+          </div>
+        `;
+    },
 
     trackRow: (track, index, showArt = false) => {
         const duration = msToTime(track.duration_ms);
@@ -360,8 +384,9 @@ mediaCard: (item, type) => {
         let firstColHtml = `<div class="track-num">${index}</div>`;
         let rowClass = "track-row interactive";
         
+        let img = '';
+            
         if (showArt) {
-            let img = '';
             if (track.album && track.album.images && track.album.images.length > 0) {
                 // Use smallest image for list performance
                 img = track.album.images[track.album.images.length - 1].url;
@@ -385,10 +410,21 @@ mediaCard: (item, type) => {
                     <button class="track-action-btn" data-action="queue">
                        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
                     </button>
+                    <button class="track-action-btn" data-action="menu" data-track-data='${JSON.stringify({
+                        name: track.name,
+                        artist: artistNames,
+                        uri: uri,
+                        id: track.id,
+                        image: img
+                    }).replace(/'/g, "&#39;")}'>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
+                    </button>
                 </div>
             </div>
         `;
     },
+    
+
     
     artistTopTrack: (track) => {
         let img = '';
@@ -490,101 +526,137 @@ mediaCard: (item, type) => {
     /* --- QUEUE TEMPLATES --- */
 
     // Update signature to accept 'components'
-    nowPlayingRow: (track, isPlaying, showMiniPlayer = false, isFavorite = false, components = {}, showVolumeView = false, currentVolume = 0) => {
-        const artists = track.artists ? track.artists.map(a => a.name).join(', ') : 'Unknown';
-        const img = track.image_url || (track.album?.images?.[0]?.url) || '';
-        const icon = isPlaying 
-            ? `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
-            : `<svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`;
+    // --- In templates.js (inside Templates object) ---
 
-        let extras = '';
-        let progressBar = '';
-        
-        if (showMiniPlayer) {
-            
-            // --- VIEW 1: VOLUME SLIDER ---
-            if (showVolumeView) {
-                const volPercent = Math.round(currentVolume * 100);
-                
-                extras = `
+    // --- In templates.js (inside Templates object) ---
+
+
+
+    nowPlayingRow: (track, isPlaying, showMini, isFav, components, showVol, vol, deviceName) => {
+        // 1. Data Setup
+        const title = track.name || '';
+        const artist = track.artists.map(a => a.name).join(', ');
+        const img = track.image_url || '';
+        const id = track.id || '';
+    
+        // 2. Play/Pause Icons
+        const playIcon = '<path d="M8 5v14l11-7z"/>';
+        const pauseIcon = '<path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>';
+        const currentIcon = isPlaying ? pauseIcon : playIcon;
+    
+        // --- UPDATED ICON: YOUR SPECIFIC SPEAKER SVG ---
+        const deviceIconPath = "M12,12A3,3 0 0,0 9,15A3,3 0 0,0 12,18A3,3 0 0,0 15,15A3,3 0 0,0 12,12M12,20A5,5 0 0,1 7,15A5,5 0 0,1 12,10A5,5 0 0,1 17,15A5,5 0 0,1 12,20M12,4A2,2 0 0,1 14,6A2,2 0 0,1 12,8C10.89,8 10,7.1 10,6C10,4.89 10.89,4 12,4M17,2H7C5.89,2 5,2.89 5,4V20A2,2 0 0,0 7,22H17A2,2 0 0,0 19,20V4C19,2.89 18.1,2 17,2Z";
+    
+        // 3. Device Row (Using New Icon)
+        const deviceDisplay = deviceName ? 'flex' : 'none';
+        const deviceHtml = `
+            <div class="queue-device-row" style="display: ${deviceDisplay}">
+                <svg viewBox="0 0 24 24"><path fill="currentColor" d="${deviceIconPath}"/></svg>
+                <span class="device-name-text">${deviceName || ''}</span>
+            </div>`;
+    
+        // 4. Large Play Button (Right Side)
+        const mainPlayBtn = `
+            <div class="queue-play-btn large-side-btn" id="queue-hero-play-btn">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor">${currentIcon}</svg>
+            </div>
+        `;
+    
+        // 5. Controls Logic
+        let bottomRowHtml = '';
+    
+        if (showVol) {
+            // --- Volume Slider ---
+            bottomRowHtml = `
                 <div class="volume-control-container">
-                    <div class="vol-icon">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-                    </div>
-                    <input type="range" class="volume-slider" min="0" max="100" value="${volPercent}" id="mini-vol-slider">
-                    <button class="mini-btn" data-action="close-volume" title="Close Volume">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                    <div class="vol-icon"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg></div>
+                    <input type="range" class="volume-slider" id="mini-vol-slider" min="0" max="100" value="${Math.round(vol * 100)}">
+                    <button class="mini-btn" data-action="close-volume" style="margin-left:12px;">
+                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
                     </button>
-                </div>`;
-            } 
-            // --- VIEW 2: STANDARD ACTION BUTTONS ---
-            else {
-                const heartClass = isFavorite ? 'is-favorite' : '';
-                
-                // Check Config (Default to true unless explicitly false)
-                const showShuffle = components.shuffle === true; 
-                const showPrev = components.previous !== false; 
-                const showNext = components.next !== false;      
-                const showLike = components.like !== false;      
-                const showVol = components.volume !== false; 
-
-                const shuffleHtml = showShuffle ? `
-                    <button class="mini-btn" data-action="mini-shuffle" title="Shuffle">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
-                    </button>` : '';
-
-                const prevHtml = showPrev ? `
-                    <button class="mini-btn" data-action="mini-prev">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
-                    </button>` : '';
-
-                const nextHtml = showNext ? `
-                    <button class="mini-btn" data-action="mini-skip">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
-                    </button>` : '';
-
-                const likeHtml = showLike ? `
-                    <button class="mini-btn ${heartClass}" data-action="mini-fav" data-id="${track.id}">
-                        <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                    </button>` : '';
-                
-                const volHtml = showVol ? `
-                    <button class="mini-btn" data-action="mini-volume" title="Volume">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-                    </button>` : '';
-
-                extras = `
+                </div>
+            `;
+        } else if (showMini) {
+            // --- Standard Controls (Updated Device Button Icon) ---
+            bottomRowHtml = `
                 <div class="queue-mini-controls">
-                    ${shuffleHtml}
-                    ${prevHtml}
-                    ${nextHtml}
-                    ${likeHtml}
-                    ${volHtml}
-                </div>`;
-            }
-            
-            progressBar = `
+                    ${components.shuffle ? `<button class="mini-btn" data-action="mini-shuffle"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg></button>` : ''}
+                    ${components.previous ? `<button class="mini-btn" data-action="mini-prev"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>` : ''}
+                    
+                    ${components.next ? `<button class="mini-btn" data-action="mini-skip"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>` : ''}
+                    
+                    ${components.like ? `<button class="mini-btn ${isFav ? 'is-favorite' : ''}" data-action="mini-fav" data-id="${id}"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></button>` : ''}
+                    
+                    ${components.volume ? `<button class="mini-btn" data-action="mini-volume"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg></button>` : ''}
+                    
+                    ${components.device ? `<button class="mini-btn" data-action="mini-device"><svg viewBox="0 0 24 24"><path fill="currentColor" d="${deviceIconPath}"/></svg></button>` : ''}
+                </div>
+            `;
+        }
+    
+        const progressBar = `
             <div class="queue-progress-container">
                 <div class="queue-progress-bar" id="mini-progress-bar"></div>
+            </div>
+        `;
+    
+        return `
+          <div class="queue-now-playing-row">
+              <div class="queue-item-content">
+                  <div class="queue-art large" style="background-image: url('${img}')"></div>
+                  
+                  <div class="queue-info">
+                      <div class="queue-title active">${title}</div>
+                      <div class="queue-artist">${artist}</div>
+                      ${deviceHtml}
+                  </div>
+    
+                  ${mainPlayBtn}
+              </div>
+              
+              ${bottomRowHtml}
+              ${progressBar}
+          </div>
+        `;
+      },
+
+    // 2. The New Helper (Exposed so index.js can use it)
+    renderNowPlayingControls: (showVolumeView, currentVolume, isFavorite, components, trackId) => {
+        const volPercent = Math.round(currentVolume * 100);
+        
+        if (showVolumeView) {
+            return `
+            <div class="volume-control-container">
+                <div class="vol-icon">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                </div>
+                <input type="range" class="volume-slider" min="0" max="100" value="${volPercent}" id="mini-vol-slider">
+                <button class="mini-btn" data-action="close-volume" title="Close Volume">
+                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                </button>
+            </div>`;
+        } 
+        else {
+            const heartClass = isFavorite ? 'is-favorite' : '';
+            const showShuffle = components.shuffle === true; 
+            const showPrev = components.previous !== false; 
+            const showNext = components.next !== false;        
+            const showLike = components.like !== false;        
+            const showVol = components.volume !== false; 
+            const showDevice = components.device !== false; 
+
+            const shuffleHtml = showShuffle ? `<button class="mini-btn" data-action="mini-shuffle"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg></button>` : '';
+            const prevHtml = showPrev ? `<button class="mini-btn" data-action="mini-prev"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>` : '';
+            const nextHtml = showNext ? `<button class="mini-btn" data-action="mini-skip"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>` : '';
+            const deviceHtml = showDevice ? `<button class="mini-btn" data-action="mini-device"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C7.58 2 4 5.58 4 10V20H20V10C20 5.58 16.42 2 12 2M12 4C15.31 4 18 6.69 18 10V18H6V10C6 6.69 8.69 4 12 4M12 6C13.11 6 14 6.89 14 8C14 9.11 13.11 10 12 10C10.89 10 10 9.11 10 8C10 6.89 10.89 6 12 6M12 12C10.89 12 10 12.89 10 14C10 15.11 10.89 16 12 16C13.11 16 14 15.11 14 14C14 12.89 13.11 12 12 12Z" /></svg></button>` : '';
+            const likeHtml = showLike ? `<button class="mini-btn ${heartClass}" data-action="mini-fav" data-id="${trackId}"><svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg></button>` : '';
+            const volHtml = showVol ? `<button class="mini-btn" data-action="mini-volume"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg></button>` : '';
+
+            return `
+            <div class="queue-mini-controls">
+                ${shuffleHtml} ${prevHtml} ${nextHtml} ${deviceHtml} ${likeHtml} ${volHtml}
             </div>`;
         }
-
-        return `
-        <div class="queue-now-playing-row">
-            <div class="queue-item-content">
-                <div class="queue-art large" style="background-image: url('${img}')"></div>
-                <div class="queue-info">
-                    <div class="queue-title active">${track.name}</div>
-                    <div class="queue-artist">${artists}</div>
-                </div>
-                <button class="queue-play-btn" id="queue-hero-play-btn">
-                    ${icon}
-                </button>
-            </div>
-        </div>
-        ${extras}
-        ${progressBar}
-        `;
     },
 
     queueRow: (track) => {
