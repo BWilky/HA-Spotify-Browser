@@ -49,72 +49,76 @@ resources:
 </details>
 
 
-```
-type: custom:spotify-browser-card
-entity: media_player.spotifyplus_bryce_peter ##use for single account setup
+## Configuration Reference
 
-closeondisconnect: true
-scan_interval: 5
+### Main Configuration
 
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `type` | string | **Required** | Must be `custom:spotify-browser-card`. |
+| `entity` | string | **Required** | The `media_player.spotifyplus_...` entity ID. (Not required if using `spotify_accounts`). |
+| `spotify_accounts` | list | `[]` | A list of accounts to switch between. See **Account Object** below. |
+| `performance_mode` | boolean | `false` | If `true`, disables background blur (glassmorphism) and heavy transparency effects. **Recommended for older tablets.** |
+| `default_device` | string | `null` | The specific name of the Spotify Connect device to select by default on load. |
+| `closeondisconnect` | boolean | `true` | Automatically closes the browser view if the Spotify client disconnects. |
+| `queue_miniplayer` | boolean | `false` | Quickly enables the mini-player queue view. |
+| `device_playback` | list | `[]` | Controls which devices appear in the device picker. See **Device Playback** below. |
+| `homescreen` | object | `See Desc` | Configures caching. Default: `{ cache: true, expiry: 60 }`. |
+| `advanced` | object | `null` | Advanced features like Last.FM integration and Radio settings. |
 
-spotify_accounts:
-  - name: Husband
-    entity: media_player.spotifyplus_**
-    hash: spotify-husband
-    default: true
-  - name: Wife
-    entity: media_player.spotifyplus_**
-    hash: spotify-wife
+### Spotify Accounts Object
+Define multiple accounts to easily switch between users.
 
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `name` | string | **Required** | The display name for the user (e.g., "Husband"). |
+| `entity` | string | **Required** | The `media_player.spotifyplus_...` entity for this specific user. |
+| `default` | boolean | `false` | Set `true` to make this the active account when the card loads. |
+| `hash` | string | `null` | Optional URL hash (e.g., `spotify-wife`) for deep-linking directly to this account. |
+
+### Device Playback
+Control which devices are shown or hidden in the device picker, and which is default.
+
+| Option | Type | Description |
+| :--- | :--- | :--- |
+| `default` | string | The exact name of the device to select automatically (e.g., "Office Speaker"). |
+| `show` | list | A list of device names to **explicitly show**. |
+| `hide` | list | A list of device names to **explicitly hide**. |
+
+**Example:**
+```yaml
 device_playback:
-  - default: Office
-  - show:  ##one or the other
-      - Kitchen
-      - iPhone
-      - Web Player (Chrome)
-  - hide:  ##one or the other
-      - Kitchen1
-      - Kitchen2
-queue:
-  - desktop:
-      - open_init: true
-      - miniplayer:
-          previous: true
-          next: true
-          shuffle: false
-          like: true
-          volume: false
+  - default: "Kitchen Speaker"
+  - hide:
+      - "Bedroom TV"
+      - "Web Player (Chrome)"
+```
 
-home_order:
-  - madeforyou
-  - albums
-  - recent
-  - favorites
-  - artists
-madeforyou:
-  - likedsongs: true
-  - desktop_pills: true
-  - playlists_recommended:
-      - id: 37i9dQZF1E39suu8OtrpJX
-        title: Daily Mix 1
-      - id: 37i9dQZF1E39suu8OtrpJX
-        title: Daily Mix 1
-      - id: 37i9dQZF1E39suu8OtrpJX
-        title: Daily Mix 1
-      - id: 37i9dQZF1E39suu8OtrpJX
-        title: Daily Mix 1
-      - id: 37i9dQZF1E39suu8OtrpJX
-        title: Daily Mix 1
-  - playlists:
-      - 3fKOnwgR2v4Qc0DH09KJKz
-advanced:
-  similar_artists:
-    provider: lastfm
-    limit: 10
-external_providers:
-  lastfm:
-    api_key: **** # Get a free api key @ https://www.last.fm/api/account/create
+### Queue Settings
+Customize the behavior of the queue and mini-player controls.
 
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `desktop` | list | `[]` | Configuration for the desktop view. |
+| `desktop.open_init` | boolean | `false` | If `true`, the queue sidebar opens automatically on load. |
+| `desktop.miniplayer` | object | `See Desc` | Toggle specific buttons on the miniplayer. |
+
+**Miniplayer Overrides:**
+Inside `desktop.miniplayer`, you can set the following to `true` or `false` to show/hide controls:
+* `shuffle`, `previous`, `next`, `like`, `volume`, `device`
+
+### Advanced & External Providers
+
+| Option | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `external_providers.lastfm.api_key` | string | `null` | Your Last.FM API key. Required for "Similar Artists" feature. |
+| `advanced.similar_artists` | object | `{ limit: 10 }` | Settings for the similar artists recommendation engine. |
+| `advanced.radio_track` | object | `null` | Settings for radio generation. |
+
+**Radio Track Object:**
+* `provider`: String (e.g. `'spotify'`)
+* `limit`: Number (Default `30`)
+* `dontstopthemusic`: Boolean (Default `true`)
 
 ```
 
