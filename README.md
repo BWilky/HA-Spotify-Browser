@@ -47,8 +47,6 @@ resources:
 4. Refresh your browser
 
 </details>
-
-
 ## Configuration Reference
 
 ### Main Configuration
@@ -59,10 +57,9 @@ resources:
 | `entity` | string | **Required** | The `media_player.spotifyplus_...` entity ID. (Not required if using `spotify_accounts`). |
 | `spotify_accounts` | list | `[]` | A list of accounts to switch between. See **Account Object** below. |
 | `performance_mode` | boolean | `false` | If `true`, disables background blur (glassmorphism) and heavy transparency effects. **Recommended for older tablets.** |
-| `default_device` | string | `null` | The specific name of the Spotify Connect device to select by default on load. |
 | `closeondisconnect` | boolean | `true` | Automatically closes the browser view if the Spotify client disconnects. |
-| `queue_miniplayer` | boolean | `false` | Quickly enables the mini-player queue view. |
-| `device_playback` | list | `[]` | Controls which devices appear in the device picker. See **Device Playback** below. |
+| `device_playback` | object | `{}` | Controls default device and visibility. See **Device Playback** below. |
+| `queue` | object | `{}` | Controls the queue sidebar and miniplayer buttons. See **Queue Settings** below. |
 | `homescreen` | object | `See Desc` | Configures caching. Default: `{ cache: true, expiry: 60 }`. |
 | `advanced` | object | `null` | Advanced features like Last.FM integration and Radio settings. |
 
@@ -77,29 +74,20 @@ Define multiple accounts to easily switch between users.
 | `hash` | string | `null` | Optional URL hash (e.g., `spotify-wife`) for deep-linking directly to this account. |
 
 ### Device Playback
-Control which devices are shown or hidden in the device picker, and which is default.
+Control which devices are shown, hidden, or selected by default.
 
 | Option | Type | Description |
 | :--- | :--- | :--- |
-| `default` | string | The exact name of the device to select automatically (e.g., "Office Speaker"). |
+| `default` | string | The exact name of the device to select automatically (e.g., "Bryce’s MacBook Pro"). |
 | `show` | list | A list of device names to **explicitly show**. |
 | `hide` | list | A list of device names to **explicitly hide**. |
 
-**Example:**
-```yaml
-device_playback:
-  - default: "Kitchen Speaker"
-  - hide:
-      - "Bedroom TV"
-      - "Web Player (Chrome)"
-```
-
 ### Queue Settings
-Customize the behavior of the queue and mini-player controls.
+The queue is enabled by default. You can customize the sidebar behavior and miniplayer buttons here.
 
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `desktop` | list | `[]` | Configuration for the desktop view. |
+| `desktop` | object | `{}` | Configuration for the desktop view. Set to `false` to disable the queue entirely. |
 | `desktop.open_init` | boolean | `false` | If `true`, the queue sidebar opens automatically on load. |
 | `desktop.miniplayer` | object | `See Desc` | Toggle specific buttons on the miniplayer. |
 
@@ -116,16 +104,76 @@ Inside `desktop.miniplayer`, you can set the following to `true` or `false` to s
 | `advanced.radio_track` | object | `null` | Settings for radio generation. |
 
 **Radio Track Object:**
-* `provider`: String (e.g. `'spotify'`)
+* `provider`: String (e.g. `'spotify'` or `'lastfm'`)
 * `limit`: Number (Default `30`)
 * `dontstopthemusic`: Boolean (Default `true`)
 
-```
+### Example Configuration
 
-Launch via tap_action url 
+```yaml
+type: custom:spotify-browser-card
+entity: media_player.spotifyplus_bryce_peter
+performance_mode: false
+closeondisconnect: true
 
-```
-tap_action:
-  action: navigate
-  navigation_path: "#spotify-browser"
-```
+# Advanced Settings
+advanced:
+  radio_track:
+    provider: lastfm
+    limit: 5
+  similar_artists:
+    provider: lastfm
+    limit: 10
+
+# External API Keys
+external_providers:
+  lastfm:
+    api_key: YOUR_LASTFM_API_KEY
+
+# Queue Configuration
+queue:
+  desktop:
+    open_init: true
+    miniplayer:
+      previous: true
+      next: true
+      shuffle: false
+      like: true
+      volume: true
+      device: true
+
+# Multi-Account Setup
+spotify_accounts:
+  - name: Bryce
+    entity: media_player.spotifyplus_bryce_peter
+    hash: spotify-bryce
+    default: true
+  - name: Barnabas
+    entity: media_player.spotifyplus_the_station
+    hash: spotify-barnabas
+
+# Home Screen Sorting
+home_order:
+  - madeforyou
+  - albums
+  - recent
+  - favorites
+  - artists
+
+# Device Management
+device_playback:
+  default: Bryce’s MacBook Pro
+  hide:
+    - Kitchen1
+    - Kitchen2
+    - Kitchen
+
+# Made For You Content
+madeforyou:
+  likedsongs: true
+  desktop_pills: true
+  playlists_recommended:
+    - id: 37i9dQZF1E39suu8OtrpJX
+      title: Daily Mix 1
+  playlists:
+    - 3fKOnwgR2v4Qc0DH09KJKz
