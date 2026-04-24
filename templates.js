@@ -135,17 +135,16 @@ export const Templates = {
 
     // --- HOME TEMPLATES ---
 
-    homeDesktop: (hasMadeForYou, order, usePills = false) => {
+    homeDesktop: (hasMadeForYou, order, usePills = false, hasPodcasts = false) => {
         const sections = {
             'recent': renderCarouselSection('Recently Played', 'recent'),
             'favorites': renderCarouselSection('Your Favorite Playlists', 'favorites'),
             'artists': renderCarouselSection('Followed Artists', 'artists'),
             'albums': renderCarouselSection('Your Favorite Albums', 'albums'),
-            
-            // FIX: Choose layout based on config
-            'madeforyou': hasMadeForYou 
-                ? (usePills ? renderPillSection('Made For You', 'madeforyou') : renderCarouselSection('Made For You', 'madeforyou')) 
-                : ''
+            'madeforyou': hasMadeForYou
+                ? (usePills ? renderPillSection('Made For You', 'madeforyou') : renderCarouselSection('Made For You', 'madeforyou'))
+                : '',
+            'podcasts': hasPodcasts ? renderCarouselSection('Podcasts', 'podcasts') : ''
         };
 
         const html = order.map(key => sections[key] || '').join('');
@@ -157,7 +156,7 @@ export const Templates = {
         `;
     },
 
-    homeMobile: (hasMadeForYou, order) => {
+    homeMobile: (hasMadeForYou, order, hasPodcasts = false) => {
         const sections = {
             // Special Grid for Recent on Mobile
             'recent': `
@@ -169,7 +168,8 @@ export const Templates = {
             'favorites': renderCarouselSection('Your Playlists', 'favorites'),
             'artists': renderCarouselSection('Your Artists', 'artists'),
             'albums': renderCarouselSection('Your Albums', 'albums'),
-            'madeforyou': hasMadeForYou ? renderCarouselSection('Made For You', 'madeforyou') : ''
+            'madeforyou': hasMadeForYou ? renderCarouselSection('Made For You', 'madeforyou') : '',
+            'podcasts': hasPodcasts ? renderCarouselSection('Podcasts', 'podcasts') : ''
         };
 
         const html = order.map(key => sections[key] || '').join('');

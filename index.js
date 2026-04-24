@@ -560,14 +560,14 @@ class SpotifyBrowserCard extends HTMLElement {
     if (pageId === 'home') {
       const isMobile = window.matchMedia('(max-width: 768px)').matches;
       const hasMadeForYou = Array.isArray(this._config.madeforyou) && this._config.madeforyou.length > 0;
+      const hasPodcasts = Array.isArray(this._config.podcasts) && this._config.podcasts.length > 0;
       const order = this._config.home_order || ['recent', 'madeforyou', 'favorites', 'artists', 'albums'];
 
       if (isMobile && Templates.homeMobile) {
-          page.innerHTML = Templates.homeMobile(hasMadeForYou, order);
+          page.innerHTML = Templates.homeMobile(hasMadeForYou, order, hasPodcasts);
           page.classList.add('mobile-home');
       } else {
-          // FIX: Pass the new config option
-          page.innerHTML = Templates.homeDesktop(hasMadeForYou, order, this._config.desktop_madeforyou_pills);
+          page.innerHTML = Templates.homeDesktop(hasMadeForYou, order, this._config.desktop_madeforyou_pills, hasPodcasts);
       }
     } else if (pageId === 'search') {
       page.innerHTML = Templates.search();
@@ -647,14 +647,17 @@ class SpotifyBrowserCard extends HTMLElement {
           
           if (!this._currentUserId) this._userCountry = 'US'; 
 
-          this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0, madeforyou: 0 };
+          this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0, madeforyou: 0, podcasts: 0 };
           this._followingPlaylistIds.clear();
 
-          const validSections = ['recent', 'favorites', 'artists', 'albums', 'madeforyou'];
+          const validSections = ['recent', 'favorites', 'artists', 'albums', 'madeforyou', 'podcasts'];
           const order = (this._config.home_order || validSections).filter(k => validSections.includes(k));
-          
+
           const fetchList = order.map(key => {
               if (key === 'madeforyou' && (!this._config.madeforyou || this._config.madeforyou.length === 0)) {
+                  return Promise.resolve();
+              }
+              if (key === 'podcasts' && (!this._config.podcasts || this._config.podcasts.length === 0)) {
                   return Promise.resolve();
               }
               return this._fetchSectionData(key, pageEl);
@@ -782,9 +785,38 @@ class SpotifyBrowserCard extends HTMLElement {
                   }
               }
               data = { items: items, total: items.length };
-              type = 'playlist'; 
-          } 
-          
+              type = 'playlist';
+          }
+
+          // --- PODCASTS ---
+          else if (sectionKey === 'podcasts') {
+              const configList = this._config.podcasts;
+              if (!Array.isArray(configList) || configList.length === 0) return;
+              if (offset > 0) return;
+
+              const items = [];
+
+              for (const entry of configList) {
+                  if (entry.shows && Array.isArray(entry.shows)) {
+                      const showPromises = entry.shows.map(async (show) => {
+                          try {
+                              const res = await this._api.fetchSpotifyPlus('get_show', { show_id: show.id });
+                              if (res && res.result) {
+                                  const s = res.result;
+                                  return { ...s, type: 'show', subtitle: s.publisher || 'Podcast' };
+                              }
+                              return null;
+                          } catch (e) { return null; }
+                      });
+                      const results = await Promise.all(showPromises);
+                      items.push(...results.filter(Boolean));
+                  }
+              }
+
+              data = { items: items, total: items.length };
+              type = 'show';
+          }
+
           // --- STANDARD SECTIONS ---
           else if (sectionKey === 'favorites') {
               const res = await this._api.fetchSpotifyPlus('get_playlist_favorites', { limit_total: limit, offset: offset });
@@ -847,7 +879,10 @@ class SpotifyBrowserCard extends HTMLElement {
               } else {
                   // NO DATA: Replace skeletons with message
                   if (offset === 0) {
-                      if (sectionKey !== 'madeforyou' || (this._config.madeforyou && this._config.madeforyou.length > 0)) {
+                      const hideEmpty =
+                          (sectionKey === 'madeforyou' && (!this._config.madeforyou || !this._config.madeforyou.length)) ||
+                          (sectionKey === 'podcasts' && (!this._config.podcasts || !this._config.podcasts.length));
+                      if (!hideEmpty) {
                          sectionContainer.innerHTML = `<div style="padding:20px; opacity:0.5; color: #ff5555; font-size:12px;">Unable to load.</div>`;
                       } else {
                          const homeSection = sectionContainer.closest('.home-section');
@@ -1276,7 +1311,39 @@ class SpotifyBrowserCard extends HTMLElement {
           }
        } catch (err) { console.error("Failed to load liked songs:", err); }
     
-    } else if (type === 'track') { 
+    } else if (type === 'show') {
+       try {
+          const [showRes, episodesRes] = await Promise.all([
+              this._api.fetchSpotifyPlus('get_show', { show_id: id }),
+              this._api.fetchSpotifyPlus('get_show_episodes', { show_id: id, limit: 50 })
+          ]);
+          if (showRes && showRes.result) {
+              const show = showRes.result;
+              const episodes = (episodesRes && episodesRes.result && episodesRes.result.items) || [];
+              const mockData = {
+                  name: show.name,
+                  description: show.publisher || show.description || 'Podcast',
+                  images: show.images,
+                  uri: show.uri,
+                  id: show.id,
+                  tracks: {
+                      items: episodes.map(ep => ({
+                          track: {
+                              id: ep.id,
+                              uri: ep.uri,
+                              name: ep.name,
+                              duration_ms: ep.duration_ms,
+                              artists: [{ name: ep.release_date ? ep.release_date.substring(0, 10) : 'Episode' }],
+                              album: { images: ep.images && ep.images.length > 0 ? ep.images : show.images }
+                          }
+                      }))
+                  }
+              };
+              this._updateDrillDownUI(pageEl, mockData, 'playlist');
+          }
+       } catch (err) { console.error("Failed to load podcast show:", err); }
+
+    } else if (type === 'track') {
        // Handle Track Link -> Redirect to Album View
        try {
           // First, get the track to find out which album it belongs to
