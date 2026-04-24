@@ -572,12 +572,17 @@ class SpotifyBrowserCard extends HTMLElement {
     } else if (pageId === 'search') {
       page.innerHTML = Templates.search();
     } else if (pageId.startsWith('search-all:')) {
-        const parts = pageId.split(':'); 
+        const parts = pageId.split(':');
         const type = parts[1];
         const query = decodeURIComponent(parts[2]);
         if (Templates.searchResults) {
             page.innerHTML = Templates.searchResults(type, query);
         }
+    } else if (pageId.startsWith('section:')) {
+        const sectionId = pageId.split(':')[1];
+        const isArtists = sectionId === 'artists';
+        const skeletons = Array(12).fill(0).map(() => Templates.cardSkeleton(isArtists)).join('');
+        page.innerHTML = `<div style="padding: 24px;"><div class="grid-layout" id="grid-all-${sectionId}">${skeletons}</div></div>`;
     } else {
       const type = data?.type || 'playlist';
       if (type === 'artist') {
@@ -1032,7 +1037,27 @@ class SpotifyBrowserCard extends HTMLElement {
       }
 
       // -----------------------------------------------------------
-      // 4. HERO PLAYBACK (Context)
+      // 4. SEE ALL BUTTON (Home Section View All)
+      // -----------------------------------------------------------
+      const seeAllBtn = target.closest('.see-all-btn');
+      if (seeAllBtn && seeAllBtn.dataset.action === 'toggle-view') {
+          e.stopPropagation();
+          const homeSection = seeAllBtn.closest('.home-section');
+          if (homeSection) {
+              const sectionId = homeSection.dataset.sectionId;
+              const sectionTitles = {
+                  recent: 'Recently Played', favorites: 'Your Playlists',
+                  artists: 'Followed Artists', albums: 'Saved Albums',
+                  madeforyou: 'Made For You', podcasts: 'Podcasts'
+              };
+              const title = sectionTitles[sectionId] || sectionId;
+              this._navigateTo(`section:${sectionId}`, { title, sectionId });
+          }
+          return;
+      }
+
+      // -----------------------------------------------------------
+      // 5. HERO PLAYBACK (Context)
       // -----------------------------------------------------------
       const heroBtn = target.closest('.hero-btn-play, .hero-btn-fav');
       if (heroBtn) {
@@ -1260,10 +1285,100 @@ class SpotifyBrowserCard extends HTMLElement {
         return;
     }
 
-    // 3. Standard Context Pages (Playlist/Artist/Album)
+    // 3. Section "See All" Page
+    if (pageId.startsWith('section:')) {
+        const sectionId = pageId.split(':')[1];
+        const title = data?.title || sectionId;
+
+        requestAnimationFrame(() => {
+            const centerTitle = this.shadowRoot.querySelector('.header-center-title');
+            if (centerTitle) { centerTitle.innerText = title; centerTitle.style.opacity = '1'; }
+            this._updateHeaderStyle(1);
+        });
+
+        const gridEl = pageEl.querySelector(`#grid-all-${sectionId}`);
+        if (!gridEl) return;
+
+        try {
+            let items = [];
+            let cardType = 'playlist';
+
+            if (sectionId === 'recent') {
+                const res = await this._api.fetchSpotifyPlus('get_player_recent_tracks', { limit: 50 });
+                if (res?.result?.items) {
+                    const seen = new Set();
+                    res.result.items.forEach(h => {
+                        if (h.track?.album && !seen.has(h.track.album.id)) {
+                            seen.add(h.track.album.id);
+                            items.push({ ...h.track.album, name: h.track.name, artists: h.track.artists, type: 'album', uri: h.track.album.uri });
+                        }
+                    });
+                    cardType = 'album';
+                }
+            } else if (sectionId === 'favorites') {
+                const res = await this._api.fetchSpotifyPlus('get_playlist_favorites', { limit_total: 50 });
+                if (res?.result?.items) { items = res.result.items; cardType = 'playlist'; }
+            } else if (sectionId === 'artists') {
+                const res = await this._api.fetchSpotifyPlus('get_artists_followed', { limit: 50 });
+                let d = res?.result;
+                if (d?.artists) d = d.artists;
+                if (d?.items) { items = d.items; cardType = 'artist'; }
+            } else if (sectionId === 'albums') {
+                const res = await this._api.fetchSpotifyPlus('get_album_favorites', { limit: 50 });
+                if (res?.result?.items) { items = res.result.items.map(i => i.album).filter(Boolean); cardType = 'album'; }
+            } else if (sectionId === 'madeforyou') {
+                const configList = this._config.madeforyou || [];
+                for (const entry of configList) {
+                    if (entry.likedsongs) {
+                        items.push({ id: 'me-liked', type: 'likedsongs', name: 'Liked Songs', subtitle: 'Your Favorites', uri: 'spotify:user:me:collection', images: [{ url: 'https://t.scdn.co/images/3099b3803ad9496896c43f22fe9be8c4.png' }] });
+                    } else if (entry.playlists_recommended && Array.isArray(entry.playlists_recommended)) {
+                        const results = await Promise.all(entry.playlists_recommended.map(async mfy => {
+                            try {
+                                const r = await this._api.fetchSpotifyPlus('get_playlist_cover_image', { playlist_id: mfy.id });
+                                return { id: mfy.id, type: 'playlist-recommended', name: mfy.title, uri: `spotify:playlist:${mfy.id}`, images: [{ url: r?.result?.url || '' }], owner: { display_name: 'Spotify' } };
+                            } catch (e) { return null; }
+                        }));
+                        items.push(...results.filter(Boolean));
+                    } else if (entry.playlists && Array.isArray(entry.playlists)) {
+                        const results = await Promise.all(entry.playlists.map(id => this._api.fetchSpotifyPlus('get_playlist', { playlist_id: id })));
+                        items.push(...results.filter(r => r?.result).map(r => r.result));
+                    }
+                }
+                cardType = 'playlist';
+            } else if (sectionId === 'podcasts') {
+                const configList = this._config.podcasts || [];
+                for (const entry of configList) {
+                    if (entry.shows && Array.isArray(entry.shows)) {
+                        const results = await Promise.all(entry.shows.map(async show => {
+                            try {
+                                const r = await this._api.fetchSpotifyPlus('get_show', { show_id: show.id });
+                                if (r?.result) {
+                                    const s = r.result;
+                                    return { ...s, type: 'show', subtitle: s.publisher || 'Podcast', latestEpisodeUri: s.episodes?.items?.[0]?.uri || null };
+                                }
+                                return null;
+                            } catch (e) { return null; }
+                        }));
+                        items.push(...results.filter(Boolean));
+                    }
+                }
+                cardType = 'show';
+            }
+
+            gridEl.innerHTML = items.length > 0
+                ? items.map(item => Templates.mediaCard(item, item.type || cardType)).join('')
+                : `<div style="padding:20px; opacity:0.5;">No items found.</div>`;
+        } catch (err) {
+            console.error(`[SpotifyBrowser] Failed to load section '${sectionId}':`, err);
+            gridEl.innerHTML = `<div style="padding:20px; opacity:0.5; color:#ff5555;">Error loading data.</div>`;
+        }
+        return;
+    }
+
+    // 4. Standard Context Pages (Playlist/Artist/Album)
     const type = data?.type || 'playlist';
-    const id = pageId.split(':')[1]; 
-    
+    const id = pageId.split(':')[1];
+
     // Safety Check
     if (!id || id === 'undefined') {
         console.warn("SpotifyBrowser: Missing ID for page load:", pageId);
@@ -2697,13 +2812,21 @@ class SpotifyBrowserCard extends HTMLElement {
             const parts = pageId.split(':');
             if (parts.length >= 3) {
                 const type = parts[1];
-                // Capitalize first letter
                 const typeCap = type.charAt(0).toUpperCase() + type.slice(1);
                 const query = decodeURIComponent(parts[2]);
-                
                 centerTitle.innerText = `All ${typeCap}s for "${query}"`;
-                centerTitle.style.opacity = '1'; 
+                centerTitle.style.opacity = '1';
             }
+        } else if (pageId.startsWith('section:')) {
+            // CASE B: Section View All (Always Visible)
+            const sectionTitles = {
+                recent: 'Recently Played', favorites: 'Your Playlists',
+                artists: 'Followed Artists', albums: 'Saved Albums',
+                madeforyou: 'Made For You', podcasts: 'Podcasts'
+            };
+            const sectionId = pageId.split(':')[1];
+            centerTitle.innerText = sectionTitles[sectionId] || sectionId;
+            centerTitle.style.opacity = '1';
         } else {
             // CASE B: Standard Pages (Hidden until scroll)
             // Try to recover title from the cached DOM
