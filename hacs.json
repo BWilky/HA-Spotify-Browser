@@ -1,5 +1,5 @@
 {
   "name": "Spotify Browser",
-  "filename": "spotify-browser.js",
+  "filename": "dist/spotify-browser.js",
   "render_readme": true
 }
