@@ -392,7 +392,7 @@ export const Templates = {
                 // Use smallest image for list performance
                 img = track.album.images[track.album.images.length - 1].url;
             }
-            firstColHtml = `<div class="track-art-small" style="background-image: url('${img}');"></div>`;
+            firstColHtml = `<div class="track-art-small" style="background-image: url('${img}'); background-size: cover; background-position: center;"></div>`;
             rowClass += " with-art"; // Trigger CSS grid change
         }
 

@@ -1545,9 +1545,10 @@ class SpotifyBrowserCard extends HTMLElement {
         }).join('');
         
         if(trackIds.length > 0) this._checkFavorites(trackIds, pageEl);
+        this._updateActiveElement();
       }
   }
-  
+
   _setupSwipeGestures() {
       /*
       const wrapper = this.shadowRoot.getElementById('browser-wrapper');
