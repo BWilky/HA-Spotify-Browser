@@ -2,6 +2,10 @@ export function msToTime(duration) {
     if (!duration) return '--:--';
     const seconds = Math.floor((duration / 1000) % 60);
     const minutes = Math.floor((duration / (1000 * 60)) % 60);
+    const hours = Math.floor(duration / (1000 * 60 * 60));
+    if (hours > 0) {
+        return `${hours}:${minutes < 10 ? '0' : ''}${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+    }
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 }
 

@@ -932,14 +932,14 @@ export const CARD_CSS = `
     .track-row {
         overflow: visible;
         display: grid; 
-        grid-template-columns: 40px 1fr auto 80px; 
+        grid-template-columns: 40px 1fr auto auto;
         padding: 8px 16px; border-radius: 4px; align-items: center; cursor: pointer;
         
         /* FIX: Enforce minimum height to match loaded content */
         min-height: 56px; 
         box-sizing: border-box;
     }
-    .track-row.with-art { grid-template-columns: 48px 1fr auto 80px; }
+    .track-row.with-art { grid-template-columns: 48px 1fr auto auto; }
 
     @media (hover: hover) { .track-row:hover { background: var(--spf-hover-white); } }
     .track-row:active { background: var(--spf-active-white); }
