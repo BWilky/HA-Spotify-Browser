@@ -803,7 +803,8 @@ class SpotifyBrowserCard extends HTMLElement {
                               const res = await this._api.fetchSpotifyPlus('get_show', { show_id: show.id });
                               if (res && res.result) {
                                   const s = res.result;
-                                  return { ...s, type: 'show', subtitle: s.publisher || 'Podcast' };
+                                  const latestEpisodeUri = s.episodes?.items?.[0]?.uri || null;
+                                  return { ...s, type: 'show', subtitle: s.publisher || 'Podcast', latestEpisodeUri };
                               }
                               return null;
                           } catch (e) { return null; }
@@ -1092,6 +1093,14 @@ class SpotifyBrowserCard extends HTMLElement {
           } else if (type === 'playlist-recommended') {
               this._playMediaSafe(uri, 'playlist');
               this._showToast("Starting Playlist...");
+          } else if (type === 'show') {
+              const latestEpisodeUri = card.dataset.latestEpisodeUri;
+              if (latestEpisodeUri) {
+                  this._playMediaSafe(uri, 'show', { offset_uri: latestEpisodeUri });
+              } else {
+                  this._playMediaSafe(uri, 'show');
+              }
+              this._showToast("Starting latest episode...");
           } else {
               // Scrape Metadata
               const title = card.dataset.title;

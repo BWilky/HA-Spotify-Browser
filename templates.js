@@ -352,12 +352,13 @@ export const Templates = {
     
         // 5. HTML Template
         return `
-          <div class="${containerClass}" 
-               data-id="${id}" 
-               data-type="${type}" 
-               data-uri="${uri || ''}" 
+          <div class="${containerClass}"
+               data-id="${id}"
+               data-type="${type}"
+               data-uri="${uri || ''}"
                data-title="${safeTitle}"
-               data-subtitle="${safeSubtitle}">
+               data-subtitle="${safeSubtitle}"
+               ${item.latestEpisodeUri ? `data-latest-episode-uri="${item.latestEpisodeUri}"` : ''}>
             
             <div class="media-image-wrapper">
                 <div class="media-image" style="background-image: url('${img}'); background-color: #282828; ${imageStyle}"></div>
