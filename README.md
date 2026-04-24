@@ -108,6 +108,43 @@ Inside `desktop.miniplayer`, you can set the following to `true` or `false` to s
 * `limit`: Number (Default `30`)
 * `dontstopthemusic`: Boolean (Default `true`)
 
+### Home Screen Order
+Use `home_order` to control which sections appear on the home screen and in what order.
+
+| Section key | Description |
+| :--- | :--- |
+| `madeforyou` | Personalized playlists (Daily Mixes, Discover Weekly, etc.) |
+| `podcasts` | Podcast shows you configure manually |
+| `recent` | Recently played tracks |
+| `favorites` | Your saved playlists |
+| `artists` | Artists you follow |
+| `albums` | Your saved albums |
+
+### Podcasts
+
+Add a `podcasts` section to the home screen to pin specific podcast shows as a carousel. Pressing play always starts the **latest episode**. Clicking the card opens an episode list.
+
+```yaml
+home_order:
+  - madeforyou
+  - podcasts
+  - recent
+  - favorites
+  - artists
+  - albums
+
+podcasts:
+  - shows:
+      - id: 4rOoJ6Egrf8K2IrywzwOMk
+        title: The Joe Rogan Experience
+      - id: 1QZr5NinuorbELLt2SwLJU
+        title: Handelsblatt Morning Briefing
+```
+
+Find a show's ID in its Spotify URL: `https://open.spotify.com/show/**<id>**`
+
+The `title` field is optional — if omitted, the show's name from Spotify is used.
+
 ### Example Configuration
 
 ```yaml
@@ -155,10 +192,19 @@ spotify_accounts:
 # Home Screen Sorting
 home_order:
   - madeforyou
+  - podcasts
   - albums
   - recent
   - favorites
   - artists
+
+# Podcasts
+podcasts:
+  - shows:
+      - id: 4rOoJ6Egrf8K2IrywzwOMk
+        title: The Joe Rogan Experience
+      - id: 1QZr5NinuorbELLt2SwLJU
+        title: Handelsblatt Morning Briefing
 
 # Device Management
 device_playback:
