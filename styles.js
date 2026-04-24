@@ -901,7 +901,7 @@ export const CARD_CSS = `
     .hero-art { 
         width: 180px; height: 180px; 
         box-shadow: 0 4px 60px rgba(0,0,0,0.5); 
-        background: #333; flex-shrink: 0; 
+        background: #333; flex-shrink: 0; background-size: cover; background-position: center;
         
         /* FIX: Prevent collapse if image is missing */
         display: block; 
