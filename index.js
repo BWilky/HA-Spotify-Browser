@@ -1037,7 +1037,18 @@ class SpotifyBrowserCard extends HTMLElement {
       }
 
       // -----------------------------------------------------------
-      // 4. SEE ALL BUTTON (Home Section View All)
+      // 4. CAROUSEL SCROLL BUTTON
+      // -----------------------------------------------------------
+      const scrollBtn = target.closest('.scroll-btn');
+      if (scrollBtn && scrollBtn.dataset.action === 'scroll-right') {
+          e.stopPropagation();
+          const carousel = scrollBtn.closest('.carousel-wrapper')?.querySelector('.carousel-layout');
+          if (carousel) carousel.scrollBy({ left: 400, behavior: 'smooth' });
+          return;
+      }
+
+      // -----------------------------------------------------------
+      // 5. SEE ALL BUTTON (Home Section View All)
       // -----------------------------------------------------------
       const seeAllBtn = target.closest('.see-all-btn');
       if (seeAllBtn && seeAllBtn.dataset.action === 'toggle-view') {
