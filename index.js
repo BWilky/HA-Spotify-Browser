@@ -1313,13 +1313,10 @@ class SpotifyBrowserCard extends HTMLElement {
     
     } else if (type === 'show') {
        try {
-          const [showRes, episodesRes] = await Promise.all([
-              this._api.fetchSpotifyPlus('get_show', { show_id: id }),
-              this._api.fetchSpotifyPlus('get_show_episodes', { show_id: id, limit: 50 })
-          ]);
+          const showRes = await this._api.fetchSpotifyPlus('get_show', { show_id: id });
           if (showRes && showRes.result) {
               const show = showRes.result;
-              const episodes = (episodesRes && episodesRes.result && episodesRes.result.items) || [];
+              const episodes = (show.episodes && show.episodes.items) || [];
               const mockData = {
                   name: show.name,
                   description: show.publisher || show.description || 'Podcast',
