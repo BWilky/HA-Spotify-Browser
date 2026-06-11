@@ -1,0 +1,156 @@
+# Spotify Browser Card - Comprehensive Configuration Example
+# Copy relevant sections to your Lovelace configuration.
+
+type: custom:spotify-browser-card
+
+# --- Core Settings ---
+# The main Spotify Media Player entity (Required if spotify_accounts not used)
+entity: media_player.spotify_user 
+
+# --- Home On Exit Behavior ---
+# Defines behavior when you close and reopen the browser.
+# Options:
+#   true (Default) -> Always resets to Home screen.
+#   false          -> Remembers last page and position forever (until cache clears).
+#   timeout: N     -> Remembers state for N seconds, then resets to Home.
+homeonexit:
+  timeout: 300 # 5 minutes
+
+
+device_playback:
+  # Device Manager (Optional)
+  # Persistent device list, sorting, and defaults using an input_select helper.
+  helper: input_select.spotify_browser_device_manager
+
+  # Default Device for Idle Playback
+  # REMOVED: Managed via Device Manager (input_select) or interactive prompt.
+
+  # Volume Configuration
+  volume:
+    # Option 1: Simple Default (Scalar)
+    # default: 15  # Using this implies no time-based rules
+    
+    # Option 2: Advanced (Time-Based Rules)
+    default:
+      fallback: 25 # Used if no rules match
+      rules:
+        - start: '09:00'
+          end: '17:00'
+          level: '35' # Daytime volume
+        - start: '22:00'
+          end: '07:00'
+          level: '15' # Quiet at night
+         
+    # Slider Settings
+    slider:
+      rate_control: true # Throttle volume updates (Default: true)
+      optimistic: true   # Optimistic UI updates (Default: true)
+
+
+# --- Queue & Mini Player --- 
+
+queue:
+  - desktop:
+      # Open the queue sidebar automatically when browser opens?
+      open_init: true
+      
+      # Customize mini-player buttons (true/false)
+      miniplayer:
+        shuffle: true
+        previous: true
+        next: true
+        like: true   # Heart button
+        volume: true # Volume slider
+        device: true # Device picker
+
+# --- Cache & Performance ---
+# Max number of pages to keep in memory (default 10)
+# Uses Least-Recently-Used (LRU) eviction policy.
+cache_size: 15
+
+# --- Animations ---
+# Customize the look and feel of transitions.
+animations:
+  page_transition: fade # 'fade', 'slide', 'none'
+  browser_open: fade
+  blur: true # Set to false for opaque background (performance boost)
+
+# --- Accounts (Multi-User Support) ---
+# Adds a user switcher menu.
+spotify_accounts:
+  - name: "Bryce"
+    entity: media_player.spotify_bryce
+    default: true
+    hash: "#bryce" # URL hash to open this account directly
+  - name: "Alice"
+    entity: media_player.spotify_alice
+    hash: "#alice"
+
+# --- Home Screen Configuration ---
+homescreen:
+  cache: true 
+  expiry: 60 # Minutes before refreshing home data
+
+  # Pinned Items (Sticky)
+  # Requires an input_select entity in Home Assistant to store the pinned items.
+  sticky:
+    helper: input_select.spotify_pinned_items
+    limit: 10 # Optional, defaults to 10
+  
+  # Section Sorting & Visibility
+  # Define the order of sections. Omit items to hide them.
+  # Available options: pinned, recently played, followed_artists, favourite_playlists, favourite_albums, new_albums, made_for_you
+  sort: 
+    - pinned
+    - recently played
+    - made_for_you
+    - new_albums
+    - favourite_playlists
+    - followed_artists
+    - favourite_albums
+   
+# --- Advanced Features ---
+advanced:
+  # Radio Generator (requires external provider)
+  radio_track:
+    enabled: true
+    provider: "lastfm"
+    limit: 30
+    dontstopthemusic: true
+
+  # Similar Artists logic
+  similar_artists:
+    provider: "lastfm"
+    limit: 10
+
+# --- External Providers ---
+external_providers:
+  lastfm:
+    api_key: "YOUR_LASTFM_API_KEY"
+
+# --- Auto Close ---
+auto_close_seconds: 0
+closeondisconnect: true
+custom_hash: "#spotify-browser"
+# --- Scan Interval (Optional) ---
+# Custom update frequency in milliseconds (Default: None/Passive)
+# Valid range: 1000 - 15000 (1s - 15s)
+# Forces the integration to update from Spotify at this rate.
+scan_interval: 5000
+
+# --- Desktop Styling ---
+# Controls the size and behavior of the popup on desktop screens (>768px).
+desktop_style:
+  # Option 1: Fixed Sizing
+  # mode: fixed
+  # width: 1000px
+  # height: 700px
+
+  # Option 2: Fullscreen with Margin
+  fullscreen: true
+  margin: 32px
+  # You can also use individual margins (overrides global margin)
+  # margin_top: 50px
+  # margin_left: 10%
+  # margin_right: 0
+  # margin_bottom: 50px
