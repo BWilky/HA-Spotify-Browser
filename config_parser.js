@@ -80,15 +80,14 @@ export class ConfigParser {
         }
 
         // Pinned Items (Sticky Feature)
-        // Pinned Items (Sticky Feature)
         // Supports: homescreen: { sticky: { helper: 'input_select.cx', limit: 10 } }
         // OR legacy/alternate: pinned_items_entity
-        if (rawHomescreen.sticky) {
+        if (rawHomescreen?.sticky) {
             homescreenConfig.sticky = {
                 helper: rawHomescreen.sticky.helper,
                 limit: rawHomescreen.sticky.limit || 10
             };
-        } else if (rawHomescreen.pinned_items_entity) {
+        } else if (rawHomescreen?.pinned_items_entity) {
             // Backward compatibility or alternative simple key
             homescreenConfig.sticky = {
                 helper: rawHomescreen.pinned_items_entity,
@@ -109,8 +108,8 @@ export class ConfigParser {
         } else if (typeof config.device_playback === 'object' && config.device_playback !== null) {
             const dp = config.device_playback;
             if (dp.hide) devicePlayback.hide = devicePlayback.hide.concat(dp.hide);
-            if (dp.hide) devicePlayback.hide = devicePlayback.hide.concat(dp.hide);
             if (dp.show) devicePlayback.show = devicePlayback.show.concat(dp.show);
+            if (dp.default) foundDefaultDevice = dp.default;
         }
 
         // --- 3b. Volume Settings ---
@@ -255,8 +254,6 @@ export class ConfigParser {
             default_entity: startupEntity,
             spotify_accounts: accounts,
 
-            spotify_accounts: accounts,
-
             // Home On Exit Logic
             home_on_exit: (() => {
                 const val = config.homeonexit;
@@ -273,7 +270,7 @@ export class ConfigParser {
                 blur: config.animations?.blur !== false // Default true
             },
 
-            default_device: null,
+            default_device: foundDefaultDevice,
             volume: volumeConfig,
 
             advanced: advConfig,

@@ -100,6 +100,12 @@ export class SpotifyPlaylistView extends LitElement {
         this._checkPinStatus();
     }
 
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this._optimisticTimer) clearTimeout(this._optimisticTimer);
+        this._optimisticTimer = null;
+    }
+
     updated(changedProperties) {
         if (changedProperties.has('data')) {
             this._checkFollowStatus();
@@ -107,9 +113,9 @@ export class SpotifyPlaylistView extends LitElement {
         }
 
         // Check for HASS updates to the Pinned Items helper
-        if (changedProperties.has('hass') && this.pinned && this.pinned._entityId) {
+        if (changedProperties.has('hass') && this.pinned && this.pinned.sensorEntity) {
             const oldHass = changedProperties.get('hass');
-            const entityId = this.pinned._entityId;
+            const entityId = this.pinned.sensorEntity;
             if (oldHass && this.hass && oldHass.states[entityId] !== this.hass.states[entityId]) {
                 this._checkPinStatus();
             }
@@ -155,7 +161,7 @@ export class SpotifyPlaylistView extends LitElement {
         }
 
         this._isPinned = !!items.find(i => i.id === targetId);
-        this._pinnedEntity = this.pinned._entityId;
+        this._pinnedEntity = this.pinned.sensorEntity;
     }
 
     _getIsPlaying() {
@@ -376,13 +382,13 @@ export class SpotifyPlaylistView extends LitElement {
                     <div class="track-artist">${artistNames}</div>
                 </div>
                 <div class="track-actions-right">
-                    <button class="track-action-btn" data-action="save">
+                    <button class="track-action-btn" data-action="save" @click=${(e) => this._handleSaveTrack(e, track)}>
                        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
                     </button>
-                    <button class="track-action-btn" data-action="queue">
+                    <button class="track-action-btn" data-action="queue" @click=${(e) => this._handleQueueTrack(e, track)}>
                        <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
                     </button>
-                    <button class="track-action-btn" data-action="menu" .dataset.trackData=${JSON.stringify(trackData)}>
+                    <button class="track-action-btn" data-action="menu" @click=${(e) => this._handleTrackMenu(e, trackData)}>
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
                     </button>
                 </div>
@@ -392,6 +398,35 @@ export class SpotifyPlaylistView extends LitElement {
             console.error('[PlaylistView] Track Render Error:', e, track);
             return html`<div class="track-row error">Error loading track</div>`;
         }
+    }
+
+    _handleTrackMenu(e, trackData) {
+        e.stopPropagation();
+        this.dispatchEvent(new CustomEvent('open-track-menu', {
+            detail: trackData,
+            bubbles: true,
+            composed: true
+        }));
+    }
+
+    async _handleSaveTrack(e, track) {
+        e.stopPropagation();
+        if (!this.api || !track?.id) return;
+        const res = await this.api.saveTrackFavorites(track.id);
+        this.dispatchEvent(new CustomEvent('show-toast', {
+            detail: { message: res.success ? 'Added to Liked Songs' : 'Failed to save track' },
+            bubbles: true, composed: true
+        }));
+    }
+
+    async _handleQueueTrack(e, track) {
+        e.stopPropagation();
+        if (!this.api || !track?.uri) return;
+        const res = await this.api.fetchSpotifyPlus('add_player_queue_items', { uris: track.uri }, false);
+        this.dispatchEvent(new CustomEvent('show-toast', {
+            detail: { message: res ? 'Added to queue' : 'Failed to add to queue' },
+            bubbles: true, composed: true
+        }));
     }
 
     async _handleTrackClick(e, track) {
@@ -430,8 +465,7 @@ export class SpotifyPlaylistView extends LitElement {
         if (newState === 'playing') {
             this._playContext(this.data.uri, this.data.type);
         } else {
-            // Pause logic
-            this.api.controls.pause();
+            this.api.togglePlayback(false);
         }
     }
 

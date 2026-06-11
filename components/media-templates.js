@@ -5,11 +5,12 @@ import { html } from "../lit.js";
  * Used for Grids and Carousels.
  * 
  * @param {Object} item - The media item data.
- * @param {boolean} isArtist - Whether this is an artist card (circle) or not.
+ * @param {string|boolean} type - The item type ('artist' renders a circle), or legacy boolean isArtist.
  * @param {Function} clickHandler - (Lit Only) Function to call on click.
  * @returns {TemplateResult} Lit-html template.
  */
-export function renderCardTemplate(item, isArtist, clickHandler) {
+export function renderCardTemplate(item, type, clickHandler) {
+    const isArtist = type === true || type === 'artist';
     const imgUrl = item.image || item.images?.[0]?.url || item.album?.images?.[0]?.url || '';
     const name = item.name || item.title || 'Unknown';
     const subtitle = item.subtitle || item.release_date?.split('-')[0] || item.type || '';

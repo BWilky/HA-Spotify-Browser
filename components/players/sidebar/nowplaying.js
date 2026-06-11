@@ -278,6 +278,14 @@ export class SpotifySidebarNowPlaying extends LitElement {
     disconnectedCallback() {
         super.disconnectedCallback();
         this._stopProgressTimer();
+        if (this._volumeTimeout) clearTimeout(this._volumeTimeout);
+        if (this._volumeThrottleTimer) clearTimeout(this._volumeThrottleTimer);
+        if (this._deviceTimeout) clearTimeout(this._deviceTimeout);
+        if (this._overlayCloseTimer) clearTimeout(this._overlayCloseTimer);
+        this._volumeTimeout = null;
+        this._volumeThrottleTimer = null;
+        this._deviceTimeout = null;
+        this._overlayCloseTimer = null;
     }
 
     _startProgressTimer() {
@@ -429,8 +437,12 @@ export class SpotifySidebarNowPlaying extends LitElement {
 
         await this.api.fetchSpotifyPlus('player_transfer_playback', { device_id: device.id, play: true }, false);
 
-        // Show Toast via event? Or just close.
-        setTimeout(() => this.toggleDeviceOverlay(), 500);
+        // Close the overlay shortly after transfer
+        if (this._overlayCloseTimer) clearTimeout(this._overlayCloseTimer);
+        this._overlayCloseTimer = setTimeout(() => {
+            this._overlayCloseTimer = null;
+            if (this._devicesVisible) this.toggleDeviceOverlay();
+        }, 500);
     }
 
     async onVolumeChange(e) {

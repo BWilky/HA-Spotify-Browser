@@ -196,7 +196,7 @@ export class SpotifyPopupDeviceManager extends LitElement {
             this.refreshSaved();
         } else if (changedProperties.has('hass') && this.deviceManager && this.hass) {
             // Check if specific entity changed before overwriting optimistic state
-            const entityId = this.deviceManager._entityId;
+            const entityId = this.deviceManager.storageEntityId;
             const oldHass = changedProperties.get('hass');
             if (oldHass && entityId) {
                 const oldState = oldHass.states[entityId];
@@ -344,11 +344,6 @@ export class SpotifyPopupDeviceManager extends LitElement {
             await this.deviceManager.rename(id, newName);
             this.refreshSaved();
         }
-    }
-
-    async handleSetDefault(id) {
-        await this.deviceManager.setDefault(id);
-        this.refreshSaved();
     }
 
     async handleSetDefault(id) {

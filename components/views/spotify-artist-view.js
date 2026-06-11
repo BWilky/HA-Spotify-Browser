@@ -82,6 +82,14 @@ export class SpotifyArtistView extends LitElement {
         this._checkPinStatus();
     }
 
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this._optimisticTimer) clearTimeout(this._optimisticTimer);
+        if (this._optimisticContextTimer) clearTimeout(this._optimisticContextTimer);
+        this._optimisticTimer = null;
+        this._optimisticContextTimer = null;
+    }
+
     updated(changedProperties) {
         if (changedProperties.has('data')) {
             this._checkPinStatus();
@@ -197,8 +205,7 @@ export class SpotifyArtistView extends LitElement {
         if (newState === 'playing') {
             this._playContext(this.data.uri, 'artist');
         } else {
-            // Pause logic
-            this.api.controls.pause();
+            this.api.togglePlayback(false);
         }
     }
 
@@ -212,7 +219,7 @@ export class SpotifyArtistView extends LitElement {
 
         const items = await this.pinned.getItems();
         this._isPinned = !!items.find(i => i.id === this.data.id);
-        this._pinnedEntity = this.pinned._entityId;
+        this._pinnedEntity = this.pinned.sensorEntity;
     }
 
     _getHassTrackId() {
@@ -271,6 +278,7 @@ export class SpotifyArtistView extends LitElement {
 
         // Verification after 3 seconds
         setTimeout(async () => {
+            if (!this.isConnected) return;
             const confirmedState = await this.api.checkArtistsFollowing(this.data.id);
             if (confirmedState !== null && confirmedState !== newState) {
                 console.warn("[SpotifyArtistView] Follow state mismatch detected after verification. Correcting.");
@@ -356,6 +364,7 @@ export class SpotifyArtistView extends LitElement {
 
         // Verification
         setTimeout(async () => {
+            if (!this.isConnected) return;
             const confirmedState = await this.api.checkTrackFavorites(track.id);
             if (confirmedState !== null && confirmedState !== newState) {
                 console.warn(`[SpotifyArtistView] Track like mismatch for ${track.id}. Correcting.`);

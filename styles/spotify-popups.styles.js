@@ -243,7 +243,7 @@ export const popupsStyles = css`
     .alert-btn {
         background: transparent; border: 1px solid var(--spf-border);
         color: var(--spf-text-main); padding: 12px; border-radius: 24px;
-        font-.size: 14px; font-weight: 700; cursor: pointer;
+        font-size: 14px; font-weight: 700; cursor: pointer;
         text-transform: uppercase; letter-spacing: 1px;
         transition: background 0.2s;
     }

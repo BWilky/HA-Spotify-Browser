@@ -41,7 +41,6 @@ class SpotifyBrowserApp extends LitElement {
             _currentSearchQuery: { type: String },
             _isDesktop: { type: Boolean, state: true },
             _reorderVisible: { type: Boolean, state: true },
-            _reorderVisible: { type: Boolean, state: true },
             _deviceManagerVisible: { type: Boolean, state: true },
             _showRevealButton: { type: Boolean, state: true },
         };
@@ -676,29 +675,20 @@ class SpotifyBrowserApp extends LitElement {
         }
 
         // 2. Interactive Selection (Popup)
-        return new Promise(async (resolve) => {
+        return new Promise((resolve) => {
             console.log("[SpotifyBrowser] No default device. Requesting user selection...");
 
-            // --- IMMEDIATE LOAD (Optimistic) ---
-            let currentDevices = [];
-            let savedMap = new Map();
-            let settings = {};
+            const attributes = (this.hass && this.config.entity && this.hass.states[this.config.entity])
+                ? this.hass.states[this.config.entity].attributes
+                : {};
 
-            // Get Active ID from Attributes (Fastest)
-            let activeAttrId = null;
-            let activeAttrName = null;
-            if (this.hass && this.config.entity && this.hass.states[this.config.entity]) {
-                const attrs = this.hass.states[this.config.entity].attributes;
-                activeAttrId = attrs.sp_device_id;
-                activeAttrName = attrs.sp_device_name;
+            // Immediate render from existing saved state while the scan runs
+            if (this.deviceManager) {
+                this.deviceManager.getMergedDevices([], attributes).then(devs => {
+                    this._devices = devs;
+                    this.requestUpdate();
+                });
             }
-
-            // Immediate Render from existing saved state if possible
-            // We use empty array for API devices to just show what we have saved
-            this.deviceManager.getMergedDevices([], attrs).then(devs => {
-                this._devices = devs;
-                this.requestUpdate();
-            });
 
             // Show Popup Immediately
             this._deviceManagerVisible = false;
@@ -771,18 +761,11 @@ class SpotifyBrowserApp extends LitElement {
         }
     }
 
-    // Override _handleMenuItemClick (Update API init if needed there too)
-    // ... logic remains same, but ensure we use correct API init if lazy loading ...
     async _handleMenuItemClick(e) {
         this._menuVisible = false;
-        if (!this.api) {
-            this.api = new SpotifyApi(this.hass, this.config.entity, this._handleDeviceResolution.bind(this), null, (msg) => {
-                const popups = this.shadowRoot.getElementById('popups');
-                if (popups) popups.showToast(msg);
-            });
-        }
+        if (!this.api) this._initApi();
+        if (!this.api) return;
         switch (e.detail) {
-            // ... (rest is same)
             case 'menu-device':
                 // Show immediately for perceived performance
                 this._devicePopupVisible = true;
@@ -833,11 +816,11 @@ class SpotifyBrowserApp extends LitElement {
 
     _handleAccountSelected(e) {
         this.config = { ...this.config, entity: e.detail.entity };
-        const defaultDevice = this.config.device_playback?.default || this.config.default_device;
-        this.api = new SpotifyApi(this.hass, this.config.entity, defaultDevice, null, (msg) => {
-            const popups = this.shadowRoot.getElementById('popups');
-            if (popups) popups.showToast(msg);
-        });
+        // Rebuild API + PlayerController for the new entity via the single init path
+        this.api = null;
+        if (this.playerController) this.playerController.destroy();
+        this.playerController = null;
+        this._initApi();
         this._accountsPopupVisible = false;
     }
 

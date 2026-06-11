@@ -2,7 +2,7 @@
 import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { contextViewStyles } from '../styles/spotify-context-view.styles.js';
-import { renderCardTemplate, renderPillTemplate, renderCardSkeletonTemplate, renderPillSkeletonTemplate } from './media-templates.js';
+import { loadMadeForYouItems } from './controllers/home-content.js';
 
 // Import new sub-views
 import './views/spotify-context-list.js';
@@ -122,7 +122,7 @@ class SpotifyContextView extends LitElement {
                     hasMore: updatedItems.length < total,
                     isLoading: false
                 };
-                SpotifyContextView.stateCache.set(this.pageId, this._contextData);
+                SpotifyContextView.cacheSet(this.pageId, this._contextData);
             } else {
                 this._contextData = { ...this._contextData, isLoading: false, hasMore: false };
             }
@@ -141,8 +141,17 @@ class SpotifyContextView extends LitElement {
         // Children dispatch 'header-scroll' with bubbling, so it passes through.
     }
 
-    // Static cache for persistence across navigations
+    // Static cache for persistence across navigations (LRU, capped)
     static stateCache = new Map();
+    static MAX_CACHE_ENTRIES = 30;
+
+    static cacheSet(pageId, data) {
+        if (this.stateCache.has(pageId)) this.stateCache.delete(pageId);
+        this.stateCache.set(pageId, data);
+        if (this.stateCache.size > this.MAX_CACHE_ENTRIES) {
+            this.stateCache.delete(this.stateCache.keys().next().value);
+        }
+    }
 
     async loadPageData() {
         if (!this.pageId) return;
@@ -207,7 +216,7 @@ class SpotifyContextView extends LitElement {
                     }
 
                     // Update cache
-                    SpotifyContextView.stateCache.set(this.pageId, this._contextData);
+                    SpotifyContextView.cacheSet(this.pageId, this._contextData);
                     this.requestUpdate();
                 }
             } else if (type === 'artist') {
@@ -241,21 +250,21 @@ class SpotifyContextView extends LitElement {
                 const artistResult = await artistPromise;
                 if (artistResult?.result) {
                     this._contextData = { ...this._contextData, ...artistResult.result, isLoading: false };
-                    SpotifyContextView.stateCache.set(this.pageId, this._contextData);
+                    SpotifyContextView.cacheSet(this.pageId, this._contextData);
                     this.requestUpdate();
                 }
 
                 albumsPromise.then(res => {
                     if (res?.result?.items) {
                         this._contextData = { ...this._contextData, albums: res.result.items };
-                        SpotifyContextView.stateCache.set(this.pageId, this._contextData);
+                        SpotifyContextView.cacheSet(this.pageId, this._contextData);
                         this.requestUpdate();
                     }
                 });
 
                 topTracksPromise.then(tracks => {
                     this._contextData = { ...this._contextData, topTracks: tracks };
-                    SpotifyContextView.stateCache.set(this.pageId, this._contextData);
+                    SpotifyContextView.cacheSet(this.pageId, this._contextData);
                     this.requestUpdate();
                 });
 
@@ -270,7 +279,7 @@ class SpotifyContextView extends LitElement {
 
                 playlistsPromise.then(playlists => {
                     this._contextData = { ...this._contextData, playlists: playlists };
-                    SpotifyContextView.stateCache.set(this.pageId, this._contextData);
+                    SpotifyContextView.cacheSet(this.pageId, this._contextData);
                     this.requestUpdate();
                 });
 
@@ -283,7 +292,7 @@ class SpotifyContextView extends LitElement {
                     } else {
                         this._contextData = { ...this._contextData, similarArtists: [] };
                     }
-                    SpotifyContextView.stateCache.set(this.pageId, this._contextData);
+                    SpotifyContextView.cacheSet(this.pageId, this._contextData);
                     this.requestUpdate();
                 });
 
@@ -307,7 +316,7 @@ class SpotifyContextView extends LitElement {
                     }
 
                     this._contextData = { ...this._contextData, ...albumData, type: 'album', isLoading: false };
-                    SpotifyContextView.stateCache.set(this.pageId, this._contextData);
+                    SpotifyContextView.cacheSet(this.pageId, this._contextData);
                     this.requestUpdate();
                 } else {
                     console.error('[ContextView] Album Load Failed:', response);
@@ -336,7 +345,7 @@ class SpotifyContextView extends LitElement {
                     hasMore: items.length < total,
                     isLoading: false
                 };
-                SpotifyContextView.stateCache.set(this.pageId, this._contextData);
+                SpotifyContextView.cacheSet(this.pageId, this._contextData);
                 this.requestUpdate();
             } else if (type === 'likedsongs') {
                 // ...
@@ -472,8 +481,8 @@ class SpotifyContextView extends LitElement {
             } else if (sectionId === 'madeforyou') {
                 title = 'Made For You';
                 if (offset === 0) {
-                    const configList = this.config.homescreen?.madeforyou?.content || [];
-                    newItems = []; // Placeholder
+                    newItems = await loadMadeForYouItems(this.api, this.config);
+                    total = newItems.length;
                 }
             } else if (sectionId === 'new_releases') {
                 title = 'New Album Releases';
@@ -533,7 +542,7 @@ class SpotifyContextView extends LitElement {
                 nextCursor: shouldLoadMore ? nextCursor : null
             };
 
-            SpotifyContextView.stateCache.set(this.pageId, this._contextData);
+            SpotifyContextView.cacheSet(this.pageId, this._contextData);
             this.requestUpdate();
 
         } catch (e) {
@@ -547,7 +556,7 @@ class SpotifyContextView extends LitElement {
         if (!this._contextData || this._contextData.isLoading || !this._contextData.hasMore) return;
 
         // simple debounce or lock
-        this._contextData.isLoading = true;
+        this._contextData = { ...this._contextData, isLoading: true };
         this.requestUpdate();
 
         await this._loadSectionData(this._contextData.id, this._contextData.offset, this._contextData.nextCursor);
@@ -643,10 +652,11 @@ class SpotifyContextView extends LitElement {
             `;
         } else if (type === 'section') {
             return html`
-                <spotify-section-view 
-                    .data=${this._contextData} 
-                    .hass=${this.hass} 
+                <spotify-section-view
+                    .data=${this._contextData}
+                    .hass=${this.hass}
                     .api=${this.api}
+                    @load-more=${this._loadSectionMore}
                 ></spotify-section-view>
             `;
         } else if (type === 'artist-discography') {
