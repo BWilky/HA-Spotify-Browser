@@ -170,6 +170,8 @@ export class Router extends EventTarget {
             });
 
             contextView.addEventListener('navigate', (e) => this.navigateTo(e.detail.pageId, e.detail.data));
+            // In-page back buttons (section views, lists) dispatch 'back'
+            contextView.addEventListener('back', () => this.goBack());
             return contextView;
         }
 

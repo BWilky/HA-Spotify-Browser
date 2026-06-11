@@ -73,10 +73,12 @@ export class SpotifySectionView extends LitElement {
     }
 
     _handleScroll(e) {
-        // We can emit scroll events if the parent needs them, but usually 
-        // the fixed header here handles itself. 
-        // If we want the "Shrink" effect on the MAIN header (if this was a drilldown), we'd emit.
-        // But Section View has its OWN fixed header inside.
+        // Infinite scroll: request the next page when near the bottom.
+        if (!this.data || this.data.isLoading || !this.data.hasMore) return;
+        const el = e.target;
+        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 300) {
+            this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
+        }
     }
 
     render() {

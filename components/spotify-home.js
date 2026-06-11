@@ -2,6 +2,7 @@ import { LitElement, html, unsafeHTML } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { homeStyles } from '../styles/spotify-home.styles.js';
 import { renderCardHtml } from './media-templates.js';
+import { loadMadeForYouItems } from './controllers/home-content.js';
 
 // Helper templates from old templates.js
 // Helper templates from old templates.js
@@ -609,51 +610,9 @@ class SpotifyHome extends LitElement {
             let type = 'playlist';
 
             if (sectionKey === 'madeforyou') {
-                // Use NEW config location
-                const configList = this.config.homescreen?.madeforyou?.content;
-                if (!Array.isArray(configList) || configList.length === 0) return;
                 if (offset > 0) return;
-
-                const items = [];
-
-                for (const entry of configList) {
-                    if (entry.likedsongs) {
-                        items.push({
-                            id: 'me-liked', type: 'likedsongs', name: 'Liked Songs', subtitle: 'Your Favorites',
-                            uri: 'spotify:user:me:collection', images: [{ url: 'https://t.scdn.co/images/3099b3803ad9496896c43f22fe9be8c4.png' }]
-                        });
-                    }
-                    else if (entry.playlists_recommended && Array.isArray(entry.playlists_recommended)) {
-                        const mfyPromises = entry.playlists_recommended.map(async (mfy) => {
-                            try {
-                                const res = await this.api.fetchSpotifyPlus('get_playlist_cover_image', { playlist_id: mfy.id });
-                                const imgUrl = (res && res.result && res.result.url) ? res.result.url : '';
-                                return {
-                                    id: mfy.id, type: 'playlist-recommended', name: mfy.title,
-                                    uri: `spotify: playlist:${mfy.id} `,
-                                    images: [{ url: imgUrl }],
-                                    owner: { display_name: 'Spotify' }
-                                };
-                            } catch (e) { return null; }
-                        });
-                        const results = await Promise.all(mfyPromises);
-                        items.push(...results.filter(Boolean));
-                    }
-                    else if (entry.playlists && Array.isArray(entry.playlists)) {
-                        const plPromises = entry.playlists.map(id => this.api.fetchSpotifyPlus('get_playlist', { playlist_id: id }));
-                        const results = await Promise.all(plPromises);
-                        items.push(...results.filter(res => res && res.result).map(res => res.result));
-                    }
-                    else if (typeof entry === 'string') {
-                        try {
-                            const res = await this.api.fetchSpotifyPlus('get_playlist', { playlist_id: entry });
-                            if (res && res.result) items.push(res.result);
-                        } catch (e) { }
-                    }
-                    else if (typeof entry === 'object' && entry.id) {
-                        items.push(entry);
-                    }
-                }
+                const items = await loadMadeForYouItems(this.api, this.config);
+                if (items.length === 0) return;
                 data = { items: items, total: items.length };
                 type = 'playlist';
             }

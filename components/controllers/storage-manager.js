@@ -17,6 +17,11 @@ export class StorageManager {
         this.localStrategy.updateHass(hass);
     }
 
+    /** Entity holding persisted data (when the trigger-template backend is active). */
+    get sensorEntity() {
+        return this.config.sensor_entity || null;
+    }
+
     /**
      * Determines the active storage strategy.
      * Priority: Trigger Template (if sensor exists) > Local Storage

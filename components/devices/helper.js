@@ -18,6 +18,11 @@ export class DeviceManager {
         return true;
     }
 
+    /** Entity backing device storage, for hass-change comparisons. */
+    get storageEntityId() {
+        return this.storageManager?.sensorEntity || null;
+    }
+
     // No need for explicit validation as StorageManager handles simplified data
     // But we might want to ensure structure? 
     // Basic structure check implicitly handled by usage.

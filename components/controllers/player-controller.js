@@ -29,6 +29,18 @@ export class PlayerController extends EventTarget {
         this._lastTrackId = null;
         this._cachedApiQueue = null; // Store full API response
         this._eosTimer = null;
+        this._queueFetchId = 0; // Invalidates in-flight queue refreshes
+    }
+
+    /** Cancel all pending timers. Call when replacing or discarding this controller. */
+    destroy() {
+        if (this._optimisticTimer) clearTimeout(this._optimisticTimer);
+        if (this._refreshTimer) clearTimeout(this._refreshTimer);
+        if (this._eosTimer) clearTimeout(this._eosTimer);
+        this._optimisticTimer = null;
+        this._refreshTimer = null;
+        this._eosTimer = null;
+        this._queueFetchId++;
     }
 
     updateConfig(config) {
@@ -159,8 +171,11 @@ export class PlayerController extends EventTarget {
 
     async refreshQueue() {
         if (!this.api) return;
+        const fetchId = ++this._queueFetchId;
         try {
             const res = await this.api.fetchSpotifyPlus('get_player_queue_info');
+            // Drop stale responses (a newer refresh or optimistic action superseded this one)
+            if (fetchId !== this._queueFetchId) return;
             if (res && res.result) {
                 this._cachedApiQueue = res.result;
                 this.state.queue = res.result.queue || [];
@@ -260,6 +275,7 @@ export class PlayerController extends EventTarget {
 
         // Optimistic
         this._optimisticTrack = track;
+        this._queueFetchId++; // Invalidate any in-flight queue refresh so it can't stomp this state
         const queueIndex = this.state.queue.findIndex(t => t.uri === track.uri);
         if (queueIndex !== -1) {
             this._queueBackup = [...this.state.queue];
@@ -332,7 +348,7 @@ export class PlayerController extends EventTarget {
         const remainingSeconds = duration - currentPos;
 
         if (remainingSeconds <= 0) {
-            setTimeout(() => this.refreshQueue(), 300);
+            this._eosTimer = setTimeout(() => this.refreshQueue(), 300);
             return;
         }
 
