@@ -117,8 +117,9 @@ export const contextViewStyles = css`
     /* Track Rows */
     .track-row {
         overflow: visible;
-        display: grid; 
-        grid-template-columns: 40px 1fr auto 80px; 
+        display: grid;
+        /* num/art | title+artist | action buttons (flush right) */
+        grid-template-columns: 40px 1fr auto;
         gap: 16px;
         padding: 8px 16px; 
         align-items: center; cursor: pointer;
@@ -132,7 +133,7 @@ export const contextViewStyles = css`
         min-height: 56px; 
         box-sizing: border-box;
     }
-    .track-row.with-art { grid-template-columns: 48px 1fr auto 80px; }
+    .track-row.with-art { grid-template-columns: 40px 48px 1fr auto; }
 
     @media (hover: hover) { .track-row:hover { background: var(--spf-hover-white); } }
     .track-row:active { background: var(--spf-active-white); }
@@ -152,14 +153,11 @@ export const contextViewStyles = css`
     .track-actions-right {
         display: flex;
         align-items: center;
-        justify-content: flex-end; /* Keeps them grouped on the right side */
-        
-        /* ADD THIS to shift them leftwards away from the edge */
-        padding-right: 24px;       /* Increase this number to move them further left */
-        gap: 8px;                  /* Space between the buttons themselves */
+        justify-content: flex-end;
+        gap: 8px;
     }
-    
-    
+
+
     .track-action-btn { background: transparent; border: none; color: var(--spf-text-sub); cursor: pointer; padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: color 0.2s, background 0.2s; }
     @media (hover: hover) { .track-action-btn:hover { color: var(--spf-text-main); background: var(--spf-hover-white); } }
     .track-action-btn.is-favorite { color: var(--spf-brand); }
