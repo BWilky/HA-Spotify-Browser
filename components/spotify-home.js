@@ -298,6 +298,13 @@ class SpotifyHome extends LitElement {
                 return;
             }
 
+            // Tracks have no detail page — play them directly (e.g. pinned tracks)
+            if (type === 'track') {
+                const uri = card.dataset.uri || `spotify:track:${id}`;
+                this.api.playMedia(uri, 'track');
+                return;
+            }
+
             if (id && type) {
                 this.dispatchEvent(new CustomEvent('navigate', {
                     detail: {

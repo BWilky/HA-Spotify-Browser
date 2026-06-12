@@ -35,12 +35,15 @@ class SpotifySearch extends LitElement {
 
     async _performSearch(query) {
         if (!query) return;
+        const searchId = (this._searchId = (this._searchId || 0) + 1);
         try {
             const res = await this.api.fetchSpotifyPlus('search_all', {
                 criteria: query,
                 criteria_type: 'album,artist,playlist,track',
                 limit_total: 20
             });
+            // Drop out-of-order responses from fast typing
+            if (searchId !== this._searchId) return;
             if (res && res.result) {
                 this._results = res.result;
             }
@@ -51,14 +54,13 @@ class SpotifySearch extends LitElement {
 
     render() {
         if (!this._results) {
-            return html`<div class="loading">Searching for "${this._query}"...</div>`;
+            return html`<div class="loading" style="padding: 24px;">Searching for "${this._query}"...</div>`;
         }
 
+        // No in-page title: the query is already visible in the header search
+        // field, so results start right under the header.
         return html`
-            <div class="scroll-content" style="padding-top: 20px;">
-                <div class="section-header" style="margin-bottom: 24px; padding: 0 24px;">
-                    <h2 class="section-title" style="font-size: 2rem; margin: 0;">Search Results "${this._query}"</h2>
-                </div>
+            <div class="scroll-content" style="padding-top: 8px;">
                 ${this.renderSection('Songs', this._results.tracks, 'track')}
                 ${this.renderSection('Artists', this._results.artists, 'artist')}
                 ${this.renderSection('Albums', this._results.albums, 'album')}
@@ -90,6 +92,16 @@ class SpotifySearch extends LitElement {
                 : (item.artists?.[0]?.name || type);
 
         return renderCardTemplate({ ...item, subtitle }, type, () => {
+            // Tracks have no detail page — play them directly
+            if (type === 'track') {
+                this.api.playMedia(item.uri, 'track');
+                this.dispatchEvent(new CustomEvent('show-toast', {
+                    detail: { message: `Playing "${item.name}"` },
+                    bubbles: true, composed: true
+                }));
+                return;
+            }
+
             this.dispatchEvent(new CustomEvent('navigate', {
                 detail: {
                     pageId: `${type}:${item.id}`,

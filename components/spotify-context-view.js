@@ -352,6 +352,11 @@ class SpotifyContextView extends LitElement {
                         this.requestUpdate();
                     }
                 } catch (e) { }
+            } else {
+                // Unknown page type: don't leave the view stuck on "Loading..."
+                console.warn('[ContextView] No loader for page type:', type);
+                this._contextData = { ...this._contextData, isLoading: false, name: 'Page not found' };
+                this.requestUpdate();
             }
         } catch (e) {
             console.error("Failed to load context data", e);
