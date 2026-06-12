@@ -78,14 +78,9 @@ export class SpotifyContextList extends LitElement {
 
     _handleScroll(e) {
         const target = e.target;
-        // console.log('[SpotifyContextList] Scroll:', target.scrollTop, target.clientHeight, target.scrollHeight, 'hasMore:', this.data.hasMore, 'isLoading:', this.data.isLoading);
-
         // Infinite Scroll Logic
         if (target.scrollTop + target.clientHeight >= target.scrollHeight - 100) {
-            // Near bottom
-            console.log('[SpotifyContextList] Near bottom detected. hasMore:', this.data.hasMore, 'isLoading:', this.data.isLoading);
             if (!this.data.isLoading && this.data.hasMore) {
-                console.log('[SpotifyContextList] Dispatching load-more event');
                 this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
             }
         }

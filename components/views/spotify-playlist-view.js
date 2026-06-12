@@ -142,7 +142,6 @@ export class SpotifyPlaylistView extends LitElement {
     }
 
     // --- PINNED ITEMS LOGIC ---
-    // --- PINNED ITEMS LOGIC ---
     async _checkPinStatus() {
         if (!this.pinned || !this.data) return;
 
@@ -432,7 +431,6 @@ export class SpotifyPlaylistView extends LitElement {
     async _handleTrackClick(e, track) {
         if (e.target.closest('button')) return; // Ignore button clicks
 
-        console.log('[PlaylistView] Playing Track:', track.name, track.uri);
         const contextType = this.data.type;
 
         if (contextType === 'likedsongs') {

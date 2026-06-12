@@ -14,9 +14,8 @@ export class Router extends EventTarget {
 
         // Dependencies needed for page creation
         this.hass = null;
-        this.hass = null;
         this.api = null;
-        this.pinned = null; // New Dependency
+        this.pinned = null;
     }
 
     updateDependencies({ hass, api, config, pinned }) {
@@ -42,7 +41,6 @@ export class Router extends EventTarget {
     navigateTo(pageId, data = null, direction = 'forward') {
         if (!this.container) return;
 
-        // console.log(`[Router] navigateTo: ${pageId}, Direction: ${direction}`, data);
 
         // 1. Manage History
         if (direction === 'forward' && this.currentPageId) {
@@ -93,7 +91,6 @@ export class Router extends EventTarget {
 
     goBack() {
         if (this.history.length === 0) return;
-        // console.log(`[Router] goBack from: ${this.currentPageId}, History length: ${this.history.length}`);
         const previousPageId = this.history.pop();
         this.navigateTo(previousPageId, null, 'back');
     }
@@ -101,7 +98,7 @@ export class Router extends EventTarget {
     resetToHome() {
         if (this.currentPageId === 'home') return;
         this.history = [];
-        this.navigateTo('home', null, 'back'); // Use 'back' or 'none' for reset? 'back' usually feels right or 'none'
+        this.navigateTo('home', null, 'back');
     }
 
     _addToCache(id, element) {
@@ -151,12 +148,6 @@ export class Router extends EventTarget {
             this._injectProps(contextView);
             contextView.pageId = pageId;
             contextView.data = data;
-
-            // Event bubbling should handle these in App, but we can re-dispatch if needed.
-            // Actually, App listens to 'open-track-menu' on the host or container?
-            // The previous implementation added listeners directly to the element.
-            // Let's rely on event bubbling for 'open-track-menu' (composed: true)
-            // But 'header-scroll' is specific.
 
             // Forward track menu events to the host (App)
             contextView.addEventListener('open-track-menu', (e) => {

@@ -1,8 +1,6 @@
 
 export class ConfigParser {
     static parse(config) {
-
-
         // --- 1. Parse Accounts ---
         let accounts = [];
         if (Array.isArray(config.spotify_accounts)) {
@@ -95,7 +93,7 @@ export class ConfigParser {
             };
         }
 
-        // --- 3. Device Config (FIXED FOR YOUR YAML) ---
+        // --- 3. Device Config ---
         let devicePlayback = { hide: [], show: [] };
         let foundDefaultDevice = null;
 
@@ -120,10 +118,12 @@ export class ConfigParser {
         };
         let volumeSet = false;
 
-        // NEW: Top-level Volume Config
-        if (config.volume) {
+        // Volume config: top-level `volume:` or nested `device_playback.volume:`
+        // (the example config documents the nested form)
+        const rawVolume = config.volume || config.device_playback?.volume;
+        if (rawVolume) {
             volumeSet = true;
-            const v = config.volume;
+            const v = rawVolume;
 
             // Slider Settings
             if (v.slider) {
@@ -165,9 +165,15 @@ export class ConfigParser {
 
 
 
-        if (config.queue && typeof config.queue === 'object' && !Array.isArray(config.queue)) {
+        // Accept both object form (queue: { desktop: ... }) and the documented
+        // list form (queue: [ - desktop: ... ])
+        const rawQueue = Array.isArray(config.queue)
+            ? Object.assign({}, ...config.queue.filter(q => q && typeof q === 'object'))
+            : config.queue;
+
+        if (rawQueue && typeof rawQueue === 'object') {
             // Desktop Settings
-            const desktop = config.queue.desktop;
+            const desktop = rawQueue.desktop;
             if (desktop) {
                 if (desktop.open_init === true) queueSettings.openInit = true;
 
@@ -177,6 +183,7 @@ export class ConfigParser {
                         queueSettings.enabled = true;
                     } else if (typeof desktop.miniplayer === 'object') {
                         // Strict object parsing for miniplayer components
+                        queueSettings.enabled = true;
                         const mp = desktop.miniplayer;
                         queueSettings.components.shuffle = !!mp.shuffle;
                         queueSettings.components.previous = !!mp.previous;
@@ -189,27 +196,21 @@ export class ConfigParser {
             }
         }
 
-        // console.log("[SpotifyBrowser] Parsed Queue Settings:", queueSettings);
 
         // --- 5. Made For You Config (DEBUGGING) ---
         // Log the state of parser to help debug "missing made for you"
-        // console.log('SpotifyBrowser ConfigParser: Raw Homescreen:', rawHomescreen);
-        // console.log('SpotifyBrowser ConfigParser: Raw MadeForYou (Root):', config.madeforyou);
 
         // Fallback: Legacy Root Made For You (if not defined in homescreen)
         if (homescreenConfig.madeforyou.content.length === 0) {
             if (Array.isArray(config.madeforyou)) {
-                // console.log('SpotifyBrowser: Using Legacy Array MadeForYou');
                 homescreenConfig.madeforyou.content = config.madeforyou;
                 if (config.desktop_madeforyou_pills) homescreenConfig.madeforyou.pills = true;
             } else if (config.madeforyou && typeof config.madeforyou === 'object') {
-                // console.log('SpotifyBrowser: Using Legacy Object MadeForYou');
                 homescreenConfig.madeforyou.pills = config.madeforyou.desktop_pills || false;
                 homescreenConfig.madeforyou.content = config.madeforyou.items || config.madeforyou.content || [];
             }
         }
 
-        // console.log('SpotifyBrowser: Final Homescreen Config:', homescreenConfig);
 
         // --- 6. ADVANCED & EXTERNAL CONFIG ---
         let advConfig = {

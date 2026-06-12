@@ -23,10 +23,6 @@ export class DeviceManager {
         return this.storageManager?.sensorEntity || null;
     }
 
-    // No need for explicit validation as StorageManager handles simplified data
-    // But we might want to ensure structure? 
-    // Basic structure check implicitly handled by usage.
-
     // Simplified access to storage with schema migration
     async _loadData() {
         if (!this.checkAvailability()) return { settings: { version: 1 }, devices: [] };
@@ -141,11 +137,6 @@ export class DeviceManager {
 
     async rename(deviceId, newName) {
         return await this.update(deviceId, { name: newName });
-    }
-
-    async syncFromApi(apiDevices) {
-        console.warn("[DeviceManager] syncFromApi is deprecated.");
-        return { success: true };
     }
 
     async getMergedDevices(apiDevices = [], attributes = {}, options = {}) {

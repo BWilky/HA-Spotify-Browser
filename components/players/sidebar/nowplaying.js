@@ -503,8 +503,6 @@ export class SpotifySidebarNowPlaying extends LitElement {
             }
         }
 
-        console.log('[SidebarNowPlaying] Art Clicked. Track:', this.track, 'Context URI:', contextUri);
-
         // 2. Try to navigate to Context
         if (contextUri && contextUri.startsWith('spotify:')) {
             const parts = contextUri.split(':');
@@ -512,7 +510,6 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 const type = parts[1];
                 const id = parts[2];
                 if (['playlist', 'album', 'artist'].includes(type)) {
-                    console.log(`[SidebarNowPlaying] Discovered Context. Navigating to ${type}:${id}`);
                     this.dispatchEvent(new CustomEvent('navigate', {
                         detail: { pageId: `${type}:${id}` },
                         bubbles: true,
@@ -525,7 +522,6 @@ export class SpotifySidebarNowPlaying extends LitElement {
 
         // 3. Fallback to Album (Default Behavior)
         if (this.track && this.track.album && this.track.album.id) {
-            console.log('[SidebarNowPlaying] Context not found or not supported. Falling back to Album:', this.track.album.id);
             this.dispatchEvent(new CustomEvent('navigate', {
                 detail: { pageId: `album:${this.track.album.id}` },
                 bubbles: true,
@@ -618,11 +614,6 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 </button>
             </div>
         `;
-    }
-
-    updated(changedProps) {
-        // Track updates logic if needed
-        // Removed noisy console warnings for empty track state
     }
 
     renderFloatingVolume(stateObj) {

@@ -50,7 +50,6 @@ export class PlayerController extends EventTarget {
     updateHass(hass) {
         if (!hass) return;
         this.hass = hass;
-        // console.log('[PlayerController] updateHass called');
         this._updateStateFromHass();
     }
 
@@ -58,7 +57,6 @@ export class PlayerController extends EventTarget {
 
     _updateStateFromHass() {
         if (!this.hass || !this.config || !this.config.entity) {
-            // console.warn('[PlayerController] Missing HASS or Config Entity');
             return;
         }
         const stateObj = this.hass.states[this.config.entity];
@@ -120,7 +118,6 @@ export class PlayerController extends EventTarget {
 
         // Diff and Emit
         if (JSON.stringify(this.state) !== JSON.stringify(newState)) {
-            // console.log('[PlayerController] State Changed. New Track:', newState.track?.name);
             this.state = newState;
             this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
         }

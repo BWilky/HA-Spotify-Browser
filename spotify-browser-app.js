@@ -7,19 +7,15 @@ import './components/spotify-header.js';
 import './components/players/sidebar/index.js';
 import './components/spotify-home.js';
 import './components/spotify-search.js';
-import './components/spotify-context-view.js?v=2.2.24'; // Force reload
-
-
+import './components/spotify-context-view.js';
 import './components/spotify-popups.js';
 import './components/spotify-reorder-dialog.js';
 import { PinnedItemsManager } from './components/controllers/pinned-items-manager.js';
-import { DeviceManager } from './components/devices/helper.js'; // Updated
+import { DeviceManager } from './components/devices/helper.js';
 import { StorageManager } from './components/controllers/storage-manager.js';
 import { PlayerController } from './components/controllers/player-controller.js';
 
 import './components/devices/index.js'; // Registers Custom Elements
-// import './components/views/spotify-popup-devices.js'; // Removed
-// import './components/views/spotify-popup-devicemanager.js'; // Removed
 
 class SpotifyBrowserApp extends LitElement {
     static get properties() {
@@ -41,6 +37,7 @@ class SpotifyBrowserApp extends LitElement {
             _currentSearchQuery: { type: String },
             _isDesktop: { type: Boolean, state: true },
             _reorderVisible: { type: Boolean, state: true },
+            _pinnedItems: { type: Array, state: true },
             _deviceManagerVisible: { type: Boolean, state: true },
             _showRevealButton: { type: Boolean, state: true },
         };
@@ -72,6 +69,7 @@ class SpotifyBrowserApp extends LitElement {
         this._trackPopupData = null;
         this._devices = [];
         this._reorderVisible = false;
+        this._pinnedItems = [];
         this._deviceManagerVisible = false;
         this._showRevealButton = false;
         this._queueInitDone = false;
@@ -139,7 +137,6 @@ class SpotifyBrowserApp extends LitElement {
 
             // IF ONLY HASS CHANGED AND NO RELEVANT ENTITIES CHANGED, BLOCK UPDATE
             if (changedProperties.size === 1) {
-                // console.log('[SpotifyBrowserApp] Blocking HASS update - no relevant changes');
                 return false;
             }
         }
@@ -204,8 +201,6 @@ class SpotifyBrowserApp extends LitElement {
 
         // Initialize API if ready
         this._initApi();
-
-        // ... existing code ...
     }
 
     updated(changedProperties) {
@@ -299,7 +294,6 @@ class SpotifyBrowserApp extends LitElement {
             // Queue Init Logic
             if (!this._queueInitDone && this.config.queue_settings && this._isDesktop) {
                 if (this.config.queue_settings.openInit) {
-                    // console.log('[SpotifyBrowser] Queue Open Init triggered');
                     this._queueVisible = true;
                 }
                 this._queueInitDone = true;
@@ -476,8 +470,8 @@ class SpotifyBrowserApp extends LitElement {
 
                 <spotify-reorder-dialog
                     .visible=${this._reorderVisible}
-                    .items=${(this.pinnedManager && this.pinnedManager._currentItems) ? this.pinnedManager._currentItems : []}
-                    .userLibraryActive=${this.pinnedManager?._currentItems?.some(i => i.id === 'user-library')}
+                    .items=${this._pinnedItems || []}
+                    .userLibraryActive=${this._pinnedItems?.some(i => i.id === 'user-library')}
                     .allowBlur=${this.config?.settings?.performance?.blur !== false}
                     @close=${() => this._reorderVisible = false}
                     @reorder=${this._handleReorderSave}
@@ -524,7 +518,6 @@ class SpotifyBrowserApp extends LitElement {
                     @refresh-devices=${this._handleRefreshDevices}
                     @track-action=${this._handleTrackAction}
                     @open-manager=${() => {
-                console.log('[App] open-manager event received');
                 this._devicePopupVisible = false;
                 this._deviceManagerVisible = true;
             }}
@@ -532,10 +525,6 @@ class SpotifyBrowserApp extends LitElement {
             </div>
         `;
     }
-
-    // _navigateTo, _createPage, _addToCache removed (Moved to Router)
-
-
 
     _handleSearchToggleClick() { this._searchVisible = !this._searchVisible; }
     _handleSearchInput(e) {
@@ -772,7 +761,6 @@ class SpotifyBrowserApp extends LitElement {
 
                 // Fetch in background and update
                 this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true }).then(async (response) => {
-                    // ... (Parsing response logic)
                     let rawDevices = [];
                     if (response && response.result && Array.isArray(response.result.Items)) {
                         rawDevices = response.result.Items;
@@ -810,17 +798,18 @@ class SpotifyBrowserApp extends LitElement {
         }
     }
 
-    // Also handle popup close cancel!
-    // Add close handler logic to listeners in render if possible or modify handlers
-    // _handleDeviceManagerClose in render: @close-dialog=${() => { this._deviceManagerVisible = false; if(this._pendingDeviceResolution) { this._pendingDeviceResolution(null); this._pendingDeviceResolution = null; } }}
-
-    _handleAccountSelected(e) {
-        this.config = { ...this.config, entity: e.detail.entity };
-        // Rebuild API + PlayerController for the new entity via the single init path
+    /** Switch the active Spotify account/entity and rebuild the API stack. */
+    switchAccount(entity) {
+        if (!entity || entity === this.config.entity) return;
+        this.config = { ...this.config, entity };
         this.api = null;
         if (this.playerController) this.playerController.destroy();
         this.playerController = null;
         this._initApi();
+    }
+
+    _handleAccountSelected(e) {
+        this.switchAccount(e.detail.entity);
         this._accountsPopupVisible = false;
     }
 
@@ -858,55 +847,28 @@ class SpotifyBrowserApp extends LitElement {
     }
 
     _handleOpenReorder() {
-        // Need to ensure we have latest items. PinnedManager should have them.
-        // We can force a fetch if needed, but it should be reactive.
-        // However, PinnedManager doesn't expose _currentItems as a property we observe directly 
-        // essentially, we rely on HASS updates.
-        // But for the dialog to open with items, we need to pass them.
-        // Let's modify PinnedManager to expose a getter or just use getItems() async?
-        // Better: this.pinnedManager.getItems().then(items => ... )
-        // But we bind .items in render. So let's attach the items to the manager instance or App instance.
-        // Actually, PinnedManager updates HASS, and HASS updates trigger App.
-
-        // Quick Hack: Fetch items now and store in a temp prop for the dialog if needed, 
-        // OR rely on PinnedManager to just have them if we sync it.
-        // Let's assume we can call getItems() and set a local state for the dialog.
-        if (this.pinnedManager) {
-            this.pinnedManager.getItems().then(items => {
-                this.pinnedManager._currentItems = items; // Store on manager for reference in render
-                this._reorderVisible = true;
-                this.requestUpdate();
-            });
-        }
+        if (!this.pinnedManager) return;
+        // Snapshot current items for the dialog (bound via .items in render)
+        this.pinnedManager.getItems().then(items => {
+            this._pinnedItems = items;
+            this._reorderVisible = true;
+            this.requestUpdate();
+        });
     }
 
     _handleReorderSave(e) {
         const orderedItemsOrIds = e.detail;
-        if (this.pinnedManager) {
-            // Optimistically update local state
-            if (this.pinnedManager._currentItems) {
-                // If we receive objects, use them directly? 
-                // However, we must ensure we don't accidentally inject raw data that skips validation?
-                // But reorder dialog is trusted. Also PinnedItemsManager.reorder handles mixed input now.
+        if (!this.pinnedManager) return;
 
-                // If ids (legacy/fallback), mapping logic is needed. But we updated dialog to send items.
-                // Let's rely on PinnedItemsManager to handle the complexity and just pass it through.
-
-                // Update local expectation optimistically?
-                // If logic in Manager is complex, maybe just let it handle it.
-                // But specifically for 'anchored' prop, if we don't update local state, it might flicker.
-
-                // Simple version: Update local items if it's an array of objects
-                if (Array.isArray(orderedItemsOrIds) && typeof orderedItemsOrIds[0] === 'object') {
-                    this.pinnedManager._currentItems = orderedItemsOrIds;
-                }
-                this.requestUpdate();
-            }
-
-            this.pinnedManager.reorder(orderedItemsOrIds).catch(e => {
-                console.error("Reorder failed", e);
-            });
+        // Optimistic local update so the dialog doesn't flicker
+        if (Array.isArray(orderedItemsOrIds) && typeof orderedItemsOrIds[0] === 'object') {
+            this._pinnedItems = orderedItemsOrIds;
+            this.requestUpdate();
         }
+
+        this.pinnedManager.reorder(orderedItemsOrIds).catch(e => {
+            console.error("Reorder failed", e);
+        });
     }
 
     async _handleAddCustomUri(e) {
@@ -922,8 +884,7 @@ class SpotifyBrowserApp extends LitElement {
             if (popups) popups.showToast("Item pinned successfully");
             // Refresh items for the dialog
             this.pinnedManager.getItems().then(items => {
-                this.pinnedManager._currentItems = items;
-                this.requestUpdate();
+                this._pinnedItems = items;
             });
         } else {
             console.error("Failed to add custom URI:", result.error);
@@ -943,8 +904,7 @@ class SpotifyBrowserApp extends LitElement {
             if (popups) popups.showToast("Pinned items reset to default.");
             // Refresh
             this.pinnedManager.getItems().then(items => {
-                this.pinnedManager._currentItems = items;
-                this.requestUpdate();
+                this._pinnedItems = items;
             });
         } else {
             console.error("Reset failed", result.error);
@@ -971,10 +931,7 @@ class SpotifyBrowserApp extends LitElement {
 
         if (this.pinnedManager) {
             // Optimistic Delete
-            if (this.pinnedManager._currentItems) {
-                this.pinnedManager._currentItems = this.pinnedManager._currentItems.filter(i => i.id !== id);
-                this.requestUpdate();
-            }
+            this._pinnedItems = (this._pinnedItems || []).filter(i => i.id !== id);
 
             this.pinnedManager.remove(id).then(res => {
                 if (!res.success) {

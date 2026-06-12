@@ -41,8 +41,7 @@ class SpotifyContextView extends LitElement {
 
     connectedCallback() {
         super.connectedCallback();
-        console.log('[ContextView] Connected. PageId:', this.pageId);
-        // loadPageData will be called by updated() when properties are set
+        // loadPageData is called by updated() when properties are set
     }
 
     updated(changedProperties) {
@@ -53,12 +52,7 @@ class SpotifyContextView extends LitElement {
         }
     }
 
-    disconnectedCallback() {
-        super.disconnectedCallback();
-    }
-
     _handleTrackMenuClick(e) {
-        // ... Logic remains same ...
         const button = e.target.closest('.track-action-btn[data-action="menu"]');
         if (button) {
             e.stopPropagation();
@@ -84,8 +78,6 @@ class SpotifyContextView extends LitElement {
         const type = this._contextData.type;
         const offset = this._contextData.offset || 0;
         const limit = 50;
-
-        console.log('[ContextView] Load More Triggered. Type:', type, 'Offset:', offset);
 
         this._contextData = { ...this._contextData, isLoading: true };
         this.requestUpdate();
@@ -135,12 +127,6 @@ class SpotifyContextView extends LitElement {
         }
     }
 
-    _handleScroll(e) {
-        // No longer needed here as sub-views handle their own scroll events.
-        // But we keep it if we need to bubble 'header-scroll' from children?
-        // Children dispatch 'header-scroll' with bubbling, so it passes through.
-    }
-
     // Static cache for persistence across navigations (LRU, capped)
     static stateCache = new Map();
     static MAX_CACHE_ENTRIES = 30;
@@ -169,31 +155,24 @@ class SpotifyContextView extends LitElement {
             return;
         }
 
-        // 1. Check Static Cache first (User requested persistence)
+        // 1. Check Static Cache first (persistence across navigations)
         if (SpotifyContextView.stateCache.has(this.pageId)) {
-            // console.log('[SpotifyContextView] Restoring from static cache:', this.pageId);
             this._contextData = SpotifyContextView.stateCache.get(this.pageId);
             this.requestUpdate();
-            // If it's a section, we might want to check if more data is available or just let user scroll?
-            // For now, simple restore is what was asked.
             return;
         }
 
-        // ... Initial State Setup ...
+        // Initial loading state
         this._contextData = {
             type, id, isLoading: true, name: 'Loading...', items: [], offset: 0, total: null, hasMore: true,
             images: [], tracks: null, albums: null, playlists: null, topTracks: null, similarArtists: null
         };
         this.requestUpdate();
-        // Cache initial state immediately? No, wait for data.
 
         try {
             if (type === 'section') {
                 await this._loadSectionData(id, 0);
             } else if (type === 'playlist') {
-                // ... (rest of function) ...
-                // ...
-                // existing playlist logic ...
                 const response = await this.api.fetchSpotifyPlus('get_playlist', {
                     playlist_id: id,
                     fields: "description,id,name,images,owner,type,uri,tracks(items(track(id,name,uri,duration_ms,artists(name),album(images,name))))"
@@ -201,7 +180,7 @@ class SpotifyContextView extends LitElement {
                 if (response?.result) {
                     this._contextData = { ...this._contextData, ...response.result, type: 'playlist', isLoading: false };
 
-                    // Fetch Current User & Follow Status (existing logic)
+                    // Fetch Current User & Follow Status
                     if (!this._currentUserId) {
                         try {
                             const user = await this.api.getCurrentUserProfile();
@@ -220,17 +199,10 @@ class SpotifyContextView extends LitElement {
                     this.requestUpdate();
                 }
             } else if (type === 'artist') {
-                // ... existing artist logic ...
-                // Artist loading is complex with multiple promises. 
-                // We should probably rely on `requestUpdate` in the promises to refresh UI, 
-                // but we should update cache on final settled or progressively?
-                // Let's update cache in each promise resolution.
-
+                // Artist pages load progressively: each promise updates state + cache as it resolves.
                 const artistPromise = this.api.fetchSpotifyPlus('get_artist', { artist_id: id });
-                // ... (definitions) ...
                 const albumsPromise = this.api.fetchSpotifyPlus('get_artist_albums', { artist_id: id, limit: 12 });
                 const topTracksPromise = (async () => {
-                    // ...
                     try {
                         const artistRes = await artistPromise;
                         if (!artistRes?.result?.name) return [];
@@ -283,9 +255,7 @@ class SpotifyContextView extends LitElement {
                     this.requestUpdate();
                 });
 
-                // ... (similar artists promise) ...
                 similarArtistsPromise.then(async (artists) => {
-                    // ...
                     if (artists.length > 0) {
                         const hydrated = await this._hydrateSimilarArtists(artists);
                         this._contextData = { ...this._contextData, similarArtists: hydrated };
@@ -297,18 +267,14 @@ class SpotifyContextView extends LitElement {
                 });
 
             } else if (type === 'album') {
-                console.log('[ContextView] Loading Album:', id);
                 const response = await this.api.fetchSpotifyPlus('get_album', { album_id: id });
-                console.log('[ContextView] Album API Response:', response);
                 if (response?.result) {
                     let albumData = response.result;
 
                     // Check if tracks are missing or empty (API quirk)
                     if (!albumData.tracks || !albumData.tracks.items || albumData.tracks.items.length === 0) {
-                        console.log('[ContextView] Album tracks missing, fetching separately...');
                         const tracksRes = await this.api.fetchSpotifyPlus('get_album_tracks', { album_id: id, limit: 50 });
                         if (tracksRes?.result?.items) {
-                            console.log('[ContextView] Album tracks fetched:', tracksRes.result);
                             if (!albumData.tracks) albumData.tracks = {};
                             albumData.tracks.items = tracksRes.result.items;
                             albumData.tracks.total = tracksRes.result.total;
@@ -322,7 +288,6 @@ class SpotifyContextView extends LitElement {
                     console.error('[ContextView] Album Load Failed:', response);
                 }
             } else if (type === 'artist-discography') {
-                // ...
                 let artistName = this._contextData?.name;
                 if (!artistName) {
                     const artistRes = await this.api.fetchSpotifyPlus('get_artist', { artist_id: id });
@@ -348,7 +313,6 @@ class SpotifyContextView extends LitElement {
                 SpotifyContextView.cacheSet(this.pageId, this._contextData);
                 this.requestUpdate();
             } else if (type === 'likedsongs') {
-                // ...
                 this._contextData = {
                     type: 'likedsongs',
                     id: 'me',
@@ -373,7 +337,6 @@ class SpotifyContextView extends LitElement {
                 } catch (e) { }
 
             } else if (type === 'collection' && id === 'playlists') {
-                // ... existing collection logic ...
                 this._contextData = {
                     type: 'collection-playlists',
                     id: 'library',
@@ -405,19 +368,9 @@ class SpotifyContextView extends LitElement {
         try {
             if (sectionId === 'recent') {
                 title = 'Recently Played';
-                // Recent tracks API doesn't support standard offset paging well effectively beyond history, 
-                // but we can try generic call or just limited history.
-                // Actually `get_player_recent_tracks` takes limit (max 50 normally).
-                // It doesn't strictly support 'offset' in the same way, it uses 'before'/'after' cursors usually.
-                // However, SpotifyPlus might wrap it. 
-                // Let's assume for now we can just load the max 50 and that's it for "Recent" as per API limits usually?
-                // Or maybe we can't scroll infinitely on recent.
+                // The recent-tracks endpoint is cursor-based and capped (~50 items),
+                // so this section loads a single page only.
                 const res = await this.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: limit });
-                // Note: Recent tracks endpoint usually returns history. 
-                // If we want "infinite", we might be limited by Spotify API (usually last 50).
-
-                // For this implementation, we will just load max available if offset is 0, else nothing?
-                // Let's assume we can only load 50 total for recent.
                 if (offset === 0 && res?.result?.items) {
                     // Deduplicate albums logic like Home
                     const seenAlbumIds = new Set();
@@ -446,7 +399,6 @@ class SpotifyContextView extends LitElement {
                     // Saved Album object structure: item.album is the album object
                     newItems = res.result.items.map(i => i.album).filter(Boolean);
                     total = res.result.total;
-                    // console.log('[SpotifyContextView] Albums Loaded:', newItems.length, 'Total:', total, 'Offset:', offset);
                 }
             } else if (sectionId === 'artists') {
                 title = 'Followed Artists';
@@ -459,7 +411,6 @@ class SpotifyContextView extends LitElement {
                     params.after = cursor;
                 }
 
-                // console.log('[SpotifyContextView] Fetching Artists. Params:', params);
                 const res = await this.api.fetchSpotifyPlus('get_artists_followed', params);
 
                 if (res?.result) {
@@ -475,7 +426,6 @@ class SpotifyContextView extends LitElement {
                     // Logic: Cursor is strictly the ID of the last item
                     if (newItems.length > 0) {
                         nextCursor = newItems[newItems.length - 1].id;
-                        // console.log('[SpotifyContextView] Artist Cursor (Last ID):', nextCursor);
                     }
                 }
             } else if (sectionId === 'madeforyou') {
@@ -505,7 +455,6 @@ class SpotifyContextView extends LitElement {
             const distinctNewItems = newItems.filter(i => !currentIds.has(i.id));
             const allItems = [...currentItems, ...distinctNewItems];
 
-            // console.log('[SpotifyContextView] Update State - New Items (Raw):', newItems.length, 'Distinct:', distinctNewItems.length, 'Total Items:', allItems.length, 'Next Cursor:', nextCursor);
 
             // STOP CONDITIONS
             const reachedTotal = (total !== null && allItems.length >= total);

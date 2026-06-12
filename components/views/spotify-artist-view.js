@@ -64,8 +64,6 @@ export class SpotifyArtistView extends LitElement {
         };
     }
 
-    // ... styles ...
-
     constructor() {
         super();
         this.hass = null;
@@ -98,36 +96,14 @@ export class SpotifyArtistView extends LitElement {
         }
 
         // --- STATE HANDOFF LOGIC ---
+        // Clear the optimistic track once HASS catches up to it. We intentionally do NOT
+        // clear on other track changes: HASS can report intermediate IDs during a skip,
+        // which would make the UI revert briefly.
         if (this._optimisticPlayingTrackId && this.hass) {
             const realId = this._getHassTrackId();
-
-            // DEBUG LOGS
-            console.log('[SpotifyArtistView] Handoff Check:', {
-                optimistic: this._optimisticPlayingTrackId,
-                real: realId,
-                atClick: this._currentHassIdAtClick,
-                equality: realId === this._optimisticPlayingTrackId,
-                diffStart: realId !== this._currentHassIdAtClick
-            });
-
-            // 1. Success: HASS caught up to Optimistic
             if (realId === this._optimisticPlayingTrackId) {
-                console.log('[SpotifyArtistView] HASS caught up! Clearing optimistic.');
                 this._optimisticPlayingTrackId = null;
             }
-            // 2. Change: HASS moved to a DIFFERENT track than when we started
-            // (meaning the optimistic guess is now stale/wrong)
-            /* 
-            // DISABLE EXTERNAL CHANGE CHECK - It causes reversion if HASS reports an intermediate ID.
-            else if (realId && realId !== this._currentHassIdAtClick) {
-                console.log('[SpotifyArtistView] External change detected! Clearing optimistic.', {
-                    real: realId,
-                    atClick: this._currentHassIdAtClick,
-                    optimistic: this._optimisticPlayingTrackId
-                });
-                this._optimisticPlayingTrackId = null;
-            }
-            */
         }
 
         // Check header state on updates (handles back navigation scroll restoration)
@@ -430,10 +406,6 @@ export class SpotifyArtistView extends LitElement {
         }
 
         this._optimisticPlayingTrackId = startId;
-        console.log('[SpotifyArtistView] Optimistic Start:', {
-            optimisticId: startId,
-            currentHassId: this._currentHassIdAtClick
-        });
         this.requestUpdate();
 
         // Safety Timeout (8s): If HASS never updates (e.g. failure), clear state eventually
@@ -470,8 +442,6 @@ export class SpotifyArtistView extends LitElement {
         if (!uri || !this.api) return;
         this.api.playMedia(uri, type);
     }
-
-    // ... navigation ...
 
     _navigateToAlbum(album, e) {
         if (e) e.stopPropagation();
