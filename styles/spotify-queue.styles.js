@@ -88,7 +88,7 @@ export const queueStyles = css`
         background-size: cover;
         background-position: center;
         flex-shrink: 0;
-        background-color: #282828;
+        background-color: var(--spf-skeleton-bg);
         animation: imageFadeIn 0.5s ease-out;
     }
 
@@ -290,7 +290,7 @@ export const queueStyles = css`
         background-size: cover; 
         background-position: center; 
         flex-shrink: 0;
-        background-color: #282828;
+        background-color: var(--spf-skeleton-bg);
     }
 
     .queue-row-play-btn {

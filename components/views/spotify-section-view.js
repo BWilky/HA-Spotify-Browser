@@ -63,7 +63,7 @@ export class SpotifySectionView extends LitElement {
                  .row-title { font-size: 16px; font-weight: 500; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
                  .row-sub { font-size: 14px; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
                  
-                 @media (min-width: 768px) {
+                 @media (min-width: 769px) {
                      .table-row {
                          grid-template-columns: 56px 2fr 1fr; /* Image, Title/Sub, Extra Info? */
                      }

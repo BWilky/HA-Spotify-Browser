@@ -13,6 +13,7 @@ export const sharedStyles = css`
         --spf-bg: #121212;
         --spf-bg-card: #181818;
         --spf-bg-card-hover: #282828;
+        --spf-skeleton-bg: #282828;
         --spf-text-main: #ffffff;
         --spf-text-sub: #b3b3b3;
         --spf-hover-white: rgba(255, 255, 255, 0.1);
@@ -344,7 +345,7 @@ export const sharedStyles = css`
     .list-item-img {
         width: 56px; height: 56px;
         background-size: cover; background-position: center;
-        border-radius: 4px; background-color: #282828;
+        border-radius: 4px; background-color: var(--spf-skeleton-bg);
     }
     .list-item.artist .list-item-img { border-radius: 50%; }
 
@@ -451,7 +452,7 @@ export const sharedStyles = css`
         background-size: cover;
         background-position: center;
         flex-shrink: 0;
-        background-color: #282828;
+        background-color: var(--spf-skeleton-bg);
         animation: imageFadeIn 0.5s ease-out;
     }
 
@@ -671,7 +672,7 @@ export const sharedStyles = css`
         background-size: cover; 
         background-position: center; 
         flex-shrink: 0;
-        background-color: #282828;
+        background-color: var(--spf-skeleton-bg);
         animation: imageFadeIn 0.5s ease-out;
     }
 
@@ -924,35 +925,6 @@ export const sharedStyles = css`
     }
     .recent-grid-layout::-webkit-scrollbar { display: none; }
 
-    .recent-pill {
-        display: flex; align-items: center;
-        background: var(--spf-bg-card); border-radius: 4px;
-        
-        /* FIX: Height is already set here, but ensure flex-shrink doesn't collapse it */
-        height: 64px; 
-        flex-shrink: 0;
-        
-        overflow: hidden; 
-        transition: background 0.2s, transform 0.1s ease;
-        cursor: pointer; border: 1px solid transparent;
-        box-sizing: border-box;
-    }
-    @media (hover: hover) { .recent-pill:hover { background: var(--spf-bg-card-hover); border-color: var(--spf-border); } }
-    .recent-pill:active { background: var(--spf-bg-card-hover); transform: scale(0.98); }
-    
-    .recent-pill-img { width: 64px; height: 64px; background-size: cover; background-position: center; flex-shrink: 0; }
-    .recent-pill-text {
-        font-size: 13px; font-weight: 700; color: var(--spf-text-main);
-        padding: 0 12px; white-space: normal; line-height: 1.3;
-        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-    }
-
-    @media (max-width: 768px) {
-        .recent-grid-layout { grid-auto-columns: 160px; margin-left: -24px; margin-right: -24px; padding-left: 24px; padding-right: 24px; }
-        .recent-pill { height: 56px; }
-        .recent-pill-img { width: 56px; height: 56px; }
-        .recent-pill-text { font-size: 12px; }
-    }
 
     /* Hero & Artist Profile */
     .hero-banner, .artist-hero { 
@@ -1034,7 +1006,7 @@ export const sharedStyles = css`
     
     .track-art-small {
         width: 40px; height: 40px; background-size: cover; background-position: center;
-        border-radius: 4px; background-color: #282828;
+        border-radius: 4px; background-color: var(--spf-skeleton-bg);
     }
 
     .track-name { color: var(--spf-text-main); font-size: 15px; }
@@ -1058,142 +1030,6 @@ export const sharedStyles = css`
     .track-action-btn.is-favorite svg { fill: var(--spf-brand); }
     
     
-/* --- TRACK MENU HEADER (CSS Grid Fix) --- */
-
-/* 1. Main Container: Use GRID instead of Flex */
-#track-context-popup .track-popup-header {
-    display: grid !important;
-    grid-template-columns: 56px 1fr !important; /* Col 1: 56px, Col 2: The rest */
-    grid-template-rows: auto !important;
-    align-items: center !important;
-    gap: 16px !important;
-    
-    padding-bottom: 16px !important;
-    margin-bottom: 12px !important;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.1) !important;
-    width: 100% !important;
-    box-sizing: border-box !important;
-}
-
-/* 2. Album Art: Fills the 1st Column */
-#track-context-popup #track-popup-art {
-    width: 100% !important; /* Fill the 56px grid column */
-    height: 56px !important;
-    background-color: #282828; 
-    background-size: cover;
-    background-position: center;
-    border-radius: 4px;       
-    box-shadow: 0 4px 8px rgba(0,0,0,0.4);
-    display: block !important;
-    margin: 0 !important;
-}
-
-/* 3. Text Wrapper: Fills the 2nd Column */
-#track-context-popup .track-popup-info {
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: center !important;
-    align-items: flex-start !important;
-    
-    /* CRITICAL: Reset Widths */
-    width: auto !important; 
-    min-width: 0 !important; /* Required for text truncation in Grid */
-    margin: 0 !important;
-}
-
-/* 4. Song Title */
-#track-context-popup #track-popup-title {
-    font-size: 1.1rem !important; 
-    font-weight: 700 !important;
-    color: #ffffff !important;   
-    line-height: 1.2 !important; 
-    
-    display: block !important;
-    width: 100% !important;
-    margin: 0 0 2px 0 !important;
-    text-align: left !important;
-    
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-}
-
-/* 5. Artist Name */
-#track-context-popup #track-popup-artist {
-    font-size: 1rem !important;
-    font-weight: 400 !important;
-    color: #b3b3b3 !important;   
-    line-height: 1.2 !important;
-    
-    display: block !important;
-    width: 100% !important;
-    margin: 0 !important;
-    text-align: left !important;
-    
-    white-space: nowrap !important;
-    overflow: hidden !important;
-    text-overflow: ellipsis !important;
-}
-
-
-/* --- TRACK MENU ACTION BUTTONS --- */
-
-/* 1. Main Button Container */
-.track-popup-item {
-    /* Flex Layout: Icon | Text */
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;       /* Vertically Center */
-    justify-content: flex-start !important; /* Align to the LEFT */
-    gap: 20px !important;                 /* Space between Icon and Text */
-    
-    /* Dimensions & Reset */
-    width: 100% !important;
-    padding: 14px 8px !important;         /* Vertical spacing */
-    margin: 0 !important;
-    background: transparent !important;
-    border: none !important;
-    border-radius: 4px !important;        /* Subtle rounding */
-    
-    /* Typography */
-    font-size: 16px !important;           /* Readable size */
-    font-weight: 400 !important;          /* Standard weight */
-    color: #ffffff !important;            /* Force White Text */
-    text-align: left !important;          /* Ensure text aligns left */
-    cursor: pointer !important;
-    
-    /* Interaction */
-    pointer-events: auto !important;
-    transition: background 0.2s, opacity 0.2s !important;
-}
-
-/* 2. Icon Styling */
-.track-popup-item svg {
-    width: 24px !important;
-    height: 24px !important;
-    fill: #b3b3b3 !important;             /* Spotify uses Grey Icons */
-    flex-shrink: 0 !important;            /* Prevent icon squishing */
-    pointer-events: none !important;      /* Clicks pass through */
-}
-
-/* 3. Hover Effects */
-.track-popup-item:active,
-.track-popup-item:hover {
-    background-color: rgba(255, 255, 255, 0.1) !important; /* Subtle highlight */
-}
-
-.track-popup-item:hover svg {
-    fill: #ffffff !important;             /* Brighten icon on hover */
-}
-
-/* 4. Cancel Button (Optional Polish) */
-#track-popup-close {
-    margin-top: 16px !important;
-    font-weight: 700 !important;
-    color: #ffffff !important;
-    border: none !important;
-}
-
     /* Artist / Skeleton Styles */
     .skeleton-pulse { animation: pulse 1.5s infinite ease-in-out; background: var(--spf-bg-card-hover); }
     .card-image-sk { background: var(--spf-bg-card-hover); }
@@ -1247,60 +1083,6 @@ export const sharedStyles = css`
         transition: none !important;
     }
     
-    /* --- Reusable Alert Modal --- */
-    .alert-backdrop {
-        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(0,0,0,0.7); backdrop-filter: blur(4px);
-        z-index: 300; 
-        display: none; align-items: center; justify-content: center;
-        opacity: 0; transition: opacity 0.2s;
-    }
-    .alert-backdrop.visible { display: flex; opacity: 1; pointer-events: auto; }
-    
-    .alert-content {
-        background: var(--spf-bg-card); border: 1px solid var(--spf-border);
-        border-radius: 12px; width: 85%; max-width: 320px;
-        padding: 24px; text-align: center;
-        box-shadow: 0 12px 40px rgba(0,0,0,0.8);
-        transform: scale(0.9); transition: transform 0.2s cubic-bezier(0.2, 0.8, 0.2, 1);
-    }
-    .alert-backdrop.visible .alert-content { transform: scale(1); }
-    
-    .alert-title { font-size: 18px; font-weight: 700; color: var(--spf-text-main); margin-bottom: 8px; }
-    .alert-message { font-size: 14px; color: var(--spf-text-sub); line-height: 1.5; margin-bottom: 24px; }
-    .alert-actions { display: flex; flex-direction: column; gap: 12px; }
-    
-    .alert-btn {
-        background: transparent; border: 1px solid var(--spf-border);
-        color: var(--spf-text-main); padding: 12px; border-radius: 24px;
-        font-size: 14px; font-weight: 700; cursor: pointer;
-        text-transform: uppercase; letter-spacing: 1px;
-        transition: background 0.2s;
-    }
-    .alert-btn:hover { background: var(--spf-hover-white); }
-    .alert-btn.primary { background: var(--spf-brand); border-color: var(--spf-brand); color: black; }
-    .alert-btn.primary:hover { background: var(--spf-brand-hover); }
-    
-    /* --- Toast Notification --- */
-    .toast-notification {
-        position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
-        background: var(--spf-brand); color: black; 
-        padding: 12px 24px; border-radius: 24px; font-size: 14px; font-weight: bold; 
-        box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 200; 
-        display: flex; align-items: center; gap: 16px; 
-        opacity: 0; transition: opacity 0.3s; white-space: nowrap; pointer-events: auto; 
-    }
-    
-    .toast-undo-btn {
-        background: rgba(0,0,0,0.2); border: none; color: black;
-        padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 800;
-        cursor: pointer; text-transform: uppercase; letter-spacing: 0.5px;
-        transition: background 0.2s;
-    }
-    .toast-undo-btn:hover { background: rgba(0,0,0,0.4); }
-
-
-
     /* ================================================= */
     /* SCROLLBAR STYLING (Floating & Hover Only)        */
     /* ================================================= */
@@ -1380,7 +1162,7 @@ export const sharedStyles = css`
         backdrop-filter: none !important;
         -webkit-backdrop-filter: none !important;
         background: #121212 !important; /* Solid fallback color */
-        border-bottom: 1px solid #282828;
+        border-bottom: 1px solid var(--spf-skeleton-bg);
     }
     
     /* 2. Simplified Transparencies */

@@ -2,7 +2,7 @@ import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { popupsStyles } from '../../styles/spotify-popups.styles.js';
 
-export class SpotifyPopupDevices extends LitElement {
+export class SpotifyDevicePickerLarge extends LitElement {
     static get styles() {
         return [sharedStyles, popupsStyles, css`
             .device-list {
@@ -206,4 +206,4 @@ export class SpotifyPopupDevices extends LitElement {
     }
 }
 
-customElements.define('spotify-popup-devices', SpotifyPopupDevices);
+customElements.define('spotify-popup-devices', SpotifyDevicePickerLarge);
