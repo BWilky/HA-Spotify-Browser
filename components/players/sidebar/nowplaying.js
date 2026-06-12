@@ -1,4 +1,5 @@
 import { LitElement, html, css } from "../../../lit.js";
+import { parseDeviceItems, normalizeDevice, parseSpotifyUri } from "../../../utils.js";
 import "../../common/spotify-slider.js";
 import "../../devices/index.js";
 
@@ -397,29 +398,12 @@ export class SpotifySidebarNowPlaying extends LitElement {
         this.requestUpdate();
 
         try {
-            const response = await this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true });
-            let rawDevices = [];
-            if (response && response.result && Array.isArray(response.result.Items)) {
-                rawDevices = response.result.Items;
-            } else if (response && Array.isArray(response.result)) {
-                rawDevices = response.result;
-            } else if (Array.isArray(response)) {
-                rawDevices = response;
-            }
-
             if (this.deviceManager) {
-                const attributes = (this.hass && this.config.entity && this.hass.states[this.config.entity])
-                    ? this.hass.states[this.config.entity].attributes
-                    : {};
-                this._devices = await this.deviceManager.getMergedDevices(rawDevices, attributes);
+                const attributes = this.hass?.states[this.config?.entity]?.attributes || {};
+                this._devices = await this.deviceManager.fetchMergedDevices(this.api, attributes, { refresh: true });
             } else {
-                this._devices = rawDevices.map(d => ({
-                    id: d.id || d.Id,
-                    name: d.name || d.Name,
-                    type: d.type || (d.DeviceInfo ? d.DeviceInfo.DeviceType : 'Speaker') || 'Speaker',
-                    isActive: d.is_active || d.IsActive,
-                    isSaved: false
-                }));
+                const response = await this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true });
+                this._devices = parseDeviceItems(response).map(normalizeDevice);
             }
         } catch (e) {
             console.error("Failed to fetch devices", e);
@@ -504,20 +488,14 @@ export class SpotifySidebarNowPlaying extends LitElement {
         }
 
         // 2. Try to navigate to Context
-        if (contextUri && contextUri.startsWith('spotify:')) {
-            const parts = contextUri.split(':');
-            if (parts.length >= 3) {
-                const type = parts[1];
-                const id = parts[2];
-                if (['playlist', 'album', 'artist'].includes(type)) {
-                    this.dispatchEvent(new CustomEvent('navigate', {
-                        detail: { pageId: `${type}:${id}` },
-                        bubbles: true,
-                        composed: true
-                    }));
-                    return;
-                }
-            }
+        const context = parseSpotifyUri(contextUri);
+        if (context && ['playlist', 'album', 'artist'].includes(context.type)) {
+            this.dispatchEvent(new CustomEvent('navigate', {
+                detail: { pageId: `${context.type}:${context.id}` },
+                bubbles: true,
+                composed: true
+            }));
+            return;
         }
 
         // 3. Fallback to Album (Default Behavior)

@@ -2,7 +2,7 @@
 import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { contextViewStyles } from '../styles/spotify-context-view.styles.js';
-import { loadMadeForYouItems } from './controllers/home-content.js';
+import { loadMadeForYouItems, dedupeRecentAlbums } from './controllers/home-content.js';
 
 // Import new sub-views
 import './views/spotify-context-list.js';
@@ -372,17 +372,8 @@ class SpotifyContextView extends LitElement {
                 // so this section loads a single page only.
                 const res = await this.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: limit });
                 if (offset === 0 && res?.result?.items) {
-                    // Deduplicate albums logic like Home
-                    const seenAlbumIds = new Set();
-                    res.result.items.forEach(h => {
-                        if (h.track && h.track.album) {
-                            if (!seenAlbumIds.has(h.track.album.id)) {
-                                seenAlbumIds.add(h.track.album.id);
-                                newItems.push({ ...h.track.album, name: h.track.name, artists: h.track.artists, type: 'album', uri: h.track.album.uri });
-                            }
-                        }
-                    });
-                    total = newItems.length; // Approximate
+                    newItems = dedupeRecentAlbums(res.result.items);
+                    total = newItems.length;
                 }
             } else if (sectionId === 'favorites') {
                 title = 'Your Favorite Playlists';

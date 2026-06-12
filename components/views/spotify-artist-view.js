@@ -2,6 +2,7 @@ import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { renderCardTemplate, renderPillTemplate, renderCardSkeletonTemplate, renderPillSkeletonTemplate } from '../media-templates.js';
 import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
+import { getPlayingTrackId, getCurrentTrackId, isContextPlaying } from '../../utils.js';
 
 export class SpotifyArtistView extends LitElement {
     static get styles() {
@@ -111,55 +112,23 @@ export class SpotifyArtistView extends LitElement {
         setTimeout(() => this._updateHeaderState(), 50);
     }
 
+    _playerEntityId() {
+        return this.api?.entityId || this.config?.entity;
+    }
+
     _getPlayingTrackId() {
-        // 1. Optimistic State (Immediate Feedback)
+        // Optimistic state wins for immediate feedback
         if (this._optimisticPlayingTrackId) {
             return this._optimisticPlayingTrackId;
         }
-
-        // 2. Real-time HASS State
-        if (this.hass) {
-            const playerEntity = (this.config && this.config.playerEntityId) || (this.api && this.api.entityId);
-            if (playerEntity) {
-                const stateObj = this.hass.states[playerEntity];
-                if (stateObj && stateObj.state === 'playing') { // Only match if playing? Or match if paused too? User asked for 'if playing'.
-                    // Check media_content_id (e.g., spotify:track:123...)
-                    if (stateObj.attributes?.media_content_id) {
-                        return stateObj.attributes.media_content_id.replace('spotify:track:', '');
-                    }
-                }
-            }
-        }
-
-        return null;
+        return getPlayingTrackId(this.hass, this._playerEntityId());
     }
 
     _getIsPlaying() {
-        // 1. Check Optimistic State
         if (this._optimisticPlayState) {
             return this._optimisticPlayState === 'playing';
         }
-
-        // 2. Check Real State
-        if (!this.hass) return false;
-        const playerEntity = (this.config && this.config.playerEntityId) || (this.api && this.api.entityId);
-        if (!playerEntity) return false;
-
-        const stateObj = this.hass.states[playerEntity];
-        if (!stateObj) return false;
-
-        if (stateObj.state !== 'playing') return false;
-
-        const attrs = stateObj.attributes;
-        const currentUri = this.data.uri;
-
-        // 3. User Requested: media_context_content_id match
-        if (attrs.media_context_content_id === currentUri) return true;
-
-        // 4. Fallback: media_content_id match (for context playing)
-        if (attrs.media_content_id === currentUri) return true;
-
-        return false;
+        return isContextPlaying(this.hass, this._playerEntityId(), this.data?.uri);
     }
 
     _handleHeroPlayClick() {
@@ -199,17 +168,7 @@ export class SpotifyArtistView extends LitElement {
     }
 
     _getHassTrackId() {
-        if (!this.hass) return null;
-        const playerEntity = (this.config && this.config.playerEntityId) || (this.api && this.api.entityId);
-        if (!playerEntity) return null;
-
-        const stateObj = this.hass.states[playerEntity];
-        if (!stateObj) return null;
-
-        if (stateObj.attributes?.media_content_id) {
-            return stateObj.attributes.media_content_id.replace('spotify:track:', '');
-        }
-        return null;
+        return getCurrentTrackId(this.hass, this._playerEntityId());
     }
 
     async _checkFollowStatus() {

@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
-import { renderCardTemplate } from '../media-templates.js';
+import { getItemImage } from '../../utils.js';
 
 export class SpotifySectionView extends LitElement {
     static get properties() {
@@ -105,11 +105,7 @@ export class SpotifySectionView extends LitElement {
         if (!item) return '';
         const title = item.name || 'Unknown';
 
-        // Robust Image Logic
-        let img = '';
-        if (item.images && item.images.length > 0) img = item.images[0].url;
-        else if (item.album && item.album.images && item.album.images.length > 0) img = item.album.images[0].url;
-        else if (item.track && item.track.album && item.track.album.images) img = item.track.album.images[0].url;
+        const img = getItemImage(item);
 
         // Robust Subtitle Logic
         let subtitle = '';

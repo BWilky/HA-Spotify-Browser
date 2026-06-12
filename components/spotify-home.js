@@ -2,7 +2,8 @@ import { LitElement, html, unsafeHTML } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { homeStyles } from '../styles/spotify-home.styles.js';
 import { renderCardHtml } from './media-templates.js';
-import { loadMadeForYouItems } from './controllers/home-content.js';
+import { loadMadeForYouItems, dedupeRecentAlbums } from './controllers/home-content.js';
+import { getItemImage, getPlayingTrackId } from '../utils.js';
 
 // --- HTML-string section templates (home uses unsafeHTML + event delegation) ---
 function renderCarouselSection(title, sectionId, items = null, seeMoreParams = null) {
@@ -113,10 +114,7 @@ function recentPill(item, playingId = null) {
     const id = item.id;
     const uri = item.uri;
     const title = item.name || item.title || 'Unknown';
-    let img = '';
-    if (item.image) img = item.image; // Support pinned items flat image
-    else if (item.images && item.images.length > 0) img = item.images[0].url;
-    else if (item.album && item.album.images && item.album.images.length > 0) img = item.album.images[0].url;
+    const img = getItemImage(item);
 
     // Check if playing
     // Note: pinned items might be playlists/albums, but we only match Track ID reliably from HASS.
@@ -456,17 +454,7 @@ class SpotifyHome extends LitElement {
     }
 
     _getPlayingTrackId() {
-        if (!this.hass || !this.api) return null;
-        const entityId = this.api.entityId; // Or config.playerEntityId
-        if (!entityId) return null;
-
-        const stateObj = this.hass.states[entityId];
-        if (!stateObj || stateObj.state !== 'playing') return null;
-
-        if (stateObj.attributes && stateObj.attributes.media_content_id) {
-            return stateObj.attributes.media_content_id.replace('spotify:track:', '');
-        }
-        return null;
+        return getPlayingTrackId(this.hass, this.api?.entityId || this.config?.entity);
     }
 
     renderHomeMobile(hasMadeForYou, hasManual, order) {
@@ -602,15 +590,7 @@ class SpotifyHome extends LitElement {
                 if (offset > 0) return;
                 const res = await this.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: 50 });
                 if (res?.result?.items) {
-                    const seenAlbumIds = new Set(); const uniqueItems = [];
-                    res.result.items.forEach(h => {
-                        if (h.track && h.track.album) {
-                            if (!seenAlbumIds.has(h.track.album.id)) {
-                                seenAlbumIds.add(h.track.album.id);
-                                uniqueItems.push({ ...h.track.album, name: h.track.name, artists: h.track.artists, type: 'album', uri: h.track.album.uri });
-                            }
-                        }
-                    });
+                    const uniqueItems = dedupeRecentAlbums(res.result.items);
                     data = { items: uniqueItems, total: uniqueItems.length }; type = 'album';
                 }
             }

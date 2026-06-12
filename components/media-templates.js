@@ -1,4 +1,5 @@
 import { html } from "../lit.js";
+import { getItemImage } from "../utils.js";
 
 /**
  * Standardizes the "Card" layout (Square for Album/Playlist, Circle for Artist).
@@ -11,7 +12,7 @@ import { html } from "../lit.js";
  */
 export function renderCardTemplate(item, type, clickHandler) {
     const isArtist = type === true || type === 'artist';
-    const imgUrl = item.image || item.images?.[0]?.url || item.album?.images?.[0]?.url || '';
+    const imgUrl = getItemImage(item);
     const name = item.name || item.title || 'Unknown';
     const subtitle = item.subtitle || item.release_date?.split('-')[0] || item.type || '';
 
@@ -43,7 +44,7 @@ export function renderCardTemplate(item, type, clickHandler) {
  * @returns {TemplateResult} Lit-html template.
  */
 export function renderPillTemplate(item, playHandler, menuHandler, saveHandler, isLiked = false, isPlaying = false) {
-    const imgUrl = item.album?.images?.[0]?.url || item.images?.[0]?.url || '';
+    const imgUrl = getItemImage(item, 'track');
     const name = item.name || 'Unknown';
     // const duration = msToTime(item.duration_ms); // Pass pre-formatted or format here if utils available
 
@@ -93,16 +94,7 @@ export function renderCardHtml(item, type) {
     if (!subtitle && item.artists && Array.isArray(item.artists)) subtitle = item.artists.map(a => a.name).join(', ');
     if (!subtitle) subtitle = type === 'artist' ? 'Artist' : '';
 
-    let img = '';
-    if (item.image) {
-        img = item.image; // Support flattened pinned items
-    } else if (type === 'track' && item.album?.images?.length > 0) {
-        img = item.album.images[0].url;
-    } else if (item.images?.length > 0) {
-        img = item.images[0].url;
-    } else if (item.album?.images?.length > 0) {
-        img = item.album.images[0].url;
-    }
+    const img = getItemImage(item, type);
 
     const safeTitle = title.replace(/"/g, '&quot;');
     const safeSubtitle = subtitle.replace(/"/g, '&quot;');
@@ -248,7 +240,7 @@ export function renderTrackRowTemplate(track, index, clickHandler) {
  * Used for "See All" lists where a vertical list is preferred over a grid.
  */
 export function renderMediaRowTemplate(item, type, clickHandler) {
-    const imgUrl = item.images?.[0]?.url || item.album?.images?.[0]?.url || '';
+    const imgUrl = getItemImage(item, type);
     const name = item.name || 'Unknown';
 
     let subtitle = '';

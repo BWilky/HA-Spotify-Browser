@@ -1,3 +1,5 @@
+import { parseDeviceItems, normalizeDevice } from '../../utils.js';
+
 export class DeviceManager {
     constructor(hass, config, storageManager) {
         this.hass = hass;
@@ -139,6 +141,17 @@ export class DeviceManager {
         return await this.update(deviceId, { name: newName });
     }
 
+    /**
+     * Fetch live devices from the API and merge them with saved devices and
+     * player attributes. The single entry point for device scans.
+     * options: { refresh: boolean, showHidden: boolean }
+     */
+    async fetchMergedDevices(api, attributes = {}, options = {}) {
+        const response = await api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: !!options.refresh });
+        const rawDevices = parseDeviceItems(response);
+        return await this.getMergedDevices(rawDevices, attributes, options);
+    }
+
     async getMergedDevices(apiDevices = [], attributes = {}, options = {}) {
         const savedDevices = await this.getDevices();
         const settings = await this.getSettings();
@@ -198,17 +211,14 @@ export class DeviceManager {
 
         // B. Add Unknown Live Devices
         apiDevices.forEach(live => {
-            const id = live.id || live.Id;
-            if (!savedIds.has(id)) {
-                const isActive = (id === activeDeviceId);
+            const norm = normalizeDevice(live);
+            if (!savedIds.has(norm.id)) {
+                const isActive = (norm.id === activeDeviceId);
                 if (isActive) activeDeviceObj = live;
 
                 finalDevices.push({
-                    id: id,
-                    name: live.name || live.Name,
-                    type: live.type || (live.DeviceInfo ? live.DeviceInfo.DeviceType : 'Speaker') || 'Speaker',
+                    ...norm,
                     isActive: isActive,
-                    isSaved: false,
                     isOnline: true,
                     visible: true
                 });

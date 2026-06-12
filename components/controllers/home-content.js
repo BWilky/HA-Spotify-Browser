@@ -9,6 +9,22 @@
  *  - 'playlistId' (raw string)
  *  - a full item object with an id
  */
+/**
+ * Collapses a recent-tracks history list into unique albums
+ * (keeping the most recent track's name/artists per album).
+ */
+export function dedupeRecentAlbums(historyItems = []) {
+    const seenAlbumIds = new Set();
+    const uniqueItems = [];
+    historyItems.forEach(h => {
+        if (h.track && h.track.album && !seenAlbumIds.has(h.track.album.id)) {
+            seenAlbumIds.add(h.track.album.id);
+            uniqueItems.push({ ...h.track.album, name: h.track.name, artists: h.track.artists, type: 'album', uri: h.track.album.uri });
+        }
+    });
+    return uniqueItems;
+}
+
 export async function loadMadeForYouItems(api, config) {
     const configList = config?.homescreen?.madeforyou?.content;
     if (!api || !Array.isArray(configList) || configList.length === 0) return [];

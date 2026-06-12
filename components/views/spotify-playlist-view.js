@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
+import { isContextPlaying } from '../../utils.js';
 
 export class SpotifyPlaylistView extends LitElement {
     static get properties() {
@@ -164,31 +165,10 @@ export class SpotifyPlaylistView extends LitElement {
     }
 
     _getIsPlaying() {
-        // 1. Check Optimistic State
         if (this._optimisticPlayState) {
             return this._optimisticPlayState === 'playing';
         }
-
-        // 2. Check Real State
-        if (!this.hass || !this.config || !this.config.entity) return false;
-        const stateObj = this.hass.states[this.config.entity];
-        if (!stateObj) return false;
-
-        if (stateObj.state !== 'playing') return false;
-
-        const attrs = stateObj.attributes;
-        const currentUri = this.data.uri;
-
-        // 3. Check for specific context match (User Request)
-        if (attrs.media_context_content_id === currentUri) return true;
-
-        // 4. Fallback: media_content_id matches URI (unlikely for playlists but possible for albums sometimes?)
-        // Or if media_content_type matches and media_content_id matches?
-        // Note: For Spotify, media_content_id is usually a track URI.
-        // But let's check it anyway just in case the integration logic differs.
-        if (attrs.media_content_id === currentUri) return true;
-
-        return false;
+        return isContextPlaying(this.hass, this.api?.entityId || this.config?.entity, this.data?.uri);
     }
 
     async _togglePin() {

@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { popupsStyles } from '../../styles/spotify-popups.styles.js';
+import { parseDeviceItems, normalizeDevice } from '../../utils.js';
 
 export class SpotifyPopupDeviceManager extends LitElement {
     static get styles() {
@@ -226,21 +227,7 @@ export class SpotifyPopupDeviceManager extends LitElement {
         this._isLoadingLive = true;
         try {
             const result = await this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true });
-            let rawDevices = [];
-            // Handle various return shapes
-            if (result && result.result && Array.isArray(result.result.Items)) {
-                rawDevices = result.result.Items;
-            } else if (result && Array.isArray(result.result)) {
-                rawDevices = result.result;
-            } else if (Array.isArray(result)) {
-                rawDevices = result;
-            }
-
-            this._liveDevices = rawDevices.map(d => ({
-                id: d.id || d.Id,
-                name: d.name || d.Name,
-                type: d.type || (d.DeviceInfo ? d.DeviceInfo.DeviceType : 'Speaker') || 'Speaker'
-            }));
+            this._liveDevices = parseDeviceItems(result).map(normalizeDevice);
         } catch (e) {
             console.error("Failed to fetch live devices", e);
         } finally {
