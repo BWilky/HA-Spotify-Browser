@@ -10,7 +10,7 @@ export class Router extends EventTarget {
         this.currentPageData = null;
 
         this.pageCache = new Map();
-        this.maxCacheSize = this.config.cache_size || 15;
+        this.maxCacheSize = this.config.cache_size || 10; // Matches ConfigParser default
 
         // Dependencies needed for page creation
         this.hass = null;
@@ -29,7 +29,7 @@ export class Router extends EventTarget {
         }
         if (config) {
             this.config = config;
-            this.maxCacheSize = this.config.cache_size || 15;
+            this.maxCacheSize = this.config.cache_size || 10;
             this.pageCache.forEach(page => page.config = config);
         }
         if (pinned) {

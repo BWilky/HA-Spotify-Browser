@@ -57,10 +57,17 @@ export class SpotifyApi {
         this.hass = hass;
     }
 
-    // config is no longer needed here as API is pure SpotifyPlus
     setConfig(config) {
         this.config = config;
         this._manageScanInterval();
+    }
+
+    /** Stop background timers. Call when replacing or discarding this instance. */
+    destroy() {
+        if (this._scanIntervalTimer) {
+            clearInterval(this._scanIntervalTimer);
+            this._scanIntervalTimer = null;
+        }
     }
 
     _manageScanInterval() {
@@ -189,9 +196,6 @@ export class SpotifyApi {
 
         // 1. Determine Device Strategy
         let deviceToUse = null;
-        let backupDevice = null;
-        let primaryDeviceName = "Default Device";
-        let defaultShuffle = null;
 
         if (specificDevice) {
             deviceToUse = specificDevice;
@@ -199,16 +203,11 @@ export class SpotifyApi {
             if (!isActive) {
                 if (this.deviceResolver) {
                     try {
-                        // Returns ID of device to use (from Default or User Selection)
+                        // Returns the device to use (from Default or User Selection)
                         const resolvedDevice = await this.deviceResolver();
 
                         if (resolvedDevice) {
-                            if (typeof resolvedDevice === 'object') {
-                                deviceToUse = resolvedDevice.id;
-                                if (resolvedDevice.is_backup) backupDevice = resolvedDevice.backup_id; // Future proofing
-                            } else {
-                                deviceToUse = resolvedDevice;
-                            }
+                            deviceToUse = typeof resolvedDevice === 'object' ? resolvedDevice.id : resolvedDevice;
                         } else {
                             // User cancelled or no device available
                             console.log("[SpotifyBrowser] Playback cancelled: No device selected.");
@@ -237,10 +236,6 @@ export class SpotifyApi {
         const executePlay = async (deviceIdToTry) => {
             const params = { ...extraOptions };
             if (deviceIdToTry) params.device_id = deviceIdToTry;
-
-            if (defaultShuffle !== null && params.shuffle === undefined) {
-                params.shuffle = defaultShuffle;
-            }
 
             try {
                 if (['playlist', 'album', 'artist', 'show'].includes(type)) {
@@ -297,22 +292,10 @@ export class SpotifyApi {
             }
         };
 
-        // --- EXECUTE PLAYBACK (With Retry Logic) ---
-        let result = await executePlay(deviceToUse);
+        // --- EXECUTE PLAYBACK ---
+        const result = await executePlay(deviceToUse);
 
-        if (specificDevice || isActive) return result;
-
-        if (result.success === false && deviceToUse && backupDevice) {
-            console.warn(`[SpotifyBrowser] Primary device ${deviceToUse} failed. Trying backup ${backupDevice}.`);
-            this._notify(`Playback Failed on ${deviceToUse}`);
-            this._notify(`Trying Backup Device...`);
-
-            result = await executePlay(backupDevice);
-
-            if (result.success === false) {
-                this._notify(`Playback Failed on Backup Device`);
-            }
-        } else if (result.success === false && deviceToUse) {
+        if (!specificDevice && !isActive && result.success === false && deviceToUse) {
             this._notify(`Playback Failed on ${deviceToUse}`);
         }
 
@@ -360,97 +343,6 @@ export class SpotifyApi {
             return { success: true };
         } catch (e) {
             console.error("Unfollow Playlist failed:", e);
-            return { success: false, error: e };
-        }
-    }
-
-    // --- PINNED ITEMS (STICKY) MANAGEMENT ---
-
-    async getPinnedItems(entityId) {
-        if (!this.hass || !entityId) return [];
-        try {
-            const state = this.hass.states[entityId];
-            if (!state || !state.attributes || !state.attributes.options) return [];
-
-            // Options are strings. Parse them to objects.
-            return state.attributes.options.map(opt => {
-                try {
-                    return JSON.parse(opt);
-                } catch (e) { return null; }
-            }).filter(item => item !== null);
-        } catch (e) {
-            console.error("[API] Failed to fetch pinned items:", e);
-            return [];
-        }
-    }
-
-    async addPinnedItem(entityId, item, limit = 10) {
-        if (!this.hass || !entityId || !item) return { success: false };
-        try {
-            const currentItems = await this.getPinnedItems(entityId);
-
-            // Check limits
-            if (currentItems.length >= limit) {
-                return { success: false, error: `Limit reached (Max ${limit})` };
-            }
-
-            // Check duplicates (by ID)
-            if (currentItems.find(i => i.id === item.id)) {
-                return { success: false, error: "Already pinned" };
-            }
-
-            const currentState = this.hass.states[entityId];
-            const currentOptions = currentState.attributes.options || [];
-
-            // Create minimal stored object to save space
-            const storedItem = {
-                id: item.id,
-                type: item.type,
-                title: item.title || item.name,
-                subtitle: item.subtitle || item.description || '',
-                image: item.image || item.images?.[0]?.url || null,
-                uri: item.uri
-            };
-
-            const newItemStr = JSON.stringify(storedItem);
-            const newOptions = [...currentOptions, newItemStr];
-
-            await this.hass.callService('input_select', 'set_options', {
-                entity_id: entityId,
-                options: newOptions
-            });
-            return { success: true };
-
-        } catch (e) {
-            console.error("[API] Failed to add pinned item:", e);
-            return { success: false, error: e };
-        }
-    }
-
-    async removePinnedItem(entityId, itemId) {
-        if (!this.hass || !entityId || !itemId) return { success: false };
-        try {
-            const currentState = this.hass.states[entityId];
-            const currentOptions = currentState.attributes.options || [];
-
-            // Filter out the item matching the ID (need to parse to check ID)
-            const newOptions = currentOptions.filter(optStr => {
-                try {
-                    const obj = JSON.parse(optStr);
-                    return obj.id !== itemId;
-                } catch (e) { return true; } // Keep malformed items? Or remove? Let's keep to be safe.
-            });
-
-            if (newOptions.length === currentOptions.length) return { success: false, error: "Item not found" };
-
-            await this.hass.callService('input_select', 'set_options', {
-                entity_id: entityId,
-                options: newOptions
-            });
-            return { success: true };
-
-        } catch (e) {
-            console.error("[API] Failed to remove pinned item:", e);
             return { success: false, error: e };
         }
     }
