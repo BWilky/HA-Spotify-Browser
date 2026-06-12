@@ -457,17 +457,17 @@ class SpotifyBrowserApp extends LitElement {
         this._searchDebounceTimer = setTimeout(() => {
             if (this._currentPageId === 'search') {
                 // If already on search page, just update data
-                const searchPage = this.shadowRoot.querySelector('spotify-search');
+                // (the page lives in the router's container, not our shadow root)
+                const searchPage = this.router?.pageCache.get('search');
                 if (searchPage) {
                     searchPage.search(query);
                 } else {
-                    // Fallback if component isn't ready
                     this.router.navigateTo('search', { query });
                 }
             } else {
                 this.router.navigateTo('search', { query });
             }
-        }, 500);
+        }, 400);
     }
 
     _handleSearchKeydown(e) {

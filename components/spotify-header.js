@@ -43,17 +43,14 @@ class SpotifyHeader extends LitElement {
     }
 
     updated(changedProperties) {
+        // The input is intentionally NOT value-bound in render() — rebinding on
+        // every render fights the user's typing (cursor jumps, lost characters).
+        // We only seed it when the search field is opened.
         if (changedProperties.has('searchVisible') && this.searchVisible) {
             const input = this.shadowRoot.getElementById('search-input');
             if (input) {
-                // If we have a persisted query, restore it
-                if (this.searchQuery) {
-                    input.value = this.searchQuery;
-                } else {
-                    input.value = '';
-                }
-
-                // detailed match of css transition time
+                input.value = this.searchQuery || '';
+                // matches the css transition time
                 setTimeout(() => {
                     input.focus();
                 }, 300);
@@ -109,14 +106,13 @@ class SpotifyHeader extends LitElement {
                         >
                             <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
                         </button>
-                        <input 
-                            type="text" 
-                            class="search-input" 
-                            id="search-input" 
+                        <input
+                            type="text"
+                            class="search-input"
+                            id="search-input"
                             placeholder="Search..."
-                            .value=${this.searchQuery || ''}
                             @input=${(e) => this.dispatchEvent(new CustomEvent('search-input', { detail: e.target.value }))}
-                            @keydown=${(e) => this.dispatchEvent(new CustomEvent('search-keydown', { detail: e }))}
+                            @keydown=${(e) => this.dispatchEvent(new CustomEvent('search-keydown', { detail: { key: e.key, value: e.target.value } }))}
                         >
                     </div>
                     
