@@ -201,15 +201,15 @@ export function renderTrackRowTemplate(track, index, clickHandler) {
     };
 
     return html`
-        <div class="track-row interactive" 
-             data-track-id="${track.id}" 
+        <div class="track-row interactive ${image ? 'with-art' : ''}"
+             data-track-id="${track.id}"
              data-uri="${track.uri}"
              @click=${clickHandler ? (e) => clickHandler(e, track) : null}>
-            
+
             <div class="track-num">${index}</div>
-            
+
             ${image ? html`
-            <div class="track-art-small" style="background-image: url('${image}'); width: 40px; height: 40px; background-size: cover; border-radius: 4px; margin-right: 12px; flex-shrink: 0;"></div>
+            <div class="track-art-small" style="background-image: url('${image}');"></div>
             ` : ''}
 
             <div class="track-info">
