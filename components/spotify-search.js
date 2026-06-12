@@ -1,5 +1,6 @@
-import { LitElement, html, unsafeHTML } from "../lit.js";
+import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
+import { renderCardTemplate } from './media-templates.js';
 
 class SpotifySearch extends LitElement {
     static get properties() {
@@ -54,7 +55,7 @@ class SpotifySearch extends LitElement {
         }
 
         return html`
-            <div class="scroll-content" style="padding-top: 20px;" @click=${this._handleClick}>
+            <div class="scroll-content" style="padding-top: 20px;">
                 <div class="section-header" style="margin-bottom: 24px; padding: 0 24px;">
                     <h2 class="section-title" style="font-size: 2rem; margin: 0;">Search Results "${this._query}"</h2>
                 </div>
@@ -84,68 +85,20 @@ class SpotifySearch extends LitElement {
     }
 
     renderCard(item, type) {
-        const id = item.id;
-        const uri = item.uri;
-        const title = item.name;
-        let subtitle = '';
-        let img = '';
+        const subtitle = type === 'artist' ? 'Artist'
+            : type === 'playlist' ? (item.owner?.display_name || 'Playlist')
+                : (item.artists?.[0]?.name || type);
 
-        if (type === 'artist') {
-            img = item.images?.[0]?.url || '';
-            subtitle = 'Artist';
-        } else if (type === 'album') {
-            img = item.images?.[0]?.url || '';
-            subtitle = item.artists?.[0]?.name || 'Album';
-        } else if (type === 'playlist') {
-            img = item.images?.[0]?.url || '';
-            subtitle = item.owner?.display_name || 'Playlist';
-        } else if (type === 'track') {
-            img = item.album?.images?.[0]?.url || '';
-            subtitle = item.artists?.[0]?.name || 'Track';
-        }
-
-        const isArtist = type === 'artist';
-        const imageStyle = isArtist ? 'border-radius: 50%;' : '';
-        const containerClass = isArtist ? 'media-card artist-card interactive' : 'media-card interactive';
-
-        return html`
-              <div class="${containerClass}" 
-                   data-id="${id}" 
-                   data-type="${type}" 
-                   data-uri="${uri || ''}" 
-                   data-title="${title}"
-                   data-subtitle="${subtitle}">
-                
-                <div class="media-image-wrapper">
-                    <div class="media-image" style="background-image: url('${img}'); background-color: #282828; ${imageStyle}"></div>
-                    ${!isArtist ? html`
-                    <button class="play-btn-overlay">
-                        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-                    </button>
-                    ` : ''}
-                </div>
-                
-                <div class="media-title" style="${isArtist ? 'text-align:center;' : ''}">${title}</div>
-                <div class="media-subtitle" style="${isArtist ? 'text-align:center;' : ''}">${subtitle}</div>
-              </div>
-        `;
-    }
-
-    _handleClick(e) {
-        const card = e.target.closest('.interactive');
-        if (card) {
-            const { id, type, title, subtitle } = card.dataset;
-            if (id && type) {
-                this.dispatchEvent(new CustomEvent('navigate', {
-                    detail: {
-                        pageId: `${type}:${id}`,
-                        data: { title, type, subtitle }
-                    },
-                    bubbles: true,
-                    composed: true
-                }));
-            }
-        }
+        return renderCardTemplate({ ...item, subtitle }, type, () => {
+            this.dispatchEvent(new CustomEvent('navigate', {
+                detail: {
+                    pageId: `${type}:${item.id}`,
+                    data: { title: item.name, type, subtitle }
+                },
+                bubbles: true,
+                composed: true
+            }));
+        });
     }
 }
 

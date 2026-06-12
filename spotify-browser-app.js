@@ -1,6 +1,7 @@
 import { LitElement, html } from "./lit.js";
 
 import { SpotifyApi } from './api.js';
+import { parseDeviceItems, normalizeDevice } from './utils.js';
 import { sharedStyles } from './styles/shared-styles.js';
 import { Router } from './router.js';
 import './components/spotify-header.js';
@@ -599,51 +600,34 @@ class SpotifyBrowserApp extends LitElement {
         this.requestUpdate();
     }
 
+    /** Attributes of the configured player entity (empty object if unavailable). */
+    _playerAttributes() {
+        return this.hass?.states[this.config?.entity]?.attributes || {};
+    }
+
+    /** Scan for devices and update picker state. Returns the device list. */
+    async _scanDevices(options = {}) {
+        if (this.deviceManager) {
+            this._devices = await this.deviceManager.fetchMergedDevices(this.api, this._playerAttributes(), options);
+            const settings = await this.deviceManager.getSettings();
+            this._showRevealButton = !!(settings.hide_connect_devices && settings.see_all_devices);
+        } else {
+            const response = await this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: !!options.refresh });
+            this._devices = parseDeviceItems(response).map(normalizeDevice);
+        }
+        this.requestUpdate();
+        return this._devices;
+    }
+
     async _openDevicePicker(options = {}) {
         this._deviceManagerVisible = false; // Ensure manager is closed
         this._devicePopupVisible = true; // Open Picker
 
-        // Show loading toast
         const popups = this.shadowRoot.getElementById('popups');
         if (popups && options.refresh) popups.showToast("Scanning for devices...");
 
-        // Fetch Devices
         try {
-            const response = await this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: !!options.refresh });
-            let rawDevices = [];
-            if (response && response.result && Array.isArray(response.result.Items)) {
-                rawDevices = response.result.Items;
-            } else if (response && Array.isArray(response.result)) {
-                rawDevices = response.result;
-            } else if (Array.isArray(response)) {
-                rawDevices = response;
-            }
-
-            if (this.deviceManager) {
-                const attributes = (this.hass && this.config.entity && this.hass.states[this.config.entity])
-                    ? this.hass.states[this.config.entity].attributes
-                    : {};
-
-                // Allow bypassing hidden filter via options
-                const mergeOptions = options.showHidden ? { showHidden: true } : {};
-                this._devices = await this.deviceManager.getMergedDevices(rawDevices, attributes, mergeOptions);
-
-                // Determine if we should show 'See All' button
-                const settings = await this.deviceManager.getSettings();
-                this._showRevealButton = !!(settings.hide_connect_devices && settings.see_all_devices);
-            } else {
-                // Unified format fallback
-                this._devices = rawDevices.map(d => ({
-                    id: d.id,
-                    name: d.name,
-                    type: d.type,
-                    isActive: d.is_active,
-                    isSaved: false
-                }));
-            }
-
-            this.requestUpdate();
-
+            await this._scanDevices(options);
         } catch (e) {
             console.error("[App] Failed to load devices for picker", e);
             if (popups) popups.showToast("Failed to scan devices.");
@@ -665,15 +649,9 @@ class SpotifyBrowserApp extends LitElement {
 
         // 2. Interactive Selection (Popup)
         return new Promise((resolve) => {
-            console.log("[SpotifyBrowser] No default device. Requesting user selection...");
-
-            const attributes = (this.hass && this.config.entity && this.hass.states[this.config.entity])
-                ? this.hass.states[this.config.entity].attributes
-                : {};
-
             // Immediate render from existing saved state while the scan runs
             if (this.deviceManager) {
-                this.deviceManager.getMergedDevices([], attributes).then(devs => {
+                this.deviceManager.getMergedDevices([], this._playerAttributes()).then(devs => {
                     this._devices = devs;
                     this.requestUpdate();
                 });
@@ -681,50 +659,15 @@ class SpotifyBrowserApp extends LitElement {
 
             // Show Popup Immediately
             this._deviceManagerVisible = false;
-            this._devicePopupVisible = true; // Use simple picker
+            this._devicePopupVisible = true;
             this._pendingDeviceResolution = resolve;
             const popups = this.shadowRoot.getElementById('popups');
             if (popups) popups.showToast("Scanning for devices...");
 
-
-            // --- BACKGROUND SYNC ---
-            this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true }).then(async (response) => {
-                let rawDevices = [];
-                if (response && response.result && Array.isArray(response.result.Items)) {
-                    rawDevices = response.result.Items;
-                } else if (response && Array.isArray(response.result)) {
-                    rawDevices = response.result;
-                } else if (Array.isArray(response)) {
-                    rawDevices = response;
-                }
-
-                // If no device manager, use raw mapping (basic fallback)
-                if (!this.deviceManager) {
-                    this._devices = rawDevices.map(d => ({
-                        id: d.id || d.Id,
-                        name: d.name || d.Name,
-                        type: d.type || (d.DeviceInfo ? d.DeviceInfo.DeviceType : 'Speaker') || 'Speaker',
-                        isActive: d.is_active || d.IsActive
-                    }));
-                    this.requestUpdate();
-                    return;
-                }
-
-                // Use Standardized Merge
-                const attributes = (this.hass && this.config.entity && this.hass.states[this.config.entity])
-                    ? this.hass.states[this.config.entity].attributes
-                    : {};
-
-                this._devices = await this.deviceManager.getMergedDevices(rawDevices, attributes);
-
-                // Check Reveal Button State
-                const settings = await this.deviceManager.getSettings();
-                this._showRevealButton = !!(settings.hide_connect_devices && settings.see_all_devices);
-
-                this.requestUpdate();
-            }); // End fetch
-
-
+            // Background sync
+            this._scanDevices({ refresh: true }).catch(e => {
+                console.error("[App] Device scan failed", e);
+            });
         });
     }
 
@@ -756,41 +699,7 @@ class SpotifyBrowserApp extends LitElement {
         if (!this.api) return;
         switch (e.detail) {
             case 'menu-device':
-                // Show immediately for perceived performance
-                this._devicePopupVisible = true;
-
-                // Fetch in background and update
-                this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true }).then(async (response) => {
-                    let rawDevices = [];
-                    if (response && response.result && Array.isArray(response.result.Items)) {
-                        rawDevices = response.result.Items;
-                    } else if (response && Array.isArray(response.result)) {
-                        rawDevices = response.result;
-                    } else if (Array.isArray(response)) {
-                        rawDevices = response;
-                    }
-
-                    if (this.deviceManager) {
-                        const attributes = (this.hass && this.config.entity && this.hass.states[this.config.entity])
-                            ? this.hass.states[this.config.entity].attributes
-                            : {};
-                        this._devices = await this.deviceManager.getMergedDevices(rawDevices, attributes);
-
-                        // Check Reveal Button State
-                        const settings = await this.deviceManager.getSettings();
-                        this._showRevealButton = !!(settings.hide_connect_devices && settings.see_all_devices);
-                    } else {
-                        this._devices = rawDevices.map(d => ({
-                            id: d.id || d.Id,
-                            name: d.name || d.Name,
-                            type: d.type || (d.DeviceInfo ? d.DeviceInfo.DeviceType : 'Speaker') || 'Speaker',
-                            isActive: d.is_active || d.IsActive,
-                            isSaved: false
-                        }));
-                    }
-
-                    this.requestUpdate();
-                });
+                this._openDevicePicker({ refresh: true });
                 break;
             case 'menu-accounts':
                 this._accountsPopupVisible = true;
