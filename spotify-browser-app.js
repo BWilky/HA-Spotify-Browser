@@ -205,83 +205,16 @@ class SpotifyBrowserApp extends LitElement {
     }
 
     updated(changedProperties) {
-        // Initialize API if missing and dependencies are ready
+        // Lazy init: API and managers are created as soon as hass/config allow
         this._initApi();
-
-        // Initialize Storage Manager
-        if (!this.storageManager && this.hass) {
-            this.storageManager = new StorageManager(this.hass, {
-                sensor_entity: 'sensor.spotify_browser_data',
-                event_type: 'spotify_browser_store_data'
-            });
-
-            // Validate Storage Status
-            const status = this.storageManager.checkStatus();
-
-            if (status === 'empty') {
-                // Silent Auto-Init for new users
-                this.storageManager.resetStorage();
-            } else if (status === 'corrupted' && !this._storageCorruptPrompted) {
-                this._storageCorruptPrompted = true;
-                // Defer alert slightly to ensure popups are ready
-                setTimeout(() => {
-                    this.dispatchEvent(new CustomEvent('show-alert', {
-                        detail: {
-                            id: 'storage-corruption',
-                            title: 'Storage Error',
-                            message: 'Persistent storage data appears to be corrupted. Reset checks and saved items to defaults?',
-                            confirmText: 'Reset Data',
-                            cancelText: 'Ignore',
-                            onConfirm: () => {
-                                console.log('[SpotifyBrowser] User confirmed storage reset.');
-                                this.storageManager.resetStorage();
-                            }
-                        },
-                        bubbles: true,
-                        composed: true
-                    }));
-                }, 1000);
-            }
-        }
-
-        // Update hass in managers if they exist
-        if (this.storageManager) this.storageManager.updateHass(this.hass);
-        if (this.pinnedManager) this.pinnedManager.updateHass(this.hass);
-        if (this.deviceManager) this.deviceManager.updateHass(this.hass);
-        if (this.playerController) this.playerController.updateHass(this.hass);
-
-
-        // Initialize Pinned Items Manager if configured
-        if (!this.pinnedManager && this.hass && this.config && (this.config.homescreen?.sticky || this.config.homescreen?.pinned_items_entity)) {
-            try {
-                const pinnedConfig = this.config.homescreen?.sticky || { helper: this.config.homescreen?.pinned_items_entity };
-                // Pass Storage Manager
-                this.pinnedManager = new PinnedItemsManager(this.hass, pinnedConfig, this.storageManager);
-                if (this.router) this.router.updateDependencies({ pinned: this.pinnedManager });
-            } catch (e) {
-                console.error("[SpotifyBrowser] Failed to initialize PinnedItemsManager", e);
-            }
-        }
-
-        // Initialize Device Manager if configured
-        if (!this.deviceManager && this.hass && this.config && this.config.device_playback) {
-            try {
-                // Pass Storage Manager
-                this.deviceManager = new DeviceManager(this.hass, this.config.device_playback, this.storageManager);
-            } catch (e) {
-                console.error("[SpotifyBrowser] Failed to initialize DeviceManager", e);
-            }
-        }
-
+        this._ensureManagers();
 
         if (changedProperties.has('hass') && this.hass) {
-            if (this.api) {
-                this.api.updateHass(this.hass);
-            }
-            // Update Managers
+            if (this.api) this.api.updateHass(this.hass);
+            if (this.storageManager) this.storageManager.updateHass(this.hass);
             if (this.deviceManager) this.deviceManager.updateHass(this.hass);
             if (this.pinnedManager) this.pinnedManager.updateHass(this.hass);
-            if (this.playerController) this.playerController.updateHass(this.hass); // Sync Player
+            if (this.playerController) this.playerController.updateHass(this.hass);
             if (this.router) this.router.updateDependencies({ hass: this.hass });
         }
 
@@ -310,28 +243,14 @@ class SpotifyBrowserApp extends LitElement {
                     this.router.container = container;
                 }
 
-                // OPENING
-                // Handle mixed casing/naming from various config versions
-                const hoe = this.config.homeonexit !== undefined ? this.config.homeonexit :
-                    (this.config.home_on_exit !== undefined ? this.config.home_on_exit : true);
+                // OPENING: reset to home per the parsed home_on_exit config
+                // ({ enabled, timeout } — timeout keeps the last page for N seconds)
+                const hoe = this.config.home_on_exit || { enabled: true, timeout: 0 };
+                let shouldReset = hoe.enabled !== false;
 
-                let shouldReset = true;
-
-                if (hoe === false) {
-                    shouldReset = false;
-                } else if (typeof hoe === 'object' && hoe !== null) {
-                    // Handle Timeout
-                    // If timeout is explicitly defined
-                    if (hoe.timeout !== undefined && this._lastCloseTime) {
-                        const diff = (Date.now() - this._lastCloseTime) / 1000;
-                        if (diff < hoe.timeout) {
-                            shouldReset = false;
-                        }
-                    } else if (hoe.timeout === undefined) {
-                        // If object but no timeout (e.g. empty object), treat as true/reset? 
-                        // Or maybe it has other props. 
-                        // Assume true unless proven otherwise.
-                    }
+                if (shouldReset && hoe.timeout > 0 && this._lastCloseTime) {
+                    const secondsSinceClose = (Date.now() - this._lastCloseTime) / 1000;
+                    if (secondsSinceClose < hoe.timeout) shouldReset = false;
                 }
 
                 if (shouldReset) {
@@ -562,6 +481,63 @@ class SpotifyBrowserApp extends LitElement {
     }
     _handleMenuClick() { this._menuVisible = !this._menuVisible; }
 
+    /** Create storage/pinned/device managers once their dependencies are ready. */
+    _ensureManagers() {
+        if (!this.hass) return;
+
+        if (!this.storageManager) {
+            this.storageManager = new StorageManager(this.hass, {
+                sensor_entity: 'sensor.spotify_browser_data',
+                event_type: 'spotify_browser_store_data'
+            });
+            this._validateStorage();
+        }
+
+        if (!this.pinnedManager && this.config && (this.config.homescreen?.sticky || this.config.homescreen?.pinned_items_entity)) {
+            try {
+                const pinnedConfig = this.config.homescreen?.sticky || { helper: this.config.homescreen?.pinned_items_entity };
+                this.pinnedManager = new PinnedItemsManager(this.hass, pinnedConfig, this.storageManager);
+                if (this.router) this.router.updateDependencies({ pinned: this.pinnedManager });
+            } catch (e) {
+                console.error("[SpotifyBrowser] Failed to initialize PinnedItemsManager", e);
+            }
+        }
+
+        if (!this.deviceManager && this.config && this.config.device_playback) {
+            try {
+                this.deviceManager = new DeviceManager(this.hass, this.config.device_playback, this.storageManager);
+            } catch (e) {
+                console.error("[SpotifyBrowser] Failed to initialize DeviceManager", e);
+            }
+        }
+    }
+
+    _validateStorage() {
+        const status = this.storageManager.checkStatus();
+
+        if (status === 'empty') {
+            // Silent auto-init for new users
+            this.storageManager.resetStorage();
+        } else if (status === 'corrupted' && !this._storageCorruptPrompted) {
+            this._storageCorruptPrompted = true;
+            // Defer alert slightly to ensure popups are ready
+            setTimeout(() => {
+                this.dispatchEvent(new CustomEvent('show-alert', {
+                    detail: {
+                        id: 'storage-corruption',
+                        title: 'Storage Error',
+                        message: 'Persistent storage data appears to be corrupted. Reset checks and saved items to defaults?',
+                        confirmText: 'Reset Data',
+                        cancelText: 'Ignore',
+                        onConfirm: () => this.storageManager.resetStorage()
+                    },
+                    bubbles: true,
+                    composed: true
+                }));
+            }, 1000);
+        }
+    }
+
     _initApi() {
         if (this.api || !this.hass || !this.config.entity) return;
 
@@ -589,6 +565,9 @@ class SpotifyBrowserApp extends LitElement {
                 }
             }
         );
+
+        // Apply config-driven API behavior (e.g. scan_interval)
+        this.api.setConfig(this.config);
 
         // Initialize Player Controller
         this.playerController = new PlayerController(this.api);
@@ -711,6 +690,7 @@ class SpotifyBrowserApp extends LitElement {
     switchAccount(entity) {
         if (!entity || entity === this.config.entity) return;
         this.config = { ...this.config, entity };
+        if (this.api) this.api.destroy();
         this.api = null;
         if (this.playerController) this.playerController.destroy();
         this.playerController = null;

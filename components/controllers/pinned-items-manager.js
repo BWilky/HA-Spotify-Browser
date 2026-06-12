@@ -262,17 +262,22 @@ export class PinnedItemsManager {
 
         if (!oldState || !newState) return false;
 
-        // Optimized check: compare references first, then stringified data
+        // Optimized check: compare references first, then the pinned slice only
+        // (the 'data' attribute also holds device-manager state we don't care about)
         if (oldState === newState) return false;
 
-        // Use the storage key to check specific attribute if possible, otherwise check 'data'
-        const attrKey = 'data';
-        const oldData = oldState.attributes[attrKey];
-        const newData = newState.attributes[attrKey];
-
+        const oldData = oldState.attributes.data;
+        const newData = newState.attributes.data;
         if (oldData === newData) return false;
 
-        return JSON.stringify(oldData) !== JSON.stringify(newData);
+        const parse = (d) => {
+            if (typeof d !== 'string') return d;
+            try { return JSON.parse(d); } catch (e) { return null; }
+        };
+        const oldItems = parse(oldData)?.[this._storageKey];
+        const newItems = parse(newData)?.[this._storageKey];
+
+        return JSON.stringify(oldItems) !== JSON.stringify(newItems);
     }
 
     async reset() {
