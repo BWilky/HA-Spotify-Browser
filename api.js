@@ -1,4 +1,15 @@
 export class SpotifyApi {
+    // Only these (user-initiated playback) services should surface a validation
+    // error to the app's error callback, which opens the device picker. Reads
+    // and background calls must never trigger it.
+    static PLAYBACK_SERVICES = new Set([
+        'player_media_play_context',
+        'player_media_play_tracks',
+        'player_media_play_track_favorites',
+        'player_transfer_playback',
+        'add_player_queue_items'
+    ]);
+
     constructor(hass, entityId, deviceResolver = null, defaultVolumeConfig = null, onNotification = null, onError = null) {
         this.hass = hass;
         this.entityId = entityId;
@@ -157,10 +168,14 @@ export class SpotifyApi {
             return response;
 
         } catch (e) {
-            // Report major errors via callback
+            // Report major errors via callback — but ONLY for playback actions.
+            // A background read (get_player_queue_info, get_*, etc.) failing
+            // validation must NOT pop the "select a device" picker; that should
+            // happen only when the user actually tried to play something.
             const errCode = e.code || '';
             const errMsg = e.message || '';
-            if (errCode === 'service_validation_error' || errMsg.includes('Validation error')) {
+            const isValidationError = errCode === 'service_validation_error' || errMsg.includes('Validation error');
+            if (isValidationError && SpotifyApi.PLAYBACK_SERVICES.has(service)) {
                 this._reportError(e);
             }
 
