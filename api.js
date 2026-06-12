@@ -1,5 +1,3 @@
-import { PinnedItemsManager } from './components/controllers/pinned-items-manager.js'; // Keep import or remove? Removing as per request.
-
 export class SpotifyApi {
     constructor(hass, entityId, deviceResolver = null, defaultVolumeConfig = null, onNotification = null, onError = null) {
         this.hass = hass;
@@ -131,12 +129,6 @@ export class SpotifyApi {
         }
         // ---------------------------------------------------------
 
-
-        // AUTO-INJECT DEVICE ID REMOVED: Managed strictly in playMedia for better control
-        // to avoid double-logic causing delays.
-
-        if (!this.hass) return null;
-
         try {
             const payload = {
                 type: 'call_service',
@@ -195,7 +187,6 @@ export class SpotifyApi {
         // Active = playing, paused, or buffering. Idle/Off is not active.
         const isActive = stateObj && ['playing', 'paused', 'buffering'].includes(stateObj.state);
 
-        // ... (Device Strategy Code Omitted for brevity, unchanged) ...
         // 1. Determine Device Strategy
         let deviceToUse = null;
         let backupDevice = null;

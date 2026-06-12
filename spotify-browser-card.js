@@ -1,1 +1,0 @@
-// This file is not used anymore, it was renamed to spotify-browser-app.js

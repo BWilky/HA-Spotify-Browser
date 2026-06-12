@@ -3,7 +3,6 @@ export class PinnedItemsManager {
         this.hass = hass;
         this.config = config || {};
         this.storageManager = storageManager;
-        this._validated = false;
         this._storageKey = 'pinned_items';
     }
 
@@ -230,9 +229,6 @@ export class PinnedItemsManager {
                     newOrder.push(item);
                 }
             }
-
-            // Ensure Library anchor logic if any (optional, but requested before)
-            // ...
 
             return await this._save(newOrder);
         } catch (e) {

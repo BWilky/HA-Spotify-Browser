@@ -4,9 +4,7 @@ import { homeStyles } from '../styles/spotify-home.styles.js';
 import { renderCardHtml } from './media-templates.js';
 import { loadMadeForYouItems } from './controllers/home-content.js';
 
-// Helper templates from old templates.js
-// Helper templates from old templates.js
-// Helper templates from old templates.js
+// --- HTML-string section templates (home uses unsafeHTML + event delegation) ---
 function renderCarouselSection(title, sectionId, items = null, seeMoreParams = null) {
     let headerAction = '';
     // If items exist, show See All logic
@@ -32,7 +30,7 @@ function renderCarouselSection(title, sectionId, items = null, seeMoreParams = n
     } else if (items.length === 0) { // Empty
         contentHtml = `<div style="padding:20px; opacity:0.5; white-space:nowrap;">No content found.</div>`;
     } else {
-        contentHtml = items.map(item => mediaCard(item, item.type || item._fallbackType)).join('');
+        contentHtml = items.map(item => renderCardHtml(item, item.type || item._fallbackType)).join('');
     }
 
     return `
@@ -111,10 +109,6 @@ function recentPillSkeleton() {
     `;
 }
 
-function mediaCard(item, type) {
-    return renderCardHtml(item, type);
-}
-
 function recentPill(item, playingId = null) {
     const id = item.id;
     const uri = item.uri;
@@ -178,11 +172,6 @@ class SpotifyHome extends LitElement {
         this._hasLoaded = false;
     }
 
-    connectedCallback() {
-        super.connectedCallback();
-        // Event listener moved to render() for correct Shadow DOM target handling
-    }
-
     firstUpdated(changedProperties) {
         super.firstUpdated(changedProperties);
         if (this.hass && this.api) {
@@ -200,7 +189,6 @@ class SpotifyHome extends LitElement {
             if (this._hasLoaded && this.hass && this.pinned && changedProperties.has('hass')) {
                 const oldHass = changedProperties.get('hass');
                 if (this.pinned.hasDataChanged(oldHass, this.hass)) {
-                    // console.log('[SpotifyHome] Pinned Items changed in HASS. Re-fetching.');
                     this.fetchSectionData('pinned');
                 }
             }
@@ -212,12 +200,7 @@ class SpotifyHome extends LitElement {
 
     }
 
-    disconnectedCallback() {
-        super.disconnectedCallback();
-    }
-
     _handleCardClick(e) {
-        // ... (Logic remains same, but e.target will now be correct) ...
         // 1. Scroll Buttons
         const scrollBtn = e.target.closest('.scroll-btn');
         if (scrollBtn) {
@@ -304,12 +287,9 @@ class SpotifyHome extends LitElement {
         }
 
         // 4. Media Cards
-
-        // 3. Media Cards
         const card = e.target.closest('.interactive');
         if (card) {
             const { id, type, title, subtitle } = card.dataset;
-            // console.log('[Home] Card Clicked:', { id, type, title, subtitle, dataset: card.dataset });
 
             // SPECIAL CASE: User Library Pinned Item
             if (id === 'user-library') {
@@ -397,7 +377,7 @@ class SpotifyHome extends LitElement {
                 </button>
             `;
 
-            const contentHtml = items.map(item => mediaCard(item, item.type || 'playlist')).join('');
+            const contentHtml = items.map(item => renderCardHtml(item, item.type || 'playlist')).join('');
 
             return `
             <section class="home-section" data-section-id="${sectionId}">
@@ -601,8 +581,6 @@ class SpotifyHome extends LitElement {
             return;
         }
 
-        // this._fetching[sectionKey] = true; // Already set at start
-        this.requestUpdate();
         const limit = 20;
 
         try {
@@ -659,7 +637,6 @@ class SpotifyHome extends LitElement {
                     if (data && data.items) {
                         data.items = data.items.map(i => ({ ...i, type: i.type || 'album' }));
                     }
-                    // console.log('[Home] New Releases Data:', data);
                 }
                 type = 'album';
             }

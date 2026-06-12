@@ -118,13 +118,6 @@ export class SpotifyPopupDevices extends LitElement {
         this._revealed = false;
     }
 
-    updated(changedProperties) {
-        if (changedProperties.has('devices')) {
-            // Reset revealed state if devices list refreshes significantly 
-            // (Actually better to keep it true if we just engaged it. Let parent handle reset if closed)
-        }
-    }
-
     _getDeviceIcon(device) {
         if (!this.config || !this.config.device_playback || !this.config.device_playback.show) return null;
 
