@@ -25,9 +25,11 @@ export class SpotifyDeviceManagerPopup extends LitElement {
             .device-popup-backdrop.visible { opacity: 1; display: flex; }
 
             .popup-content {
-                width: 90vw;
-                max-width: 1000px; /* Wider */
-                height: 85vh; /* Taller fixed height */
+                /* Size relative to the browser wrapper (the :host), NOT the
+                   viewport — vw/vh overflowed and got clipped by the wrapper */
+                width: 92%;
+                max-width: 1000px;
+                height: 92%;
                 max-height: 900px;
                 display: flex;
                 flex-direction: column;
@@ -209,7 +211,9 @@ export class SpotifyDeviceManagerPopup extends LitElement {
             }
         }
 
-        if (changedProperties.has('visible') && this.visible && !this._liveDevices.length) {
+        // Re-scan every time the popup opens (a stale shorter list would
+        // otherwise stick around from a previous open)
+        if (changedProperties.has('visible') && this.visible) {
             this.refreshLive();
         }
     }

@@ -911,7 +911,13 @@ export const sharedStyles = css`
     .play-btn-overlay:hover { transform: translate(-50%, -50%) scale(1.1) !important; background-color: var(--spf-brand-hover); }
     
     .media-card.artist-card { background: transparent; padding: 10px; }
-    @media (hover: hover) { .media-card.artist-card:hover { background: var(--spf-bg-card-hover); } }
+    /* Circular art: no square shadow box, and hover highlights the circle
+       (a ring) instead of drawing a rectangle around a transparent card */
+    .media-card.artist-card .media-image-wrapper { box-shadow: none; }
+    @media (hover: hover) {
+        .media-card.artist-card:hover { background: transparent; }
+        .media-card.artist-card:hover .media-image { box-shadow: 0 0 0 3px var(--spf-hover-white); }
+    }
     
     .media-title { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
     .media-subtitle { font-size: 12px; color: var(--spf-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
