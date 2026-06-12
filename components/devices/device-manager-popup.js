@@ -3,7 +3,7 @@ import { sharedStyles } from '../../styles/shared-styles.js';
 import { popupsStyles } from '../../styles/spotify-popups.styles.js';
 import { parseDeviceItems, normalizeDevice } from '../../utils.js';
 
-export class SpotifyPopupDeviceManager extends LitElement {
+export class SpotifyDeviceManagerPopup extends LitElement {
     static get styles() {
         return [sharedStyles, popupsStyles, css`
             :host {
@@ -554,4 +554,4 @@ export class SpotifyPopupDeviceManager extends LitElement {
     }
 }
 
-customElements.define('spotify-popup-devicemanager', SpotifyPopupDeviceManager);
+customElements.define('spotify-popup-devicemanager', SpotifyDeviceManagerPopup);

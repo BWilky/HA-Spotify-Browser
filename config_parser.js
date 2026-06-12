@@ -241,7 +241,7 @@ export class ConfigParser {
         return {
             auto_close_seconds: 0,
             scan_interval: null,
-            close_on_disconnect: config.closeondisconnect !== false,
+            close_on_disconnect: (config.closeondisconnect ?? config.close_on_disconnect) !== false,
             custom_hash: config.custom_hash ?
                 (config.custom_hash.startsWith('#') ? config.custom_hash : `#${config.custom_hash}`)
                 : '#spotify-browser',
@@ -255,9 +255,9 @@ export class ConfigParser {
             default_entity: startupEntity,
             spotify_accounts: accounts,
 
-            // Home On Exit Logic
+            // Home On Exit Logic (accepts homeonexit or home_on_exit)
             home_on_exit: (() => {
-                const val = config.homeonexit;
+                const val = config.homeonexit ?? config.home_on_exit;
                 if (val === undefined || val === true) return { enabled: true, timeout: 0 };
                 if (val === false) return { enabled: false, timeout: 0 };
                 if (typeof val === 'number') return { enabled: true, timeout: val };

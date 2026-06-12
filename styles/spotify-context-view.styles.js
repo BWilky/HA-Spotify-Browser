@@ -39,7 +39,7 @@ export const contextViewStyles = css`
     .hero-art { 
         width: 180px; height: 180px; 
         box-shadow: 0 4px 60px rgba(0,0,0,0.5); 
-        background: #282828; flex-shrink: 0; 
+        background: var(--spf-skeleton-bg); flex-shrink: 0; 
         /* FIX: Prevent collapse if image is missing */
         display: block; 
         position: relative;
@@ -142,7 +142,7 @@ export const contextViewStyles = css`
     
     .track-art-small {
         width: 40px; height: 40px; background-size: cover; background-position: center;
-        border-radius: 4px; background-color: #282828;
+        border-radius: 4px; background-color: var(--spf-skeleton-bg);
     }
 
     .track-name { color: var(--spf-text-main); font-size: 15px; }

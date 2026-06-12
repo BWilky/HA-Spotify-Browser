@@ -12,7 +12,7 @@ import './components/spotify-context-view.js';
 import './components/spotify-popups.js';
 import './components/spotify-reorder-dialog.js';
 import { PinnedItemsManager } from './components/controllers/pinned-items-manager.js';
-import { DeviceManager } from './components/devices/helper.js';
+import { DeviceManager } from './components/devices/device-manager.js';
 import { StorageManager } from './components/controllers/storage-manager.js';
 import { PlayerController } from './components/controllers/player-controller.js';
 
