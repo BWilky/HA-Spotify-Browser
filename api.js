@@ -17,6 +17,47 @@ export class SpotifyApi {
         this.defaultVolumeConfig = defaultVolumeConfig;
         this.onNotification = onNotification;
         this.onError = onError;
+
+        // Track foreground/background transitions so the scan timer can hold off
+        // right after we return — the WebSocket is often still reconnecting then.
+        // Seed the grace window at construction: the WebView wrapper hard-reloads
+        // the whole page on every foreground return, so there is no
+        // hidden -> visible transition to fire `visibilitychange`. Without this
+        // seed `_resumedAt` stays 0, the grace check never holds, and the first
+        // scan fires into a still-connecting socket — which makes HA surface a
+        // "connection lost" toast + failure haptic.
+        this._resumedAt = Date.now();
+        this._onVisibility = () => {
+            if (typeof document !== 'undefined' && !document.hidden) this._resumedAt = Date.now();
+        };
+        if (typeof document !== 'undefined') {
+            document.addEventListener('visibilitychange', this._onVisibility);
+        }
+
+        // Track real socket readiness via the HA connection's lifecycle events so
+        // background calls hold off until the socket is genuinely up. `ready`
+        // fires after each successful (re)connection; treat it as a fresh resume
+        // so the grace window restarts every reconnect.
+        this._socketReady = this.hass?.connection?.connected === true;
+        this._connection = null;
+        this._onSocketReady = () => { this._socketReady = true; this._resumedAt = Date.now(); };
+        this._onSocketDisconnected = () => { this._socketReady = false; };
+        this._bindConnection();
+    }
+
+    /** (Re)subscribe to the active HA connection's ready/disconnected events. */
+    _bindConnection() {
+        const conn = this.hass?.connection || null;
+        if (conn === this._connection) return;
+        if (this._connection?.removeEventListener) {
+            this._connection.removeEventListener('ready', this._onSocketReady);
+            this._connection.removeEventListener('disconnected', this._onSocketDisconnected);
+        }
+        this._connection = conn;
+        if (conn?.addEventListener) {
+            conn.addEventListener('ready', this._onSocketReady);
+            conn.addEventListener('disconnected', this._onSocketDisconnected);
+        }
     }
 
     _notify(message) {
@@ -66,42 +107,21 @@ export class SpotifyApi {
 
     updateHass(hass) {
         this.hass = hass;
+        // The wrapper's page reload replaces the connection object; re-subscribe.
+        this._bindConnection();
     }
 
-    setConfig(config) {
-        this.config = config;
-        this._manageScanInterval();
-    }
-
-    /** Stop background timers. Call when replacing or discarding this instance. */
+    /** Detach listeners. Call when replacing or discarding this instance. */
     destroy() {
-        if (this._scanIntervalTimer) {
-            clearInterval(this._scanIntervalTimer);
-            this._scanIntervalTimer = null;
+        if (this._onVisibility && typeof document !== 'undefined') {
+            document.removeEventListener('visibilitychange', this._onVisibility);
+            this._onVisibility = null;
         }
-    }
-
-    _manageScanInterval() {
-        // Clear existing
-        if (this._scanIntervalTimer) {
-            clearInterval(this._scanIntervalTimer);
-            this._scanIntervalTimer = null;
+        if (this._connection?.removeEventListener) {
+            this._connection.removeEventListener('ready', this._onSocketReady);
+            this._connection.removeEventListener('disconnected', this._onSocketDisconnected);
         }
-
-        if (!this.config || !this.config.scan_interval) return;
-
-        const interval = Number(this.config.scan_interval);
-
-        // Validate: 1000ms to 15000ms
-        if (isNaN(interval) || interval < 1000 || interval > 15000) {
-            console.warn("[SpotifyAPI] Invalid scan_interval. Must be between 1000 and 15000 ms.");
-            return;
-        }
-
-        console.log(`[SpotifyAPI] Starting Custom Scan Interval: ${interval}ms`);
-        this._scanIntervalTimer = setInterval(() => {
-            this.triggerScan();
-        }, interval);
+        this._connection = null;
     }
 
     async fetchSpotifyPlus(service, params = {}, expectResponse = true, logError = true, throwOnError = false) {
@@ -188,8 +208,23 @@ export class SpotifyApi {
         }
     }
 
+    /** True only when the HA WebSocket is genuinely connected and ready. */
+    get _connectionUp() {
+        return this._socketReady && this.hass?.connection?.connected !== false;
+    }
+
     async triggerScan() {
         if (!this.hass) return;
+        // Don't fire while the app is backgrounded or the socket is reconnecting:
+        // HA's callService surfaces a "connection lost" toast (+ haptic) on failure,
+        // and the scan timer otherwise fires the moment we return to the foreground
+        // before the WebSocket has re-established.
+        if (typeof document !== 'undefined' && document.hidden) return;
+        if (!this._connectionUp) return;
+        // Grace period after returning to the foreground: the socket may report
+        // connected before it can actually service calls, which would fail and
+        // make HA surface a "connection lost" toast + haptic.
+        if (Date.now() - this._resumedAt < 4000) return;
         try {
             // Force HA to scan Spotify immediately
             await this.hass.callService('spotifyplus', 'trigger_scan_interval', {
@@ -374,6 +409,26 @@ export class SpotifyApi {
         }
     }
 
+    /**
+     * The current account's Spotify user id, memoized for the session. Prefers
+     * the entity's `sp_user_id` attribute (no network) and falls back to the
+     * profile lookup. Needed to build the playable Liked Songs context URI
+     * (`spotify:user:<id>:collection`) — the `me` shorthand is not playable.
+     */
+    async getCurrentUserId() {
+        if (this._currentUserId) return this._currentUserId;
+
+        const attrId = this.hass?.states?.[this.entityId]?.attributes?.sp_user_id;
+        if (attrId) {
+            this._currentUserId = attrId;
+            return attrId;
+        }
+
+        const profile = await this.getCurrentUserProfile();
+        if (profile?.id) this._currentUserId = profile.id;
+        return this._currentUserId || null;
+    }
+
     async checkUserFollowsPlaylist(playlistId, userIds) {
         if (!this.hass || !playlistId || !userIds) return null;
         try {
@@ -465,19 +520,39 @@ export class SpotifyApi {
     async checkTrackFavorites(ids) {
         if (!this.hass || !ids) return null;
         try {
-            const idsParam = Array.isArray(ids) ? ids.join(',') : ids;
+            const idList = Array.isArray(ids) ? ids.slice() : String(ids).split(',');
+            const idsParam = idList.join(',');
             const res = await this.fetchSpotifyPlus('check_track_favorites', {
                 ids: idsParam
             }, true);
 
-            if (res?.result) {
-                // If checking single ID, return single boolean
-                if (!Array.isArray(ids) && !idsParam.includes(',')) {
-                    return res.result[idsParam];
-                }
-                return res.result;
+            let result = res?.result ?? res;
+            if (typeof result === 'string') {
+                try { result = JSON.parse(result); } catch (e) { /* leave as-is */ }
             }
-            return null;
+            if (result == null) return null;
+
+            // SpotifyPlus may return either a list of booleans (in id order, like
+            // the raw Spotify API) or a dict keyed by id. Normalize to {id: bool}.
+            const truthy = (v) => v === true || v === 'true';
+            let map = {};
+            if (Array.isArray(result)) {
+                idList.forEach((id, i) => { map[id] = truthy(result[i]); });
+            } else if (typeof result === 'object') {
+                for (const [k, v] of Object.entries(result)) map[k] = truthy(v);
+                // If the dict isn't actually keyed by our ids, fall back to order.
+                if (idList.length && !idList.some(id => id in map)) {
+                    const vals = Object.values(result);
+                    map = {};
+                    idList.forEach((id, i) => { map[id] = truthy(vals[i]); });
+                }
+            } else if (typeof result === 'boolean') {
+                map[idList[0]] = result;
+            }
+
+            // Single id -> boolean; multiple -> the {id: bool} map.
+            const single = !Array.isArray(ids) && !idsParam.includes(',');
+            return single ? (map[idList[0]] === true) : map;
         } catch (e) {
             console.error("Check Track Favorites failed:", e);
             return null;
@@ -495,6 +570,21 @@ export class SpotifyApi {
         // options: limit, offset
         // Using 'get_playlist_favorites' as confirmed in old code and Wiki
         return await this.fetchSpotifyPlus('get_playlist_favorites', options);
+    }
+
+    // Per-artist genre lookup, cached on the instance. Returns string[] of
+    // genres (may be empty). Used to build the Liked Songs filter pills.
+    async getArtistGenres(artistId) {
+        if (!this.hass || !artistId) return [];
+        if (!this._artistGenreCache) this._artistGenreCache = new Map();
+        if (this._artistGenreCache.has(artistId)) return this._artistGenreCache.get(artistId);
+        let genres = [];
+        try {
+            const res = await this.fetchSpotifyPlus('get_artist', { artist_id: artistId });
+            genres = res?.result?.genres || res?.genres || [];
+        } catch (e) { genres = []; }
+        this._artistGenreCache.set(artistId, genres);
+        return genres;
     }
 
     async searchPlaylists(query, limit = 10, offset = 0) {
@@ -536,6 +626,51 @@ export class SpotifyApi {
         }
     }
 
+    /** True/false (single id) or an id→bool map (multiple), or null on failure. */
+    async checkAlbumFavorites(ids) {
+        if (!this.hass || !ids) return null;
+        try {
+            const idsParam = Array.isArray(ids) ? ids.join(',') : ids;
+            const res = await this.fetchSpotifyPlus('check_album_favorites', { ids: idsParam }, true);
+            if (res?.result) {
+                if (!Array.isArray(ids) && !idsParam.includes(',')) return res.result[idsParam];
+                return res.result;
+            }
+            return null;
+        } catch (e) {
+            console.error("Check Album Favorites failed:", e);
+            return null;
+        }
+    }
+
+    async saveAlbumFavorites(ids) {
+        if (!this.hass || !ids) return { success: false };
+        try {
+            await this.hass.callService('spotifyplus', 'save_album_favorites', {
+                entity_id: this.entityId,
+                ids: Array.isArray(ids) ? ids.join(',') : ids
+            });
+            return { success: true };
+        } catch (e) {
+            console.error("Save Album Favorites failed:", e);
+            return { success: false, error: e };
+        }
+    }
+
+    async removeAlbumFavorites(ids) {
+        if (!this.hass || !ids) return { success: false };
+        try {
+            await this.hass.callService('spotifyplus', 'remove_album_favorites', {
+                entity_id: this.entityId,
+                ids: Array.isArray(ids) ? ids.join(',') : ids
+            });
+            return { success: true };
+        } catch (e) {
+            console.error("Remove Album Favorites failed:", e);
+            return { success: false, error: e };
+        }
+    }
+
     async setVolume(volumeLevel) {
         if (!this.hass) return { success: false };
         try {
@@ -546,6 +681,21 @@ export class SpotifyApi {
             return { success: true };
         } catch (e) {
             console.error("Failed to set volume:", e);
+            return { success: false, error: e };
+        }
+    }
+
+    async seek(positionSeconds) {
+        if (!this.hass) return { success: false };
+        try {
+            await this.hass.callService('media_player', 'media_seek', {
+                entity_id: this.entityId,
+                seek_position: Math.max(0, Math.floor(positionSeconds))
+            });
+            this.triggerScan();
+            return { success: true };
+        } catch (e) {
+            console.error("Failed to seek:", e);
             return { success: false, error: e };
         }
     }

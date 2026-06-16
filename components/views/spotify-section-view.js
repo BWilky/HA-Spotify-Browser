@@ -22,30 +22,13 @@ export class SpotifySectionView extends LitElement {
                  }
                  .section-table-container {
                      padding: 0; /* Remove padding to allow full width rows */
-                     padding-top: 64px; /* Exact header height */
+                     /* Clear the app header (which overlays the top) + safe area */
+                     padding-top: calc(64px + var(--spf-safe-top, 0px));
                      padding-bottom: 24px;
                      background: var(--spf-bg);
                      min-height: 100%;
                  }
-                 .section-header-fixed {
-                     position: absolute; top: 0; left: 0; right: 0; height: 64px;
-                     background: rgba(18,18,18,0.95); 
-                     border-bottom: 1px solid rgba(255,255,255,0.1);
-                     display: flex; align-items: center; 
-                     padding: 0 16px; /* Match standard padding */
-                     z-index: 10;
-                     backdrop-filter: blur(20px); /* Stronger blur */
-                     box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-                 }
-                 .back-btn { 
-                     background: none; border: none; color: white; margin-right: 16px; 
-                     cursor: pointer; display: flex; align-items: center; justify-content: center;
-                     padding: 8px; border-radius: 50%;
-                     transition: background 0.2s;
-                 }
-                 .back-btn:hover { background: rgba(255,255,255,0.1); }
-                 .header-title { font-weight: 700; font-size: 20px; letter-spacing: -0.02em; }
-                 
+
                  /* Table Styles */
                  .table-row {
                      display: grid;
@@ -72,7 +55,27 @@ export class SpotifySectionView extends LitElement {
         ];
     }
 
+    updated(changedProperties) {
+        // Drive the shared app header (back button + centered title) instead of
+        // rendering our own header bar.
+        if (changedProperties.has('data')) this._emitHeaderState();
+    }
+
+    /** Called by the parent context-view when this page becomes visible again. */
+    updateHeaderState() {
+        this._emitHeaderState();
+    }
+
+    _emitHeaderState() {
+        this.dispatchEvent(new CustomEvent('header-scroll', {
+            detail: { alpha: 1, title: this.data?.name || '', textAlpha: 1 },
+            bubbles: true, composed: true
+        }));
+    }
+
     _handleScroll(e) {
+        // Keep the title pinned in the app header during scroll
+        this._emitHeaderState();
         // Infinite scroll: request the next page when near the bottom.
         if (!this.data || this.data.isLoading || !this.data.hasMore) return;
         const el = e.target;
@@ -83,16 +86,10 @@ export class SpotifySectionView extends LitElement {
 
     render() {
         if (!this.data) return html``;
-        const { name, items, isLoading } = this.data;
+        const { items, isLoading } = this.data;
 
         return html`
-            <div class="main-scroll-container" @scroll=${this._handleScroll} style="height: 100%; overflow-y: auto; position: relative;">
-                <div class="section-header-fixed">
-                    <button class="back-btn" @click=${(e) => { e.stopPropagation(); this.dispatchEvent(new CustomEvent('back', { bubbles: true, composed: true })); }}>
-                        <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-                    </button>
-                    <div class="header-title">${name}</div>
-                </div>
+            <div class="main-scroll-container" @scroll=${this._handleScroll} style="height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: auto; overscroll-behavior-x: none; position: relative;">
                 <div class="section-table-container">
                     ${items && items.length > 0 ? items.map(item => this.renderTableRow(item)) : ''}
                     ${isLoading ? html`<div style="padding: 20px; text-align: center; color: #b3b3b3;">Loading more...</div>` : ''}

@@ -23,8 +23,8 @@ a `#spotify-browser` URL hash (configurable), or per-account hashes.
 | `api.js` (`SpotifyApi`) | Every Home Assistant service call (SpotifyPlus + media_player). Pure transport — no UI state |
 | `utils.js` | Shared helpers: device response parsing/normalization, item image resolution, spotify URI parsing, player-state readers |
 | `components/controllers/player-controller.js` | Now-playing/queue state machine (EventTarget, emits `state-changed`) |
-| `components/controllers/storage-manager.js` + `storage/` | Persistence facade. Strategy: trigger-template sensor (`sensor.spotify_browser_data`) with localStorage fallback |
-| `components/controllers/pinned-items-manager.js` | Pinned ("sticky") items on top of StorageManager (`pinned_items` key) |
+| `components/controllers/storage-manager.js` + `storage/` | Persistence facade. Single backend: a trigger-template sensor (`sensor.spotify_browser_data`), no localStorage fallback. Reads work for anyone who can see the sensor; writes need admin (fires the event) or a non-admin with a configured `storage.write_script` middle-man (`writeStatus()` reports `no_backend`/`ok`/`guest_local`; a configured `write_script` is trusted without requiring the script entity to be visible in the guest's state map) |
+| `components/controllers/pinned-items-manager.js` | Pinned ("sticky") items on top of StorageManager (`pinned_items` key). `checkAvailability()` = can SHOW pins (sensor exists) → gates the home section (read-only for guests); `canEdit()` = can WRITE (admin or guest with working `write_script`) → gates pin buttons (both views) + the home Edit/reorder button |
 | `components/devices/device-manager.js` | Saved/live device merging + persistence (`device_manager` key). `fetchMergedDevices(api, attrs, opts)` is the single device-scan entry point |
 | `components/controllers/home-content.js` | Content builders shared by home + section views (made-for-you, recent-album dedup) |
 
@@ -34,17 +34,30 @@ a `#spotify-browser` URL hash (configurable), or per-account hashes.
   `spotify-search`, `spotify-context-view` (which delegates to
   `views/spotify-playlist-view`, `views/spotify-artist-view`,
   `views/spotify-section-view`, `views/spotify-context-list`).
-- Chrome: `spotify-header`, `players/sidebar/` (now playing + queue + recent),
-  `spotify-popups` (device picker, accounts, track menu, alerts, toasts),
+- Chrome: `spotify-header`, `players/sidebar/` (desktop now playing + queue +
+  recent), `players/` surfaces (`now-playing-mobile`, `connect-panel`,
+  `queue-panel`, `account-panel` — all `bottom-sheet`s),
+  `spotify-popups` (device picker, track menu, alerts, toasts),
   `spotify-reorder-dialog`, `devices/` popups.
+- `spotify-header` shows the active account's avatar (only on home, right of the
+  logo/collapse arrow). With >1 `spotify_accounts`, tapping it (`avatar-click`)
+  opens `account-panel` to switch. The app rebuilds the API and clears the
+  Router page cache on switch (`switchAccount` → `router.clearCache()`) so every
+  page reloads with the new account's data.
 - `components/media-templates.js` holds the shared card/pill/track-row templates.
   `spotify-home` renders HTML strings + event delegation (uses `renderCardHtml`);
   everything else uses Lit templates.
+- `components/bottom-sheet.js` (`spotify-bottom-sheet`) is the reusable mobile
+  slide-up sheet (backdrop + grab handle + drag-to-close). Sheets slot their
+  content into it instead of re-implementing the chrome (see
+  `players/connect-panel.js`, the mobile device picker, and
+  `players/account-panel.js`, the account switcher).
 
 ## Conventions
 
 - Events bubble composed; the Router attaches page-level listeners, the app
-  handles global ones (`show-toast`, `show-alert`, `open-reorder`).
+  handles global ones (`show-toast`, `show-alert`, `open-reorder`,
+  `pinned-changed`).
 - Components never reach into another object's underscore-prefixed fields —
   add a getter instead (see `DeviceManager.storageEntityId`, `PinnedItemsManager.sensorEntity`).
 - Long-lived objects with timers expose `destroy()` (`SpotifyApi`, `PlayerController`);

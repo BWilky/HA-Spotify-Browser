@@ -7,7 +7,6 @@ class SpotifyReorderDialog extends LitElement {
             items: { type: Array },
             visible: { type: Boolean },
             allowBlur: { type: Boolean },
-            userLibraryActive: { type: Boolean },
             _draggedItemIndex: { type: Number, state: true },
             _dropTargetIndex: { type: Number, state: true },
             _dropPosition: { type: String, state: true },
@@ -118,6 +117,10 @@ class SpotifyReorderDialog extends LitElement {
                     z-index: 1;
                 }
 
+                /* Liked Songs row: locked at the top, not draggable. */
+                .reorder-item.locked { cursor: default; }
+                .reorder-item.locked .handle { opacity: 0.45; }
+
                 /* GHOST & FLOAT LOGIC */
                 .reorder-item.dragging {
                     z-index: 100;
@@ -224,7 +227,6 @@ class SpotifyReorderDialog extends LitElement {
         super();
         this.items = [];
         this.visible = false;
-        this.userLibraryActive = false;
         this._draggedItemIndex = null;
         this._dropTargetIndex = null;
         this._cachedRects = [];
@@ -235,6 +237,8 @@ class SpotifyReorderDialog extends LitElement {
     _handlePointerDown(e, index) {
         if (e.button !== 0 && e.pointerType === 'mouse') return;
         if (e.target.closest('button')) return; // Ignore drag if clicking a button
+        // Liked Songs is locked at #0 — it can't be dragged.
+        if (this.items[index]?.id === 'user-library') return;
 
         const target = e.currentTarget;
         target.setPointerCapture(e.pointerId);
@@ -299,6 +303,9 @@ class SpotifyReorderDialog extends LitElement {
         const [movedItem] = newItems.splice(from, 1);
         let targetIdx = (pos === 'after') ? to + 1 : to;
         if (from < targetIdx) targetIdx--;
+        // Keep Liked Songs locked at #0 — nothing can be dropped above it.
+        const hasLockedFirst = newItems[0]?.id === 'user-library';
+        if (hasLockedFirst && targetIdx < 1) targetIdx = 1;
         newItems.splice(targetIdx, 0, movedItem);
         this.items = newItems;
         this._dispatchUpdate();
@@ -311,28 +318,6 @@ class SpotifyReorderDialog extends LitElement {
         this.dispatchEvent(new CustomEvent('add-custom-uri', { detail: this._uriInputValue }));
         this._showUriInput = false;
         this._uriInputValue = '';
-    }
-
-    // --- LIBRARY & DELETE TOGGLES ---
-
-    _toggleUserLibrary() {
-        if (this.userLibraryActive) {
-            this.items = this.items.filter(i => i.id !== 'user-library');
-        } else {
-            const libraryItem = {
-                id: 'user-library',
-                type: 'library',
-                title: 'User Library',
-                subtitle: 'Your collection & liked songs',
-                image: 'https://www.gstatic.com/images/icons/material/system/2x/library_music_white_24dp.png'
-            };
-            // Strictly remove any existing instances first to prevent duplicates
-            const cleanItems = this.items.filter(i => i.id !== 'user-library');
-            this.items = [libraryItem, ...cleanItems];
-        }
-        this.userLibraryActive = !this.userLibraryActive;
-        this.requestUpdate(); // Force UI update immediately
-        this._dispatchUpdate();
     }
 
     /* --- ACTIONS --- */
@@ -368,25 +353,6 @@ class SpotifyReorderDialog extends LitElement {
         }));
     }
 
-    _toggleAnchor(item, e) {
-        if (e) { e.preventDefault(); e.stopPropagation(); }
-
-        // Toggle Anchored State
-        item.anchored = !item.anchored;
-
-        // If anchored, move to top immediately
-        if (item.anchored) {
-            this.items = this.items.filter(i => i.id !== item.id);
-            this.items.unshift(item);
-        }
-
-        this.requestUpdate();
-        // Dispatch Update: sending IDs is not enough if we want to save 'anchored' prop.
-        // We rely on SpotifyBrowserApp calling PinnedItemsManager.reorder which now supports objects.
-        // So we send the FULL OBJECTS now.
-        this.dispatchEvent(new CustomEvent('reorder', { detail: this.items }));
-    }
-
     _dispatchUpdate() {
         // Send Items instead of IDs so PinnedItemsManager can persist properties
         this.dispatchEvent(new CustomEvent('reorder', { detail: this.items }));
@@ -415,36 +381,37 @@ class SpotifyReorderDialog extends LitElement {
                                     @pointermove=${this._handlePointerMove} 
                                     @pointerup=${this._handlePointerUp}
                                     @pointercancel=${this._handlePointerUp}>
-                                    ${this.items.map((item, index) => html`
-                                        <li class="reorder-item 
+                                    ${this.items.map((item, index) => {
+                    // Liked Songs is mandatory and locked at #0: not draggable, not removable.
+                    const locked = item.id === 'user-library';
+                    return html`
+                                        <li class="reorder-item ${locked ? 'locked' : ''}
                                             ${this._draggedItemIndex === index ? 'dragging ghost' : ''}
                                             ${this._dropTargetIndex === index && this._dropPosition === 'before' ? 'drop-before' : ''}
                                             ${this._dropTargetIndex === index && this._dropPosition === 'after' ? 'drop-after' : ''}"
                                             @pointerdown=${(e) => this._handlePointerDown(e, index)}
                                         >
                                             <div class="handle">
-                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+                                                ${locked
+                            ? html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10z"/></svg>`
+                            : html`<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>`
+                        }
                                             </div>
                                             <div class="item-thumb" style="background-image: url('${item.image || ''}')"></div>
                                             <div class="item-info">
                                                 <div class="item-title">${item.title || item.name || '(Untitled Item)'}</div>
-                                                <div class="item-subtitle">${item.subtitle || ''}</div>
+                                                <div class="item-subtitle">${locked ? 'Always pinned' : (item.subtitle || '')}</div>
                                             </div>
                                             <div style="display:flex; align-items:center;">
-                                                ${item.id === 'user-library' ? html`
-                                                    <button class="action-btn" @click=${(e) => this._toggleAnchor(item, e)} title="Reference">
-                                                        ${item.anchored
-                            ? html`<svg width="20" height="20" viewBox="0 0 24 24" fill="var(--spf-brand)"><path d="M12 17.27L18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>`
-                            : html`<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M22 9.24l-7.19-.62L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.63-7.03L22 9.24zM12 15.4l-3.76 2.27 1-4.28-3.32-2.88 4.38-.38L12 6.1l1.71 4.01 4.38.38-3.32 2.88 1 4.28L12 15.4z"/></svg>`
-                        }
+                                                ${locked ? '' : html`
+                                                    <button class="action-btn delete" @click=${(e) => this._requestDelete(item.id, e)} title="Remove">
+                                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                                                     </button>
-                                                ` : ''}
-                                                <button class="action-btn delete" @click=${(e) => this._requestDelete(item.id, e)} title="Remove">
-                                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
-                                                </button>
+                                                `}
                                             </div>
                                         </li>
-                                    `)}
+                                    `;
+                })}
                                 </ul>
                             `
             }
@@ -464,10 +431,6 @@ class SpotifyReorderDialog extends LitElement {
                             </div>
                         ` : html`
                             <div style="display:flex; gap:8px;">
-                                <button class="btn-base library-toggle-btn ${this.userLibraryActive ? 'active' : ''}" 
-                                        @click=${this._toggleUserLibrary}>
-                                    User Library
-                                </button>
                                 <button class="btn-base library-toggle-btn" @click=${() => this._showUriInput = true}>
                                     + Add Item
                                 </button>

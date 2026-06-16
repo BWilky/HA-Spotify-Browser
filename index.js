@@ -82,6 +82,8 @@ class SpotifyExtension {
 
         // 5. Event Listeners
         window.addEventListener('spotify-browser-open', () => this._open());
+        // Deep-link straight to the mobile Now Playing surface (over home).
+        window.addEventListener('spotify-browser-open-now-playing', () => this._open(true));
 
         // Listen for URL Hash changes (Browser Back/Forward or Manual URL entry)
         window.addEventListener('hashchange', this._boundCheckHash);
@@ -96,12 +98,19 @@ class SpotifyExtension {
         const hash = window.location.hash;
         if (!hash) return;
 
+        // A `-now-playing` suffix on any trigger hash (e.g.
+        // `#spotify-browser-now-playing`) opens straight to the mobile Now
+        // Playing view; the base hash is matched as usual.
+        const NP_SUFFIX = '-now-playing';
+        const nowPlaying = hash.endsWith(NP_SUFFIX);
+        const baseHash = nowPlaying ? hash.slice(0, -NP_SUFFIX.length) : hash;
+
         // Generic trigger (default or custom string from config)
-        const isGeneric = hash.includes(this.config.custom_hash);
+        const isGeneric = baseHash.includes(this.config.custom_hash);
 
         // Account-specific triggers
         const accounts = this.config.spotify_accounts || [];
-        const matchedAccount = accounts.find(acc => acc.hash === hash);
+        const matchedAccount = accounts.find(acc => acc.hash === baseHash);
 
         if (isGeneric || matchedAccount) {
             // Clear the hash so refresh/back doesn't re-trigger
@@ -112,13 +121,13 @@ class SpotifyExtension {
                 this.app.switchAccount(matchedAccount.entity);
             }
 
-            this._open();
+            this._open(nowPlaying);
         }
     }
 
-    _open() {
+    _open(nowPlaying = false) {
         if (!this.initialized || !this.app) return;
-        this.app.open();
+        this.app.open(nowPlaying ? { nowPlaying: true } : undefined);
     }
 
     async _findLovelaceConfig() {
