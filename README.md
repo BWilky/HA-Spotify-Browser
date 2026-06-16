@@ -1,6 +1,10 @@
 # Spotify Browser Card
 
-A Home Assistant Lovelace custom card that renders a full-screen Spotify browser interface. It operates as a wrapper on top of the SpotifyPlus integration.
+A Home Assistant Lovelace custom card that renders a full-screen Spotify browser interface.
+
+> [!IMPORTANT]
+> This card requires the custom [SpotifyPlus](https://github.com/thlucas1/homeassistantcomponent_spotifyplus) integration to function.
+
 
 ## Preview
 
