@@ -7,6 +7,20 @@ export const sharedStyles = css`
         top: 0; left: 0; width: 0; height: 0;
         z-index: 9999;
 
+        /* This is an app-like UI, not a document: suppress the native text
+           selection, blue tap highlight, and long-press callout that fire when
+           touching/dragging on touch devices (tablet/phone). Inherited, so it
+           propagates to every component that uses these shared styles. */
+        user-select: none;
+        -webkit-user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+
+        /* Dynamic Island / notch safe area */
+        --spf-safe-top: env(safe-area-inset-top, 0px);
+        /* Home-indicator safe area (kept off the footer buttons) */
+        --spf-safe-bottom: env(safe-area-inset-bottom, 0px);
+
         /* --- THEME VARIABLES --- */
         --spf-brand: #1db954;
         --spf-brand-hover: #1ed760;
@@ -22,6 +36,13 @@ export const sharedStyles = css`
         --spf-border: rgba(255, 255, 255, 0.1);
         --spf-border-subtle: rgba(255, 255, 255, 0.05);
         --spf-scroll-thumb: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Keep selection/caret behavior for real text fields. */
+    input, textarea {
+        user-select: text;
+        -webkit-user-select: text;
+        -webkit-touch-callout: default;
     }
 
     /* --- EDIT MODE --- */
@@ -88,7 +109,10 @@ export const sharedStyles = css`
     @media (min-width: 769px) {
         .browser-wrapper {
             top: 50%; left: 50%;
-            width: 85vw; max-width: 1200px; height: 85vh;
+            /* On touch tablets the height is locked in px at open time (see
+               _captureAppHeight) so the keyboard overlays the window; pointer-fine
+               desktops fall back to live 85vh. */
+            width: 85vw; max-width: 1200px; height: var(--spf-app-height, 85vh);
             border-radius: 16px;
             box-shadow: 0 20px 50px rgba(0,0,0,0.6);
             backdrop-filter: blur(20px);
@@ -158,36 +182,50 @@ export const sharedStyles = css`
         }
         
         .mobile-drag-handle { display: none; }
+
+        /* While the on-screen keyboard is up (kb-open, toggled by JS), anchor the
+           floating window to the top at its full pre-keyboard height so the
+           keyboard overlays the lower edge instead of shrinking/reflowing it. */
+        .browser-wrapper.open.kb-open {
+            top: 0 !important;
+            height: var(--spf-app-height, 85vh) !important;
+            transform: translateX(-50%) !important;
+            border-radius: 0 0 16px 16px;
+            transition: none !important;
+        }
     }
 
     /* ================= MOBILE STYLES ================= */
     @media (max-width: 768px) {
         .browser-wrapper {
-            bottom: 0; left: 0; width: 100%; height: 100%;
+            /* Anchored to the top with a height locked at open time, so the
+               on-screen keyboard overlays the panel instead of resizing it. */
+            top: 0; left: 0; width: 100%; height: var(--spf-app-height, 100%);
             max-width: none; max-height: none;
             border-radius: 0;
             margin-top: 0;
             border: none;
-            
+
             /* Base Mobile Hidden State */
             pointer-events: none;
         }
 
-        /* --- MOBILE FADE --- */
+        /* --- MOBILE FADE (Slide-up panel with fade) --- */
         .browser-wrapper.anim-fade {
-            transform: translateY(0);
+            transform: translateY(100%);
             opacity: 0;
-            transition: opacity 0.3s ease;
+            transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
         }
         .browser-wrapper.open.anim-fade {
+            transform: translateY(0);
             opacity: 1; pointer-events: auto;
         }
 
-        /* --- MOBILE SLIDE (Default) --- */
+        /* --- MOBILE SLIDE --- */
         .browser-wrapper.anim-slide {
             transform: translateY(100%);
             opacity: 1; 
-            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .browser-wrapper.open.anim-slide {
             transform: translateY(0);
@@ -260,17 +298,202 @@ export const sharedStyles = css`
         .hero-title { font-size: 2rem !important; }
         .grid-layout { grid-template-columns: repeat(2, 1fr) !important; gap: 12px; }
         
-        .header { padding: 0 12px !important; }
+        .header { padding: var(--spf-safe-top, 0px) 12px 0 12px !important; }
         .header-left, .header-right { gap: 8px !important; }
+
+        /* Mobile Bottom Nav and Mini Player styles */
+        .mobile-bottom-nav {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: calc(60px + var(--spf-safe-bottom, 0px));
+            padding-bottom: var(--spf-safe-bottom, 0px);
+            background: rgba(18, 18, 18, 0.95);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border-top: 1px solid var(--spf-border-subtle, rgba(255,255,255,0.05));
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 10000;
+            box-sizing: border-box;
+        }
+        .nav-tab {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: #b3b3b3;
+            font-size: 11px;
+            font-weight: 500;
+            cursor: pointer;
+            gap: 4px;
+            flex: 1;
+            height: 100%;
+            transition: color 0.2s ease;
+        }
+        .nav-tab svg {
+            width: 22px;
+            height: 22px;
+            fill: currentColor;
+        }
+        .nav-tab.active {
+            color: #ffffff;
+        }
+        .mobile-mini-player {
+            position: absolute;
+            bottom: calc(60px + var(--spf-safe-bottom, 0px) + 8px);
+            left: 8px;
+            right: 8px;
+            height: 62px;
+            background: rgba(40, 40, 40, 0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+            display: flex;
+            align-items: center;
+            padding: 8px 8px 8px 10px;
+            z-index: 9999;
+            cursor: pointer;
+            box-sizing: border-box;
+            gap: 10px;
+            overflow: hidden;
+        }
+        .mini-player-art {
+            width: 44px;
+            height: 44px;
+            border-radius: 4px;
+            background-size: cover;
+            background-position: center;
+            background-color: var(--spf-skeleton-bg);
+            flex-shrink: 0;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+        }
+        .mini-player-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            gap: 3px;
+        }
+        .mini-player-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #ffffff;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.2;
+        }
+        .mini-player-sep { color: #b3b3b3; }
+        .mini-player-artist-inline { color: #b3b3b3; font-weight: 500; }
+        .mini-player-artist {
+            font-size: 11px;
+            color: #b3b3b3;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            line-height: 1.2;
+        }
+        .mini-player-device-line {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            color: var(--spf-brand, #1ed760);
+            font-size: 12px;
+            font-weight: 600;
+            line-height: 1.2;
+            min-width: 0;
+        }
+        .mini-player-device-line svg {
+            width: 14px; height: 14px; fill: currentColor; flex-shrink: 0;
+        }
+        .mini-player-device-line span {
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .mini-player-device-btn {
+            background: transparent;
+            border: none;
+            color: #ffffff;
+            width: 38px;
+            height: 38px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 0;
+            flex-shrink: 0;
+            border-radius: 50%;
+            transition: transform 0.1s ease, color 0.15s ease;
+        }
+        .mini-player-device-btn.connected { color: var(--spf-brand, #1ed760); }
+        .mini-player-device-btn:active { transform: scale(0.9); }
+        .mini-player-device-btn svg { width: 22px; height: 22px; }
+        .mini-player-play-btn {
+            background: transparent;
+            border: none;
+            color: #ffffff;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 0;
+            flex-shrink: 0;
+            border-radius: 50%;
+            transition: transform 0.1s ease;
+        }
+        .mini-player-play-btn:active {
+            transform: scale(0.9);
+        }
+        .mini-player-play-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+        .mini-player-progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+        .mini-player-progress-bar {
+            height: 100%;
+            background: var(--spf-brand, #1ed760);
+            width: 0%;
+            transition: width 0.5s linear;
+        }
+
+        /* Ensure view containers are padded above mini player and bottom nav */
+        .scroll-content {
+            padding-bottom: calc(130px + var(--spf-safe-bottom, 0px)) !important;
+        }
+        .main-scroll-container {
+            padding-bottom: calc(130px + var(--spf-safe-bottom, 0px)) !important;
+        }
+        .list-container {
+            padding-bottom: calc(130px + var(--spf-safe-bottom, 0px)) !important;
+        }
     }
 
     /* --- Header --- */
     .header {
-        position: absolute; top: 0; left: 0; right: 0; height: 64px;
+        position: absolute; top: 0; left: 0; right: 0;
+        height: calc(64px + var(--spf-safe-top));
+        padding-top: var(--spf-safe-top);
         display: flex; justify-content: space-between; align-items: center;
-        padding: 0 24px; background: rgba(18, 18, 18, 1);
+        padding-left: 24px; padding-right: 24px; padding-bottom: 0;
+        background: rgba(18, 18, 18, 1);
         z-index: 110; 
         transition: border-bottom 0.3s ease;
+        box-sizing: border-box;
     }
     
     .header-center-title {
@@ -339,8 +562,10 @@ export const sharedStyles = css`
         align-items: center; border-radius: 6px;
         transition: background 0.2s; cursor: pointer;
     }
-    @media (hover: hover) { .list-item:hover { background: var(--spf-hover-white); } }
-    .list-item:active { background: var(--spf-active-white); }
+    @media (hover: hover) { 
+        .list-item:hover { background: var(--spf-hover-white); } 
+        .list-item:active { background: var(--spf-active-white); }
+    }
 
     .list-item-img {
         width: 56px; height: 56px;
@@ -372,7 +597,7 @@ export const sharedStyles = css`
         overflow-y: auto; overflow-x: hidden;
         background: var(--spf-bg);
         transition: transform 0.3s ease, opacity 0.3s ease;
-        padding-top: 64px; box-sizing: border-box;
+        padding-top: calc(64px + var(--spf-safe-top)); box-sizing: border-box;
         
         /* GPU Acceleration Hints */
         will-change: transform, opacity;
@@ -381,6 +606,31 @@ export const sharedStyles = css`
     }
     .page.has-hero { padding-top: 0 !important; }
     .page.has-hero-header { padding-top: 0; }
+    /* Mobile search/library own their own top bar (no app header), so drop the page inset. */
+    @media (max-width: 768px) {
+        .page.search-page { padding-top: 0 !important; }
+        /* Home's header is shrunk to just the collapse arrow + avatar, so its
+           content clears a much smaller bar (matches the header rule). */
+        .page.home-page { padding-top: calc(52px + var(--spf-safe-top)) !important; }
+
+        /* Tighter side margins to match the native app (was 24px). */
+        .scroll-content { padding-left: 16px; padding-right: 16px; }
+        /* Keep horizontal carousels bleeding exactly to the screen edge. */
+        .carousel-layout { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
+
+        /* --- Mobile type scale ---
+           Our text ran a touch larger than the native app. shared-styles is
+           imported into every component's shadow root, so reducing these shared
+           text primitives here scales them app-wide. This is the single place to
+           tune mobile text sizing. */
+        .media-title { font-size: 13px; }
+        .media-subtitle { font-size: 11px; }
+        .section-title { font-size: 1.05rem; }
+        .list-item-title { font-size: 15px; }
+        .list-item-subtitle { font-size: 13px; }
+        .track-name { font-size: 14px; }
+        .track-artist { font-size: 12px; }
+    }
     .page-hidden { display: none; }
     
     .slide-in-right { animation: slideInRight 0.3s forwards; }
@@ -406,7 +656,7 @@ export const sharedStyles = css`
     /* --- 1. Main Slide-out Panel --- */
     .queue-panel {
         position: absolute; 
-        top: 64px; 
+        top: calc(64px + var(--spf-safe-top)); 
         right: 0; 
         bottom: 0;
         width: 350px; 
@@ -818,7 +1068,7 @@ export const sharedStyles = css`
     
     /* --- Dropdown Menu --- */
     .dropdown-menu {
-        position: absolute; top: 60px; right: 60px;
+        position: absolute; top: calc(60px + var(--spf-safe-top)); right: 60px;
         background: var(--spf-bg-card-hover); border-radius: 8px;
         width: 180px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
         display: none; flex-direction: column; z-index: 30;
@@ -873,8 +1123,10 @@ export const sharedStyles = css`
         min-width: 125px; 
     }
     
-    @media (hover: hover) { .media-card:hover { background: var(--spf-bg-card-hover); } }
-    .media-card:active { transform: scale(0.96); background: var(--spf-bg-card-hover); }
+    @media (hover: hover) { 
+        .media-card:hover { background: var(--spf-bg-card-hover); } 
+        .media-card:active { transform: scale(0.96); background: var(--spf-bg-card-hover); }
+    }
     
     .media-card.playing .media-title { color: var(--spf-brand); }
     
@@ -1005,8 +1257,10 @@ export const sharedStyles = css`
     }
     .track-row.with-art { grid-template-columns: 40px 48px 1fr auto; }
 
-    @media (hover: hover) { .track-row:hover { background: var(--spf-hover-white); } }
-    .track-row:active { background: var(--spf-active-white); }
+    @media (hover: hover) { 
+        .track-row:hover { background: var(--spf-hover-white); } 
+        .track-row:active { background: var(--spf-active-white); }
+    }
     
     .track-row.playing .track-name { color: var(--spf-brand); }
     .track-num { color: var(--spf-text-sub); font-size: 14px; text-align: center; }
@@ -1045,8 +1299,10 @@ export const sharedStyles = css`
     @media (max-width: 600px) { .artist-track-grid { grid-template-columns: 1fr; } .artist-hero-name { font-size: 2.5rem; } }
 
     .artist-top-track { display: flex; align-items: center; background: rgba(255,255,255,0.05); border-radius: 6px; overflow: hidden; transition: background 0.2s; height: 56px; cursor: pointer; position: relative; padding-right: 8px; }
-    @media (hover: hover) { .artist-top-track:hover { background: var(--spf-hover-white); } }
-    .artist-top-track:active { background: var(--spf-active-white); }
+    @media (hover: hover) { 
+        .artist-top-track:hover { background: var(--spf-hover-white); } 
+        .artist-top-track:active { background: var(--spf-active-white); }
+    }
     
     .artist-top-track.playing .track-title { color: var(--spf-brand); }
     .track-art-left { 

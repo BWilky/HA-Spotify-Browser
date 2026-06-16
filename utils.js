@@ -105,3 +105,67 @@ export function isContextPlaying(hass, entityId, contextUri) {
     const attrs = stateObj.attributes;
     return attrs.media_context_content_id === contextUri || attrs.media_content_id === contextUri;
 }
+
+/* --- Album-art accent colour --- */
+
+const _vibrantCache = new Map();
+
+/** Nudge a colour into a usable brightness band for a dark-UI gradient. */
+function _conditionAccent(r, g, b) {
+    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+    if (lum < 55) { const k = 55 / Math.max(lum, 1); r *= k; g *= k; b *= k; }
+    else if (lum > 200) { const k = 200 / lum; r *= k; g *= k; b *= k; }
+    return [Math.min(255, r) | 0, Math.min(255, g) | 0, Math.min(255, b) | 0];
+}
+
+/**
+ * Extracts a vibrant accent colour from an image URL. Downscales to a small
+ * canvas, buckets pixels by quantised colour, and picks the bucket that best
+ * balances population and saturation (so we get a punchy colour, not a muddy
+ * average). Returns Promise<[r,g,b]> or null (transparent/tainted/failed).
+ * Results are cached per URL. Requires a CORS-readable image (Spotify's CDN
+ * sends Access-Control-Allow-Origin, so crossOrigin='anonymous' works).
+ */
+export function getVibrantColor(url) {
+    if (!url) return Promise.resolve(null);
+    if (_vibrantCache.has(url)) return Promise.resolve(_vibrantCache.get(url));
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            let out = null;
+            try {
+                const size = 32;
+                const c = document.createElement('canvas');
+                c.width = c.height = size;
+                const ctx = c.getContext('2d', { willReadFrequently: true });
+                ctx.drawImage(img, 0, 0, size, size);
+                const data = ctx.getImageData(0, 0, size, size).data;
+                const buckets = new Map();
+                for (let i = 0; i < data.length; i += 4) {
+                    if (data[i + 3] < 125) continue; // skip transparent
+                    const r = data[i], g = data[i + 1], b = data[i + 2];
+                    // Quantise to 4 bits/channel (16 levels) for the bucket key.
+                    const key = ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
+                    let e = buckets.get(key);
+                    if (!e) { e = { r: 0, g: 0, b: 0, n: 0 }; buckets.set(key, e); }
+                    e.r += r; e.g += g; e.b += b; e.n++;
+                }
+                let bestScore = -1;
+                buckets.forEach((e) => {
+                    const r = e.r / e.n, g = e.g / e.n, b = e.b / e.n;
+                    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                    const light = (max + min) / 510;                 // 0..1
+                    const sat = max === min ? 0 : (max - min) / (255 - Math.abs(max + min - 255));
+                    const lightWeight = Math.max(1 - Math.abs(light - 0.5) * 1.2, 0.15);
+                    const score = e.n * (0.25 + sat) * lightWeight;   // populous + saturated + mid-light
+                    if (score > bestScore) { bestScore = score; out = _conditionAccent(r, g, b); }
+                });
+            } catch (_) { out = null; } // tainted canvas, etc.
+            _vibrantCache.set(url, out);
+            resolve(out);
+        };
+        img.onerror = () => { _vibrantCache.set(url, null); resolve(null); };
+        img.src = url;
+    });
+}

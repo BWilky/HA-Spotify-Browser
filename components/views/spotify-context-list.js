@@ -28,6 +28,9 @@ export class SpotifyContextList extends LitElement {
                     width: 100%;
                     height: 100%;
                     overflow-y: auto;
+                    overflow-x: hidden;
+                    overscroll-behavior-y: auto;
+                    overscroll-behavior-x: none;
                     padding-bottom: 50px; /* Spacer */
                     background: var(--spf-bg);
                 }

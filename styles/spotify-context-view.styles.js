@@ -77,8 +77,10 @@ export const contextViewStyles = css`
     @media (max-width: 600px) { .artist-track-grid { grid-template-columns: 1fr; } .artist-hero-name { font-size: 2.5rem; } }
 
     .artist-top-track { display: flex; align-items: center; background: rgba(255,255,255,0.05); border-radius: 6px; overflow: hidden; transition: background 0.2s; height: 56px; cursor: pointer; position: relative; padding-right: 8px; }
-    @media (hover: hover) { .artist-top-track:hover { background: var(--spf-hover-white); } }
-    .artist-top-track:active { background: var(--spf-active-white); }
+    @media (hover: hover) { 
+        .artist-top-track:hover { background: var(--spf-hover-white); } 
+        .artist-top-track:active { background: var(--spf-active-white); }
+    }
     
     .artist-top-track.playing .track-title { color: var(--spf-brand); }
     .track-art-left { 
@@ -135,11 +137,35 @@ export const contextViewStyles = css`
     }
     .track-row.with-art { grid-template-columns: 40px 48px 1fr auto; }
 
-    @media (hover: hover) { .track-row:hover { background: var(--spf-hover-white); } }
-    .track-row:active { background: var(--spf-active-white); }
+    @media (hover: hover) { 
+        .track-row:hover { background: var(--spf-hover-white); } 
+        .track-row:active { background: var(--spf-active-white); }
+    }
     
     .track-row.playing .track-name { color: var(--spf-brand); }
+    /* Inline now-playing layout: equalizer sits left of the green title */
+    .track-name { display: flex; align-items: center; gap: 6px; }
+    .track-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .track-num { color: var(--spf-text-sub); font-size: 14px; text-align: center; }
+
+    /* Now-playing equalizer (inline, next to the track title) */
+    .track-eq {
+        flex: 0 0 auto;
+        width: 14px; height: 14px;
+        display: flex; align-items: flex-end; justify-content: center;
+        gap: 2px; box-sizing: border-box;
+    }
+    .track-eq span {
+        width: 2px; background: var(--spf-brand); border-radius: 1px;
+        animation: track-eq-bounce 0.9s ease-in-out infinite;
+    }
+    .track-eq span:nth-child(1) { animation-delay: -0.2s; }
+    .track-eq span:nth-child(2) { animation-delay: -0.5s; }
+    .track-eq span:nth-child(3) { animation-delay: -0.1s; }
+    @keyframes track-eq-bounce {
+        0%, 100% { height: 30%; }
+        50% { height: 100%; }
+    }
     
     .track-art-small {
         width: 40px; height: 40px; background-size: cover; background-position: center;
@@ -169,50 +195,79 @@ export const contextViewStyles = css`
     .card-text-sk { height: 12px; background: var(--spf-bg-card-hover); margin-bottom: 8px; border-radius: 2px; width: 80%; }
     .card-text-sk.short { width: 50%; }
     @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
-    
-    .artist-track-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 32px; }
-    @media (max-width: 600px) { .artist-track-grid { grid-template-columns: 1fr; } .artist-hero-name { font-size: 2.5rem; } }
-
-    .artist-top-track { display: flex; align-items: center; background: rgba(255,255,255,0.05); border-radius: 6px; overflow: hidden; transition: background 0.2s; height: 56px; cursor: pointer; position: relative; padding-right: 8px; }
-    @media (hover: hover) { .artist-top-track:hover { background: var(--spf-hover-white); } }
-    .artist-top-track:active { background: var(--spf-active-white); }
-    
-    .artist-top-track.playing .track-title { color: var(--spf-brand); }
-    .track-art-left { 
-        width: 56px; height: 56px; 
-        background-size: cover; background-position: center; 
-        position: relative; flex-shrink: 0; margin-right: 12px; 
-    }
-
-    /* FIX: Standardize positioning so it matches the hover transform */
-    .artist-top-track .play-btn-overlay.mini { 
-        width: 32px; height: 32px; 
-        
-        /* Reset the conflicting centering method */
-        bottom: auto; right: auto; margin: 0;
-        
-        /* Use standard centering (Top/Left 50%) */
-        top: 50%; left: 50%; 
-        transform: translate(-50%, -50%) scale(0.8); /* Start slightly smaller */
-        
-        opacity: 0; 
-        transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    }
-
-    /* On Row Hover: Reveal and scale to normal */
-    @media (hover: hover) { 
-        .artist-top-track:hover .play-btn-overlay.mini { 
-            opacity: 1; 
-            transform: translate(-50%, -50%) scale(1);
-        } 
-    }
-    
-    .track-info-middle { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
-    .track-title { font-size: 14px; font-weight: 600; color: var(--spf-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .track-meta { font-size: 12px; color: var(--spf-text-sub); margin-top: 2px; }
 
     /* Artist View Specifics */
     .artist-content { padding-top: 24px; }
     .artist-section { margin-bottom: 40px; }
     .artist-section h2 { margin-bottom: 16px; font-size: 24px; font-weight: 700; color: var(--spf-text-main); }
+
+    /* ================= SPOTIFY-STYLE MOBILE TRACK LIST ================= */
+    @media (max-width: 768px) {
+        /* Native-style rows: art/index | title+artist | menu.
+           The first column sizes to its content (40px art/eq, or the number),
+           so the now-playing equalizer gets its own cell instead of breaking
+           the grid. */
+        .track-row {
+            grid-template-columns: auto 1fr auto !important;
+            padding: 6px 16px !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            min-height: 64px !important;
+            gap: 12px !important;
+        }
+
+        /* Album track numbers: keep them, centered in the art column */
+        .track-num {
+            display: block !important;
+            width: 48px;
+        }
+
+        /* Show album art thumbnails (playlists / liked songs) */
+        .track-row > img:first-child {
+            display: block !important;
+            width: 48px !important;
+            height: 48px !important;
+            border-radius: 4px;
+            object-fit: cover;
+        }
+
+        /* Shared list template renders number + art-div (4 children). */
+        .track-row.with-art {
+            grid-template-columns: auto auto 1fr auto !important;
+        }
+        .track-art-small {
+            width: 48px !important;
+            height: 48px !important;
+        }
+
+        /* Clean track text (sized to match the native app's mobile list). */
+        .track-name {
+            font-size: 14px !important;
+            font-weight: 500 !important;
+        }
+
+        .track-artist {
+            font-size: 12px !important;
+            margin-top: 3px !important;
+        }
+
+        /* Proper overflow for track info column */
+        .track-info {
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            min-width: 0; /* Critical for text-overflow: ellipsis */
+        }
+
+        /* Hide heart and queue buttons — keep only "..." menu */
+        .track-action-btn[data-action="save"],
+        .track-action-btn[data-action="queue"] {
+            display: none !important;
+        }
+
+        .track-actions-right {
+            gap: 0 !important;
+        }
+    }
 `;

@@ -9,10 +9,8 @@ class SpotifyPopups extends LitElement {
         return {
             devices: { type: Array },
             config: { type: Object },
-            accounts: { type: Array },
             track: { type: Object },
             deviceVisible: { type: Boolean },
-            accountsVisible: { type: Boolean },
             trackVisible: { type: Boolean },
             canManageDevices: { type: Boolean },
             showRevealButton: { type: Boolean }, // New Prop
@@ -32,10 +30,8 @@ class SpotifyPopups extends LitElement {
         super();
         this.devices = [];
         this.config = {};
-        this.accounts = [];
         this.track = null;
         this.deviceVisible = false;
-        this.accountsVisible = false;
         this.trackVisible = false;
         this.canManageDevices = false;
         this.showRevealButton = false;
@@ -86,7 +82,6 @@ class SpotifyPopups extends LitElement {
                 if (e.target.classList.contains('popup-backdrop')) this.dispatchEvent(new CustomEvent('close-popups'));
             }}>
                 ${this.renderDevicePopup()}
-                ${this.renderAccountsPopup()}
                 ${this.renderTrackPopup()}
                 ${this.renderAlert()}
                 ${this.renderToasts()}
@@ -114,27 +109,6 @@ class SpotifyPopups extends LitElement {
                 .showRevealButton=${this.showRevealButton}
                 @close-popups=${() => this.dispatchEvent(new CustomEvent('close-popups'))}
             ></spotify-popup-devices>
-        `;
-        return this._renderBackdrop(true, content);
-    }
-
-    renderAccountsPopup() {
-        if (!this.accountsVisible) return '';
-        const content = html`
-            <div class="popup-content">
-                <h3 class="popup-title">Switch Account</h3>
-                <div class="popup-scroll-content">
-                    ${this.accounts.map(a => html`
-                        <div class="device-row" @click=${() => this.dispatchEvent(new CustomEvent('account-selected', { detail: a }))}>
-                            <div class="device-icon"><svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg></div>
-                            <div class="device-info">
-                                <div class="device-name">${a.name}</div>
-                            </div>
-                        </div>
-                    `)}
-                </div>
-                <button class="popup-close-btn" @click=${() => this.dispatchEvent(new CustomEvent('close-popups'))}>Close</button>
-            </div>
         `;
         return this._renderBackdrop(true, content);
     }
