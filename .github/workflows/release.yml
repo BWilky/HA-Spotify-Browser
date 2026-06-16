@@ -1,0 +1,37 @@
+name: Release Assets
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Build and Upload Release Assets
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Compile and Bundle Card
+        run: |
+          npx esbuild index.js --bundle --minify --outfile=spotify-browser.js
+
+      - name: Create ZIP Archive
+        run: |
+          zip -r spotify-browser.zip spotify-browser.js
+
+      - name: Upload Release Assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            spotify-browser.js
+            spotify-browser.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
