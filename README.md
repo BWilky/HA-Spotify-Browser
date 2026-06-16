@@ -2,14 +2,35 @@
 
 A Home Assistant Lovelace custom card that renders a full-screen Spotify browser interface. It operates as a wrapper on top of the SpotifyPlus integration.
 
+## Preview
+
+### Desktop
+<p align="center">
+  <img src="images/desktop_1.png" width="49%" alt="Desktop Home" />
+  <img src="images/desktop_2.png" width="49%" alt="Desktop Player" />
+</p>
+<p align="center">
+  <img src="images/desktop_3.png" width="49%" alt="Desktop Search" />
+  <img src="images/desktop_4.png" width="49%" alt="Desktop Settings" />
+</p>
+
+### Mobile
+<p align="center">
+  <img src="images/mobile_1.PNG" width="24%" alt="Mobile Home" />
+  <img src="images/mobile_2.PNG" width="24%" alt="Mobile Player" />
+  <img src="images/mobile_3.PNG" width="24%" alt="Mobile Playlists" />
+  <img src="images/mobile_4.PNG" width="24%" alt="Mobile Devices" />
+</p>
+
+
 ## Installation
 
-1. Copy the `spotify-browser-v3` folder to your Home Assistant `www/` directory.
+1. Copy the `spotify-browser` folder to your Home Assistant `www/` directory.
 2. Register the resource in your Lovelace dashboard configuration:
 
 ```yaml
 resources:
-  - url: /local/spotify-browser-v3/index.js
+  - url: /local/spotify-browser/index.js
     type: module
 ```
 
@@ -199,3 +220,116 @@ window.dispatchEvent(new CustomEvent('spotify-browser-open'));
 // Open directly to mobile now-playing screen
 window.dispatchEvent(new CustomEvent('spotify-browser-open-now-playing'));
 ```
+
+## Complete Configuration Example
+
+Below is a complete configuration example demonstrating all available options:
+
+```yaml
+type: custom:spotify-browser-card
+entity: media_player.spotify_user 
+
+homeonexit:
+  timeout: 300 # 5 minutes
+
+device_playback:
+  helper: input_select.spotify_browser_device_manager
+  hide:
+    - "Living Room Speaker"
+  show:
+    - "Kitchen Speaker"
+  default: "speaker_kitchen"
+  volume:
+    default:
+      fallback: 25
+      rules:
+        - start: '09:00'
+          end: '17:00'
+          level: '35'
+        - start: '22:00'
+          end: '07:00'
+          level: '15'
+    slider:
+      rate_control: true
+      optimistic: true
+
+queue:
+  - desktop:
+      open_init: true
+      miniplayer:
+        shuffle: true
+        previous: true
+        next: true
+        like: true
+        volume: true
+        device: true
+
+cache_size: 15
+performance: auto
+
+animations:
+  page_transition: fade # 'fade', 'slide', 'none'
+  browser_open: fade
+  blur: true
+
+spotify_accounts:
+  - name: "Bryce"
+    entity: media_player.spotify_bryce
+    default: true
+    hash: "#bryce"
+    image: "/local/spotify/bryce.jpg"
+  - name: "Alice"
+    entity: media_player.spotify_alice
+    hash: "#alice"
+
+storage:
+  sensor_entity: sensor.spotify_browser_data
+  event_type: spotify_browser_store_data
+  write_script: script.spotify_browser_store
+
+homescreen:
+  cache: true
+  expiry: 60 # minutes
+  sticky:
+    helper: input_select.spotify_pinned_items
+    limit: 10
+  madeforyou:
+    content:
+      - id: "37i9dQZF1DXcBWIGoYBM5M"
+        title: "Top Hits"
+        type: "playlist"
+    desktop_pills: true
+  sort:
+    - pinned
+    - recently played
+    - made_for_you
+    - favourite_playlists
+    - followed_artists
+    - favourite_albums
+
+advanced:
+  radio_track:
+    enabled: true
+    provider: "lastfm"
+    limit: 30
+    dontstopthemusic: true
+  similar_artists:
+    provider: "lastfm"
+    limit: 10
+
+external_providers:
+  lastfm:
+    api_key: "YOUR_LASTFM_API_KEY"
+
+auto_close_seconds: 0
+closeondisconnect: true
+custom_hash: "#spotify-browser"
+
+desktop_style:
+  mode: fixed
+  width: 1000px
+  height: 700px
+  fullscreen: false
+  margin: 32px
+```
+

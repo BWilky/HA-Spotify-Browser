@@ -90,7 +90,11 @@ export const libraryStyles = css`
     /* ================= DESKTOP ================= */
     @media (min-width: 769px) {
         .l-top { display: none; }
-        .body, .pills, .row, .skel { max-width: 1100px; margin-left: auto; margin-right: auto; }
+        /* Constrain the single-column list to a comfortable centered width so the
+           rows don't stretch the full width of the modal with empty space. */
+        .body, .pills, .row, .skel, .section-h, .empty {
+            max-width: 760px; margin-left: auto; margin-right: auto;
+        }
         .pills { top: 0; justify-content: flex-start; padding: 16px 16px 12px; }
     }
 `;
