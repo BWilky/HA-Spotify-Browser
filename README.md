@@ -25,6 +25,16 @@ A Home Assistant Lovelace custom card that renders a full-screen Spotify browser
 
 ## Installation
 
+### Option 1: HACS (Recommended)
+
+1. Open **HACS** in Home Assistant.
+2. Click the three dots in the top-right corner and select **Custom repositories**.
+3. Add `https://github.com/BWilky/HA-Spotify-Browser` under **Repository** and select **Lovelace** as the **Category**.
+4. Click **Add**, then find and install the **Spotify Browser** card.
+5. HACS will automatically register the dashboard resource.
+
+### Option 2: Manual Installation
+
 1. Copy the `spotify-browser` folder to your Home Assistant `www/` directory.
 2. Register the resource in your Lovelace dashboard configuration:
 
