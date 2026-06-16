@@ -5,18 +5,22 @@ export const headerStyles = css`
         display: block;
         position: absolute;
         top: 0; left: 0; width: 100%;
-        height: 64px; /* Explicit height */
+        height: calc(64px + var(--spf-safe-top, 0px)); /* Grows for Dynamic Island */
         z-index: 100002;
         pointer-events: none; /* Allow clicks through empty areas, but children have pointer-events: auto via .header */
     }
     
     /* --- Header --- */
     .header {
-        position: absolute; top: 0; left: 0; right: 0; height: 64px;
+        position: absolute; top: 0; left: 0; right: 0;
+        height: calc(64px + var(--spf-safe-top, 0px));
+        padding-top: var(--spf-safe-top, 0px); /* Push content below Dynamic Island */
         display: flex; justify-content: space-between; align-items: center;
-        padding: 0 24px; background: rgba(18, 18, 18, 1);
+        padding-left: 24px; padding-right: 24px; padding-bottom: 0;
+        background: rgba(18, 18, 18, 1);
         border-bottom: none !important; /* Force removal */
         z-index: 110; 
+        box-sizing: border-box;
         
         /* Smooth transition for background/opacity changes */
         transition: background-color 0.3s ease, border-bottom 0.3s ease, backdrop-filter 0.3s ease;
@@ -41,8 +45,31 @@ export const headerStyles = css`
         max-width: 40%; pointer-events: none; z-index: 120; 
     }
 
+    /* Mobile minimal header: grab handle for drag-to-close */
+    .header-drag-pill {
+        position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+        width: 40px; height: 4px; border-radius: 2px;
+        background: rgba(255,255,255,0.4);
+        pointer-events: none;
+    }
+
     .header-left, .header-right { display: flex; align-items: center; gap: 16px; }
     .spotify-logo { width: 32px; height: 32px; fill: var(--spf-text-main); }
+
+    /* Account avatar (home only): sits right of the logo / collapse arrow */
+    .header-avatar {
+        width: 32px; height: 32px; border-radius: 50%; flex-shrink: 0;
+        background-size: cover; background-position: center;
+        background-color: var(--spf-bg-card-hover);
+        border: none; padding: 0; cursor: default;
+        display: flex; align-items: center; justify-content: center;
+        color: rgba(255,255,255,0.85);
+        transition: transform 0.1s ease, box-shadow 0.2s ease;
+    }
+    .header-avatar.switchable { cursor: pointer; }
+    .header-avatar svg { width: 20px; height: 20px; pointer-events: none; }
+    @media (hover: hover) { .header-avatar.switchable:hover { box-shadow: 0 0 0 2px var(--spf-brand); } }
+    .header-avatar.switchable:active { transform: scale(0.92); }
     
     .nav-btn {
         background: var(--spf-btn-bg); border: none; color: var(--spf-text-main);
@@ -84,7 +111,19 @@ export const headerStyles = css`
         padding: 0; margin: 0; pointer-events: none; position: relative; z-index: 1; 
         transition: opacity 0.2s, width 0.3s ease; line-height: 40px; 
     }
-    .search-container.active .search-input { 
-        opacity: 1; width: 100%; margin-left: 4px; pointer-events: auto; 
+    .search-container.active .search-input {
+        opacity: 1; width: 100%; margin-left: 4px; pointer-events: auto;
+    }
+
+    /* Mobile home: the header only carries the collapse arrow + avatar, so shrink
+       it and top-align its contents. This lets the page content (Pinned) start
+       much higher instead of clearing a 64px bar full of empty space. */
+    @media (max-width: 768px) {
+        :host([avatarvisible]) { height: calc(48px + var(--spf-safe-top, 0px)); }
+        :host([avatarvisible]) .header {
+            height: calc(48px + var(--spf-safe-top, 0px));
+            align-items: flex-start;
+            padding-top: calc(var(--spf-safe-top, 0px) + 4px);
+        }
     }
 `;

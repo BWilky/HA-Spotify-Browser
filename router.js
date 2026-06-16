@@ -101,6 +101,21 @@ export class Router extends EventTarget {
         this.navigateTo('home', null, 'back');
     }
 
+    /**
+     * Drop every cached page (removing it from the DOM) so the next navigation
+     * builds fresh pages. Used on account switch, where all page data is stale.
+     * Lit components clear their own timers via disconnectedCallback on removal.
+     */
+    clearCache() {
+        this.pageCache.forEach(page => {
+            if (page.parentNode) page.parentNode.removeChild(page);
+        });
+        this.pageCache.clear();
+        this.history = [];
+        this.currentPageId = null;
+        this.currentPageData = null;
+    }
+
     _addToCache(id, element) {
         if (this.pageCache.has(id)) return;
         this.pageCache.set(id, element);
@@ -129,19 +144,31 @@ export class Router extends EventTarget {
     _createPage(pageId, data) {
         if (pageId === 'home') {
             const home = document.createElement('spotify-home');
-            home.classList.add('page');
+            home.classList.add('page', 'home-page');
             this._injectProps(home);
             home.addEventListener('navigate', (e) => this.navigateTo(e.detail.pageId, e.detail.data));
             return home;
         } else if (pageId === 'search') {
             const search = document.createElement('spotify-search');
-            search.classList.add('page');
+            search.classList.add('page', 'search-page');
             this._injectProps(search);
             if (data && data.query) {
                 search.search(data.query);
             }
             search.addEventListener('navigate', (e) => this.navigateTo(e.detail.pageId, e.detail.data));
+            search.addEventListener('back', () => this.goBack());
+            search.addEventListener('open-track-menu', (e) => {
+                if (this.host && this.host._handleOpenTrackMenu) {
+                    this.host._handleOpenTrackMenu(e);
+                }
+            });
             return search;
+        } else if (pageId === 'library') {
+            const lib = document.createElement('spotify-library');
+            lib.classList.add('page', 'search-page');
+            this._injectProps(lib);
+            lib.addEventListener('navigate', (e) => this.navigateTo(e.detail.pageId, e.detail.data));
+            return lib;
         } else if (pageId) {
             const contextView = document.createElement('spotify-context-view');
             contextView.classList.add('page', 'has-hero');
@@ -230,7 +257,8 @@ export class Router extends EventTarget {
 
     _isHeroPage(pageId) {
         if (!pageId) return false;
-        return pageId.startsWith('artist:') ||
+        return pageId === 'likedsongs' ||
+            pageId.startsWith('artist:') ||
             pageId.startsWith('album:') ||
             pageId.startsWith('playlist:') ||
             pageId.startsWith('artist-discography:');

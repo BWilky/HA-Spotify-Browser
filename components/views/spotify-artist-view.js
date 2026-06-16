@@ -21,6 +21,9 @@ export class SpotifyArtistView extends LitElement {
                     width: 100%;
                     height: 100%;
                     overflow-y: auto;
+                    overflow-x: hidden;
+                    overscroll-behavior-y: auto;
+                    overscroll-behavior-x: none;
                     position: relative;
                     background: var(--spf-bg);
                 }
@@ -32,10 +35,12 @@ export class SpotifyArtistView extends LitElement {
                     position: relative !important;
                     margin-top: 0 !important;
                     width: 100% !important;
+                    overflow: visible !important;
                 }
                 /* Ensure this specific element behaves as expected */
                 .artist-hero .hero-bg {
                      height: 100% !important;
+                     overflow: visible !important;
                 }
                 .content-wrapper {
                     padding: 12px;
@@ -80,6 +85,8 @@ export class SpotifyArtistView extends LitElement {
         super.connectedCallback();
         this._checkPinStatus();
     }
+
+
 
     disconnectedCallback() {
         super.disconnectedCallback();
@@ -157,7 +164,8 @@ export class SpotifyArtistView extends LitElement {
     async _checkPinStatus() {
         if (!this.pinned || !this.data) return;
 
-        if (!this.pinned.checkAvailability()) {
+        // The pin button is an edit action — only for users who can write.
+        if (!this.pinned.canEdit()) {
             this._pinnedEntity = null;
             return;
         }
@@ -229,7 +237,7 @@ export class SpotifyArtistView extends LitElement {
         const item = {
             id: this.data.id,
             type: this.data.type,
-            name: this.data.name,
+            name: this.data.name || this.data.title,
             images: this.data.images,
             uri: this.data.uri
         };
@@ -238,6 +246,9 @@ export class SpotifyArtistView extends LitElement {
 
         if (result.success) {
             this._isPinned = !this._isPinned;
+            // Refresh the home pinned row now rather than waiting for the sensor's
+            // event round-trip (which the hass reactive path would eventually catch).
+            this.dispatchEvent(new CustomEvent('pinned-changed', { bubbles: true, composed: true }));
         } else {
             this.dispatchEvent(new CustomEvent('show-alert', {
                 detail: {
@@ -310,6 +321,21 @@ export class SpotifyArtistView extends LitElement {
     }
 
     _handleScroll(e) {
+        const container = e.currentTarget || e.target;
+        if (container) {
+            const scrollTop = container.scrollTop;
+            const heroImg = this.shadowRoot.querySelector('.artist-hero .hero-bg img');
+            if (heroImg) {
+                if (scrollTop < 0) {
+                    const scale = 1 - scrollTop / 375;
+                    heroImg.style.transform = `translateY(${scrollTop}px) scale(${scale})`;
+                    heroImg.style.transformOrigin = 'top center';
+                } else {
+                    heroImg.style.transform = '';
+                    heroImg.style.transformOrigin = '';
+                }
+            }
+        }
         this._updateHeaderState();
     }
 

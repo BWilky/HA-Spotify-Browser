@@ -7,6 +7,7 @@ export class ConfigParser {
             accounts = config.spotify_accounts.map(acc => ({
                 entity: acc.entity,
                 name: acc.name,
+                image: acc.image || acc.picture || null,
                 hash: acc.hash ? (acc.hash.startsWith('#') ? acc.hash : `#${acc.hash}`) : null,
                 isDefault: acc.default === true
             }));
@@ -237,10 +238,54 @@ export class ConfigParser {
 
         let extProviders = config.external_providers || {};
 
+        // --- PERFORMANCE PROFILE ---
+        // `performance: auto | high | low` (aliases: full/max = high, lite = low).
+        // "low" (or auto-detected weak hardware) turns off backdrop blur and
+        // trims decorative motion so the card stays smooth on slow tablets.
+        const perfProfile = (() => {
+            const raw = config.performance ?? config.perf ?? 'auto';
+            const mode = String(typeof raw === 'object' ? (raw.mode || 'auto') : raw).toLowerCase();
+            let lite;
+            if (mode === 'low' || mode === 'lite') lite = true;
+            else if (mode === 'high' || mode === 'full' || mode === 'max') lite = false;
+            else {
+                // auto: best-effort weak-device heuristic (deviceMemory/cores).
+                // Many iPads don't expose deviceMemory, so set `performance: low`
+                // explicitly for a known slow tablet.
+                lite = (() => {
+                    try {
+                        const mem = navigator.deviceMemory;
+                        const cores = navigator.hardwareConcurrency;
+                        if (typeof mem === 'number' && mem <= 4) return true;
+                        if (typeof cores === 'number' && cores <= 4) return true;
+                    } catch (e) { /* ignore */ }
+                    return false;
+                })();
+            }
+            return { mode: ['low', 'lite', 'high', 'full', 'max'].includes(mode) ? mode : 'auto', lite };
+        })();
+
+        // Persistent storage backend (trigger-template sensor). Lets users point
+        // the card at a differently-named sensor/event, e.g. when the default
+        // entity_id was taken and HA assigned 'sensor.spotify_browser_data_2'.
+        // Accepts a `storage:` block (snake_case + no-underscore aliases).
+        const storageConfig = (() => {
+            const s = config.storage || {};
+            const sensor = s.sensor_entity || s.sensorentity || s.sensor || config.storage_sensor || 'sensor.spotify_browser_data';
+            const event = s.event_type || s.eventtype || s.event || config.storage_event || 'spotify_browser_store_data';
+            // Optional middle-man script: when set, writes go through this script
+            // (callService) instead of firing the event directly. Non-admin/guest
+            // users can call scripts but cannot fire events, so this lets them
+            // persist to the shared sensor. Accepts a full entity id
+            // (script.foo) or a bare object id (foo).
+            const scriptRaw = s.write_script || s.writescript || s.script || config.storage_script || null;
+            const script = scriptRaw ? (scriptRaw.includes('.') ? scriptRaw : `script.${scriptRaw}`) : null;
+            return { sensor_entity: sensor, event_type: event, write_script: script };
+        })();
+
         // --- FINAL CONFIG OBJECT ---
         return {
             auto_close_seconds: 0,
-            scan_interval: null,
             close_on_disconnect: (config.closeondisconnect ?? config.close_on_disconnect) !== false,
             custom_hash: config.custom_hash ?
                 (config.custom_hash.startsWith('#') ? config.custom_hash : `#${config.custom_hash}`)
@@ -265,10 +310,13 @@ export class ConfigParser {
                 return { enabled: true, timeout: 0 };
             })(),
 
+            performance: perfProfile,
+
             animations: {
                 page_transition: config.animations?.page_transition || 'fade',
                 browser_open: config.animations?.browser_open || 'fade',
-                blur: config.animations?.blur !== false // Default true
+                // Lite/low-power profile forces blur off regardless of the blur flag.
+                blur: perfProfile.lite ? false : (config.animations?.blur !== false)
             },
 
             default_device: foundDefaultDevice,
@@ -280,6 +328,7 @@ export class ConfigParser {
             device_manager: (config.device_playback && config.device_playback.helper) || null,
             device_playback: devicePlayback,
             queue_settings: queueSettings,
+            storage: storageConfig,
             cache_size: config.cache_size === undefined ? 10 : config.cache_size,
 
             // Desktop Config

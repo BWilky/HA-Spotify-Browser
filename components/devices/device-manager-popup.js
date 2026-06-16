@@ -169,6 +169,47 @@ export class SpotifyDeviceManagerPopup extends LitElement {
             }
             input:checked + .slider { background-color: var(--spf-brand); }
             input:checked + .slider:before { transform: translateX(16px); }
+
+            /* ================= MOBILE ================= */
+            @media (max-width: 768px) {
+                /* Full-screen sheet instead of a centered tablet-sized card. */
+                .popup-content {
+                    width: 100%; max-width: none;
+                    height: 100%; max-height: none;
+                    border-radius: 0;
+                }
+                .header-bar {
+                    padding: 14px 16px;
+                    padding-top: calc(14px + var(--spf-safe-top, 0px));
+                }
+                /* Plain block flow so each column sizes to its own content (flex
+                   height-sharing made the Live list overflow its card). The whole
+                   body scrolls vertically; the columns just stack. */
+                .manager-body {
+                    display: block;
+                    overflow-y: auto;
+                    -webkit-overflow-scrolling: touch;
+                    padding: 12px;
+                    padding-bottom: calc(24px + var(--spf-safe-bottom, 0px));
+                }
+                .column {
+                    padding: 12px;
+                    margin-bottom: 12px;
+                }
+                .column:last-child { margin-bottom: 0; }
+                .device-list {
+                    flex: 0 0 auto;
+                    overflow-y: visible;
+                }
+                /* Settings follow the saved list rather than being pushed to the
+                   bottom of a now-scrolling column. */
+                .setting-row { margin-top: 8px !important; }
+                .col-title { font-size: 14px; }
+                .row-name { font-size: 15px; }
+                /* Bigger tap targets for the row action buttons. */
+                .icon-btn { width: 34px; height: 34px; }
+                .icon-btn svg { width: 18px; height: 18px; }
+            }
         `];
     }
 
