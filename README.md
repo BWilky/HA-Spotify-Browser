@@ -63,6 +63,58 @@ cache_size: 15
 performance: auto
 ```
 
+### Tablet Dashboard Quick Start
+
+This card is designed to run as a hidden browser surface that opens when the
+dashboard URL contains a hash such as `#spotify-browser`. If you only see
+`Spotify Browser Hidden Component`, the card is loaded correctly; add a button
+that navigates to the hash to open the browser.
+
+Use your SpotifyPlus media player entity for `entity`. This is usually named
+something like `media_player.spotifyplus_your_name`, not the standard Home
+Assistant Spotify integration entity.
+
+Minimal SpotifyPlus card:
+
+```yaml
+type: custom:spotify-browser-card
+entity: media_player.spotifyplus_your_name
+performance: low
+auto_close_seconds: 300
+```
+
+For a tablet, create a dedicated dashboard or view and set the view layout to
+**Panel (single card)**. Add one manual card with this YAML:
+
+```yaml
+type: custom:spotify-browser-card
+entity: media_player.spotifyplus_your_name
+performance: low
+auto_close_seconds: 300
+desktop_style:
+  fullscreen: true
+  margin: 0
+```
+
+Then add a button on any dashboard that opens that view with the browser hash.
+Replace `/spotify-browser/music/` with the path to your dashboard view:
+
+```yaml
+type: button
+name: Open Spotify Browser
+icon: mdi:spotify
+tap_action:
+  action: navigate
+  navigation_path: /spotify-browser/music/#spotify-browser
+```
+
+If your dashboard has multiple views, include the full path to the view that
+contains the `custom:spotify-browser-card`, then append `#spotify-browser`.
+
+After updating the card resource, installing through HACS, or changing the
+resource URL, hard refresh the browser on your tablet. If the browser still
+does not open, clear the tablet browser cache and reload the dashboard.
+
 ### Dashboard Root Configuration
 
 Define the configuration globally under the `spotify_browser:` key in your Lovelace dashboard YAML:
