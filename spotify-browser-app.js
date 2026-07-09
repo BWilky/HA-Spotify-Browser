@@ -877,6 +877,10 @@ class SpotifyBrowserApp extends LitElement {
         // Sonos integration bridge (no-op unless config.sonos.enabled). Shared by
         // the API (offset_position routing) and the PlayerController (queue routing).
         this.sonosBridge = new SonosBridge(this.hass, this.config.sonos);
+        this.sonosBridge.onDegraded = (msg) => {
+            const popups = this.shadowRoot?.getElementById('popups');
+            if (popups) popups.showToast(msg, 6000);
+        };
         this.api.setSonosBridge(this.sonosBridge);
 
         // Initialize Player Controller
@@ -976,13 +980,16 @@ class SpotifyBrowserApp extends LitElement {
             if (popups) popups.showToast(`Connecting to ${e.detail.name}...`);
         } else {
             // Standard Transfer (Active Playback)
-            // expectResponse=false because player_transfer_playback doesn't support return_response=true
-            this.api.fetchSpotifyPlus('player_transfer_playback', { device_id: e.detail.id, play: true }, false);
             this._devicePopupVisible = false;
             this._deviceManagerVisible = false;
 
             const popups = this.shadowRoot.getElementById('popups');
             if (popups) popups.showToast(`Transferring playback to ${e.detail.name}`);
+            // expectResponse=false because player_transfer_playback doesn't support return_response=true
+            this.api.fetchSpotifyPlus('player_transfer_playback', { device_id: e.detail.id, play: true }, false)
+                .then(res => {
+                    if (!res && popups) popups.showToast(`Transfer to ${e.detail.name} failed`);
+                });
         }
     }
 
@@ -1345,13 +1352,14 @@ class SpotifyBrowserApp extends LitElement {
     }
 
     /** Transfer playback to the chosen device from the Connect sheet. */
-    _handleConnectDeviceSelected(e) {
+    async _handleConnectDeviceSelected(e) {
         const device = e.detail;
-        // player_transfer_playback doesn't support return_response=true
-        this.api?.fetchSpotifyPlus('player_transfer_playback', { device_id: device.id, play: true }, false);
         this._connectPanelVisible = false;
         const popups = this.shadowRoot.getElementById('popups');
         if (popups) popups.showToast(`Transferring playback to ${device.name}`);
+        // player_transfer_playback doesn't support return_response=true
+        const res = await this.api?.fetchSpotifyPlus('player_transfer_playback', { device_id: device.id, play: true }, false);
+        if (!res && popups) popups.showToast(`Transfer to ${device.name} failed`);
     }
 
     /* --- Drag-to-close (mobile, iPhone-panel style) --- */
