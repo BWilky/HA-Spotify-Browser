@@ -136,16 +136,20 @@ export class SpotifyApi {
     /**
      * The media_player entity that transport/volume commands should target. When
      * the active device is a Sonos speaker we drive the HA Sonos entity directly
-     * (local, instant) instead of relaying through SpotifyPlus (cloud).
+     * (local, instant) instead of relaying through SpotifyPlus (cloud). Grouped
+     * Sonos speakers only accept transport on the group coordinator, so resolve
+     * it by default; volume is per-speaker on Sonos, so setVolume passes
+     * `perSpeaker: true` to keep targeting the mapped speaker itself.
      */
-    _controlEntity() {
+    _controlEntity({ perSpeaker = false } = {}) {
         if (this.sonosBridge) {
             const attrs = this._activeAttributes();
             const target = this.sonosBridge.activeTarget(attrs);
             if (target.isSonos) {
                 if (target.entity) {
-                    this.sonosBridge.log(`control → ${target.entity} (LOCAL, bypassing SpotifyPlus cloud)`);
-                    return target.entity;
+                    const entity = perSpeaker ? target.entity : this.sonosBridge.coordinatorFor(target.entity);
+                    this.sonosBridge.log(`control → ${entity} (LOCAL, bypassing SpotifyPlus cloud)`);
+                    return entity;
                 }
                 this.sonosBridge.reportUnmapped(attrs.source || attrs.sp_device_name);
             }
@@ -848,7 +852,7 @@ export class SpotifyApi {
         if (!this.hass) return { success: false };
         try {
             await this.hass.callService('media_player', 'volume_set', {
-                entity_id: this._controlEntity(),
+                entity_id: this._controlEntity({ perSpeaker: true }),
                 volume_level: volumeLevel
             });
             return { success: true };
