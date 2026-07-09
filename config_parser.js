@@ -232,25 +232,11 @@ export class ConfigParser {
 
         // --- 6. ADVANCED & EXTERNAL CONFIG ---
         let advConfig = {
-            similar_artists: { provider: null, limit: 10 },
-            radio_track: { enabled: false }
+            similar_artists: { provider: null, limit: 10 }
         };
 
-        if (config.advanced) {
-            if (config.advanced.similar_artists) {
-                advConfig.similar_artists = { ...advConfig.similar_artists, ...config.advanced.similar_artists };
-            }
-            if (config.advanced.radio_track) {
-                const rt = config.advanced.radio_track;
-                if (rt.provider) {
-                    advConfig.radio_track = {
-                        enabled: true,
-                        provider: rt.provider,
-                        limit: rt.limit !== undefined ? rt.limit : 30,
-                        dontstopthemusic: rt.dontstopthemusic !== undefined ? rt.dontstopthemusic : true
-                    };
-                }
-            }
+        if (config.advanced?.similar_artists) {
+            advConfig.similar_artists = { ...advConfig.similar_artists, ...config.advanced.similar_artists };
         }
 
         let extProviders = config.external_providers || {};

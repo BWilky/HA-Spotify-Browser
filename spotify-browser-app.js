@@ -1070,9 +1070,37 @@ class SpotifyBrowserApp extends LitElement {
             case 'tm-queue':
                 this.api.addToQueue(track.uri);
                 break;
-            // more actions here
+            case 'tm-artist':
+                this._navigateToTrackArtist(track);
+                break;
         }
         this._trackPopupVisible = false;
+    }
+
+    /**
+     * "Go to Artist" from the track menu. Menu payloads usually carry artist
+     * names only (no ids), so resolve the primary name to a Spotify artist
+     * via search; fall back to the search page if nothing matches.
+     */
+    async _navigateToTrackArtist(track) {
+        const name = track?.artists?.[0]?.name || track?.artist?.split(',')[0]?.trim();
+        if (!name) {
+            const popups = this.shadowRoot.getElementById('popups');
+            if (popups) popups.showToast("Artist not found");
+            return;
+        }
+        try {
+            const res = await this.api.fetchSpotifyPlus('search_artists', {
+                criteria: name,
+                limit: 1
+            });
+            const artist = res?.result?.items?.[0];
+            if (artist?.id) {
+                this.router.navigateTo(`artist:${artist.id}`, { title: artist.name });
+                return;
+            }
+        } catch (_) { /* fall through to search */ }
+        this.router.navigateTo('search', { query: name });
     }
 
     _handleOpenTrackMenu(e) {
