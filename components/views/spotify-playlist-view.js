@@ -2,6 +2,8 @@ import { LitElement, html, css, repeat } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
 import { fireHaptic } from '../../utils.js';
+import { renderTrackRowTemplate } from '../media-templates.js';
+import { heartToggleIcon, playIcon, pauseIcon } from '../common/icons.js';
 
 export class SpotifyPlaylistView extends LitElement {
     static get properties() {
@@ -667,9 +669,7 @@ export class SpotifyPlaylistView extends LitElement {
         // Shared action buttons (reused across album/playlist/liked layouts).
         const playBtnTpl = html`
             <button class="hero-btn-play" @click=${() => this._handleHeroPlayClick()}>
-                ${this._getIsPlaying()
-                ? html`<svg height="28" width="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`
-                : html`<svg height="28" width="28" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`}
+                ${this._getIsPlaying() ? pauseIcon(28) : playIcon(28)}
             </button>`;
         const pinBtnTpl = (this._pinnedEntity && !isLiked) ? html`
             <button class="hero-pin ${this._isPinned ? 'pinned' : ''}" @click=${this._togglePin} aria-label="${this._isPinned ? 'Unpin' : 'Pin'}" title="${this._isPinned ? 'Unpin' : 'Pin'}">
@@ -742,9 +742,7 @@ export class SpotifyPlaylistView extends LitElement {
                                         ${playBtnTpl}
                                         ${data.type === 'playlist' ? html`
                                             <button class="hero-btn-fav" @click=${this._toggleFollowPlaylist} style="margin-left: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: ${this._isFollowing ? '#1DB954' : 'white'}; transition: all 0.2s ease;">
-                                                <svg height="28" width="28" viewBox="0 0 24 24" fill="${this._isFollowing ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
-                                                    <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
-                                                </svg>
+                                                ${heartToggleIcon(this._isFollowing, 28)}
                                             </button>
                                         ` : ''}
                                         ${pinBtnTpl}
@@ -791,51 +789,23 @@ export class SpotifyPlaylistView extends LitElement {
     renderTrackRow(track, index, playingId = null) {
         if (!track) return ''; // Safety check
         try {
-            const artistNames = track.artists ? track.artists.map(a => a.name).join(', ') : 'Unknown';
-            const image = track.album?.images?.[0]?.url;
-            const trackData = {
-                name: track.name,
-                artist: artistNames,
-                uri: track.uri,
-                id: track.id,
-                image,
-            };
             const isAlbum = this.data?.type === 'album';
             const isPlaying = !!playingId && track.id === playingId;
 
-            // Keep the album art (playlists) / index (albums) in the first column
-            // even while playing — the now-playing cue is the inline equalizer +
-            // green title next to the track name, matching the native app.
-            let firstColContent;
-            if (image && !isAlbum) {
-                firstColContent = html`<img src="${image}" style="width: 40px; height: 40px; border-radius: 4px; object-fit: cover;" loading="lazy">`;
-            } else {
-                firstColContent = html`<div class="track-num">${index}</div>`;
-            }
-
-            return html`
-            <div class="track-row interactive ${isPlaying ? 'playing' : ''}" data-track-id="${track.id}" data-uri="${track.uri}" @click=${(e) => this._handleTrackClick(e, track, index - 1)}>
-                ${firstColContent}
-                <div class="track-info">
-                    <div class="track-name" style="${isPlaying ? '' : (isAlbum ? '' : 'color: white;')}">
-                        ${isPlaying ? html`<div class="track-eq" aria-label="Now playing"><span></span><span></span><span></span></div>` : ''}
-                        <span class="track-name-text">${track.name}</span>
-                    </div>
-                    <div class="track-artist">${artistNames}</div>
-                </div>
-                <div class="track-actions-right">
-                    <button class="track-action-btn ${this._trackLikes[track.id] ? 'is-favorite' : ''}" data-action="save" @click=${(e) => this._handleSaveTrack(e, track)}>
-                       <svg width="18" height="18" fill="${this._trackLikes[track.id] ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                    </button>
-                    <button class="track-action-btn" data-action="queue" @click=${(e) => this._handleQueueTrack(e, track)}>
-                       <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-                    </button>
-                    <button class="track-action-btn" data-action="menu" @click=${(e) => this._handleTrackMenu(e, trackData)}>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
-                    </button>
-                </div>
-            </div>
-        `;
+            return renderTrackRowTemplate(
+                track,
+                index,
+                (e, t) => this._handleTrackClick(e, t, index - 1),
+                {
+                    layout: 'playlist',
+                    isPlaying,
+                    isAlbum,
+                    liked: !!this._trackLikes[track.id],
+                    onSave: (e, t) => this._handleSaveTrack(e, t),
+                    onQueue: (e, t) => this._handleQueueTrack(e, t),
+                    onMenu: (e, trackData) => this._handleTrackMenu(e, trackData),
+                }
+            );
         } catch (e) {
             console.error('[PlaylistView] Track Render Error:', e, track);
             return html`<div class="track-row error">Error loading track</div>`;

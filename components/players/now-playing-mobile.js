@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "../../lit.js";
-import { fireHaptic, getVibrantColor } from "../../utils.js";
+import { fireHaptic, getVibrantColor, extrapolatedPosition } from "../../utils.js";
 
 /**
  * Full-screen mobile "Now Playing" view, styled after the iOS Spotify app.
@@ -273,11 +273,7 @@ export class SpotifyNowPlayingMobile extends LitElement {
         if (!stateObj) return { position: 0, duration: 0 };
         const attrs = stateObj.attributes;
         let duration = attrs.media_duration || (this.state?.track?.duration_ms ? this.state.track.duration_ms / 1000 : 0);
-        let position = attrs.media_position || 0;
-        if (stateObj.state === 'playing' && attrs.media_position !== undefined) {
-            const lastUpdated = new Date(stateObj.last_updated).getTime();
-            position += (Date.now() - lastUpdated) / 1000;
-        }
+        let position = extrapolatedPosition(stateObj);
         if (duration && position > duration) position = duration;
         return { position, duration };
     }

@@ -2,6 +2,7 @@ import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { renderCardTemplate, renderPillTemplate, renderCardSkeletonTemplate, renderPillSkeletonTemplate } from '../media-templates.js';
 import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
+import { playIcon, pauseIcon } from '../common/icons.js';
 
 export class SpotifyArtistView extends LitElement {
     static get styles() {
@@ -495,10 +496,7 @@ export class SpotifyArtistView extends LitElement {
                         </div>
                         <div class="hero-actions">
                             <button class="hero-btn-play" @click=${() => this._handleHeroPlayClick()}>
-                                ${this._getIsPlaying()
-                ? html`<svg height="28" width="28" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>` // Pause Icon
-                : html`<svg height="28" width="28" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>` // Play Icon
-            }
+                                ${this._getIsPlaying() ? pauseIcon(28) : playIcon(28)}
                             </button>
                             <button 
                                 class="hero-btn-fav" 

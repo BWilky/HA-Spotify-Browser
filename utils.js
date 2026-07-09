@@ -5,6 +5,18 @@ export function msToTime(duration) {
     return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
 }
 
+/* --- Debug logging --- */
+
+let _debug = false;
+
+/** Enable/disable debugLog output (wired from the card's `debug: true` config). */
+export function setDebug(v) { _debug = !!v; }
+
+/** Informational console.log, emitted only when debug mode is enabled. */
+export function debugLog(...args) {
+    if (_debug) console.log('[SpotifyBrowser]', ...args);
+}
+
 export function debounce(func, wait) {
     let timeout;
     return function(...args) {
@@ -121,6 +133,22 @@ export function getPlayingTrackId(hass, entityId) {
     const stateObj = getPlayerStateObj(hass, entityId);
     if (!stateObj || stateObj.state !== 'playing') return null;
     return getCurrentTrackId(hass, entityId);
+}
+
+/**
+ * Current playback position in seconds for a media_player state object,
+ * extrapolated forward from the entity's last_updated timestamp while it is
+ * playing (HA only refreshes media_position on state changes). Returns the
+ * raw (unclamped) position; clamp to media_duration at the call site if needed.
+ */
+export function extrapolatedPosition(stateObj) {
+    if (!stateObj) return 0;
+    const attrs = stateObj.attributes || {};
+    let pos = attrs.media_position || 0;
+    if (stateObj.state === 'playing' && attrs.media_position !== undefined && stateObj.last_updated) {
+        pos += (Date.now() - new Date(stateObj.last_updated).getTime()) / 1000;
+    }
+    return pos;
 }
 
 /** True when the given context URI (playlist/album/artist) is actively playing. */

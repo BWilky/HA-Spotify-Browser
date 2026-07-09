@@ -1,4 +1,4 @@
-import { parseSpotifyUri, spotifyUriFromContentId } from '../../utils.js';
+import { parseSpotifyUri, spotifyUriFromContentId, extrapolatedPosition } from '../../utils.js';
 
 export class PlayerController extends EventTarget {
     constructor(api) {
@@ -23,9 +23,7 @@ export class PlayerController extends EventTarget {
         };
 
         // Internal State
-        this._lastStateObj = null; // Added
-
-        // Internal State
+        this._lastStateObj = null;
         this._optimisticTrack = null;
         this._optimisticFromUri = null;
         this._richCurrent = null; // stable rich object for the playing track (anti-flash)
@@ -79,12 +77,11 @@ export class PlayerController extends EventTarget {
      * { isSonos, entity }.
      */
     _sonosContext() {
-        if (!this.sonosBridge?.enabled) return { isSonos: false, entity: null };
+        if (!this.sonosBridge) return { isSonos: false, entity: null };
         // Always read the SpotifyPlus entity to learn the active Connect device —
         // the Sonos entity's own `source` (e.g. "Line-in") doesn't tell us this.
         const attrs = this.hass?.states?.[this.config?.entity]?.attributes || {};
-        if (!this.sonosBridge.isSonosTarget(null, attrs)) return { isSonos: false, entity: null };
-        return { isSonos: true, entity: this.sonosBridge.resolveSonosEntity(null, attrs) };
+        return this.sonosBridge.activeTarget(attrs);
     }
 
     updateHass(hass) {
@@ -594,14 +591,7 @@ export class PlayerController extends EventTarget {
 
     /** Current playback position in seconds (with playing-time extrapolation). */
     _currentPositionSec() {
-        const stateObj = this._lastStateObj;
-        if (!stateObj) return 0;
-        const attrs = stateObj.attributes || {};
-        let pos = attrs.media_position || 0;
-        if (stateObj.state === 'playing' && attrs.media_position !== undefined && stateObj.last_updated) {
-            pos += (Date.now() - new Date(stateObj.last_updated).getTime()) / 1000;
-        }
-        return pos;
+        return extrapolatedPosition(this._lastStateObj);
     }
 
     /** Warm the browser image cache for the neighbouring tracks' artwork. */
@@ -703,10 +693,7 @@ export class PlayerController extends EventTarget {
         const duration = stateObj.attributes.media_duration;
         if (position === undefined || duration === undefined) return;
 
-        const lastUpdated = new Date(stateObj.last_updated).getTime();
-        const now = Date.now();
-        const currentPos = position + (now - lastUpdated) / 1000;
-        const remainingSeconds = duration - currentPos;
+        const remainingSeconds = duration - extrapolatedPosition(stateObj);
 
         if (remainingSeconds <= 0) {
             this._eosTimer = setTimeout(() => this.refreshQueue(), 300);

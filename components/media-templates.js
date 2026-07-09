@@ -1,5 +1,6 @@
 import { html } from "../lit.js";
 import { getItemImage } from "../utils.js";
+import { heartIcon, heartToggleIcon, queueIcon, menuIcon, playIcon, playingBarsIcon } from "./common/icons.js";
 
 /**
  * Standardizes the "Card" layout (Square for Album/Playlist, Circle for Artist).
@@ -25,7 +26,7 @@ export function renderCardTemplate(item, type, clickHandler) {
                 <div class="media-image" style="background-image: url('${imgUrl}'); ${isArtist ? 'border-radius: 50%;' : ''}"></div>
                 ${!isArtist ? html`
                 <div class="play-btn-overlay">
-                    <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+                    ${playIcon(24)}
                 </div>
                 ` : ''}
             </div>
@@ -54,10 +55,7 @@ export function renderPillTemplate(item, playHandler, menuHandler, saveHandler, 
         <div class="artist-top-track interactive">
             <div class="track-art-left" style="background-image: url('${imgUrl}')">
                 <button class="play-btn-overlay mini" @click=${(e) => { e.stopPropagation(); playHandler(e); }}>
-                    ${isPlaying
-            ? html`<svg width="24" height="24" viewBox="0 0 24 24" fill="var(--spf-brand)"><rect x="4" y="10" width="3" height="10"><animate attributeName="height" values="5;10;3;10;5" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="14;9;16;9;14" dur="1s" repeatCount="indefinite" /></rect><rect x="10" y="5" width="3" height="15"><animate attributeName="height" values="10;15;5;15;10" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="9;4;14;4;9" dur="1s" repeatCount="indefinite" /></rect><rect x="16" y="8" width="3" height="12"><animate attributeName="height" values="8;12;4;12;8" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="11;7;15;7;11" dur="1s" repeatCount="indefinite" /></rect></svg>`
-            : html`<svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`
-        }
+                    ${isPlaying ? playingBarsIcon(24) : playIcon()}
                 </button>
             </div>
             <div class="track-info-middle">
@@ -69,13 +67,10 @@ export function renderPillTemplate(item, playHandler, menuHandler, saveHandler, 
             </div>
             <div class="track-actions-right">
                 <button class="track-action-btn" @click=${saveHandler} style="${isLiked ? 'color: var(--spf-brand);' : ''}">
-                   ${isLiked
-            ? html`<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`
-            : html`<svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`
-        }
+                   ${heartIcon(isLiked)}
                 </button>
                 <button class="track-action-btn" @click=${menuHandler}>
-                     <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
+                     ${menuIcon}
                 </button>
             </div>
         </div>
@@ -132,9 +127,30 @@ export function renderTrackSkeletonTemplate() {
 /**
  * Standardizes the "Track Row" layout (Index + Image + Title + Artist + Actions).
  * Used for Playlists, Albums, and Track Lists.
- * Dispatches 'open-track-menu', 'play-track' (via click), 'save-track', 'queue-track'.
+ *
+ * Default (legacy) mode dispatches 'open-track-menu', 'play-track' (via click),
+ * 'save-track', 'queue-track' and renders the index column plus an optional
+ * small-art column.
+ *
+ * Playlist mode (options.layout === 'playlist') is the superset used by the
+ * live playlist view: album art replaces the index column (playlists only —
+ * albums keep the index), the playing row carries an inline equalizer and
+ * 'playing' class, the like button reflects optimistic state, and the action
+ * buttons call the supplied handlers instead of dispatching events.
+ *
+ * @param {Object} track
+ * @param {number} index - 1-based row number.
+ * @param {Function} clickHandler - (e, track) row click.
+ * @param {Object} [options]
+ * @param {string}   [options.layout] - 'playlist' for the playlist superset layout.
+ * @param {boolean}  [options.isPlaying] - row is the now-playing track.
+ * @param {boolean}  [options.isAlbum] - album context (index column, default title colour).
+ * @param {boolean}  [options.liked] - optimistic like state for the heart button.
+ * @param {Function} [options.onSave] - (e, track) like button click.
+ * @param {Function} [options.onQueue] - (e, track) queue button click.
+ * @param {Function} [options.onMenu] - (e, trackData) menu button click.
  */
-export function renderTrackRowTemplate(track, index, clickHandler) {
+export function renderTrackRowTemplate(track, index, clickHandler, options = {}) {
     if (!track) return '';
     const artistNames = track.artists ? track.artists.map(a => a.name).join(', ') : 'Unknown';
     const image = track.album?.images?.[0]?.url;
@@ -147,6 +163,9 @@ export function renderTrackRowTemplate(track, index, clickHandler) {
         image,
     };
 
+    const isPlaylist = options.layout === 'playlist';
+    const { isPlaying = false, isAlbum = false, liked = false, onSave, onQueue, onMenu } = options;
+
     const dispatchAction = (e, action, detail = {}) => {
         e.stopPropagation();
         const target = e.target;
@@ -157,36 +176,67 @@ export function renderTrackRowTemplate(track, index, clickHandler) {
         }));
     };
 
+    // First column. Playlist mode keeps the album art (playlists) / index
+    // (albums) there even while playing — the now-playing cue is the inline
+    // equalizer + green title next to the track name, matching the native app.
+    const firstCol = (isPlaylist && image && !isAlbum)
+        ? html`<img src="${image}" style="width: 40px; height: 40px; border-radius: 4px; object-fit: cover;" loading="lazy">`
+        : html`<div class="track-num">${index}</div>`;
+
+    // Title: playlist mode carries the inline equalizer on the playing row and
+    // forces a white title on playlist (non-album) rows.
+    const titleBlock = isPlaylist
+        ? html`
+            <div class="track-name" style="${isPlaying ? '' : (isAlbum ? '' : 'color: white;')}">
+                ${isPlaying ? html`<div class="track-eq" aria-label="Now playing"><span></span><span></span><span></span></div>` : ''}
+                <span class="track-name-text">${track.name}</span>
+            </div>`
+        : html`<div class="track-name">${track.name}</div>`;
+
+    const actions = isPlaylist
+        ? html`
+            <button class="track-action-btn ${liked ? 'is-favorite' : ''}" data-action="save" @click=${(e) => onSave(e, track)}>
+               ${heartToggleIcon(liked)}
+            </button>
+            <button class="track-action-btn" data-action="queue" @click=${(e) => onQueue(e, track)}>
+               ${queueIcon}
+            </button>
+            <button class="track-action-btn" data-action="menu" @click=${(e) => onMenu(e, trackData)}>
+                ${menuIcon}
+            </button>`
+        : html`
+            <button class="track-action-btn" data-action="save"
+                    @click=${(e) => dispatchAction(e, 'save-track')}>
+               ${heartIcon(false)}
+            </button>
+            <button class="track-action-btn" data-action="queue"
+                    @click=${(e) => dispatchAction(e, 'queue-track')}>
+               ${queueIcon}
+            </button>
+            <button class="track-action-btn" data-action="menu"
+                    @click=${(e) => dispatchAction(e, 'open-track-menu', trackData)}>
+                ${menuIcon}
+            </button>`;
+
     return html`
-        <div class="track-row interactive ${image ? 'with-art' : ''}"
+        <div class="track-row interactive ${isPlaylist ? (isPlaying ? 'playing' : '') : (image ? 'with-art' : '')}"
              data-track-id="${track.id}"
              data-uri="${track.uri}"
              @click=${clickHandler ? (e) => clickHandler(e, track) : null}>
 
-            <div class="track-num">${index}</div>
+            ${firstCol}
 
-            ${image ? html`
+            ${!isPlaylist && image ? html`
             <div class="track-art-small" style="background-image: url('${image}');"></div>
             ` : ''}
 
             <div class="track-info">
-                <div class="track-name">${track.name}</div>
+                ${titleBlock}
                 <div class="track-artist">${artistNames}</div>
             </div>
 
             <div class="track-actions-right">
-                <button class="track-action-btn" data-action="save" 
-                        @click=${(e) => dispatchAction(e, 'save-track')}>
-                   <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
-                </button>
-                <button class="track-action-btn" data-action="queue"
-                        @click=${(e) => dispatchAction(e, 'queue-track')}>
-                   <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-                </button>
-                <button class="track-action-btn" data-action="menu" 
-                        @click=${(e) => dispatchAction(e, 'open-track-menu', trackData)}>
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
-                </button>
+                ${actions}
             </div>
         </div>
     `;
