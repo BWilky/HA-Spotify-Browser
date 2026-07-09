@@ -304,7 +304,8 @@ export class SpotifySidebarNowPlaying extends LitElement {
 
     _updateProgress() {
         if (!this.hass || !this.config?.entity) return;
-        const stateObj = this.hass.states[this.config.entity];
+        // Track the entity actually playing (Sonos entity when casting to Sonos).
+        const stateObj = this.playerController?.playbackStateObj?.() || this.hass.states[this.config.entity];
         if (!stateObj) return;
 
         const progressBar = this.shadowRoot.getElementById('queue-progress-bar');

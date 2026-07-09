@@ -46,9 +46,22 @@ export function normalizeDevice(d) {
         id: d.id || d.Id,
         name: d.name || d.Name,
         type: d.type || d.DeviceInfo?.DeviceType || 'Speaker',
+        brand: deviceBrand(d),
         isActive: !!(d.is_active || d.IsActive),
         isSaved: false
     };
+}
+
+/**
+ * Best-effort device brand (e.g. "Sonos") from a raw SpotifyPlus device object.
+ * Used to detect Sonos targets, which need offset_position + the HA Sonos queue.
+ */
+export function deviceBrand(d) {
+    if (!d) return null;
+    return d.brand
+        || d.DeviceInfo?.BrandDisplayName
+        || d.DeviceInfo?.Brand
+        || null;
 }
 
 /* --- Media item helpers --- */
@@ -65,6 +78,18 @@ export function getItemImage(item, type = item?.type) {
     if (item.album?.images?.length) return item.album.images[0].url;
     if (item.track?.album?.images?.length) return item.track.album.images[0].url;
     return '';
+}
+
+/**
+ * Extracts a canonical `spotify:track:<id>` URI from a value that may be a Sonos
+ * content id (e.g. `x-sonos-spotify:spotify%3atrack%3aID?sid=12&...`) or already
+ * a plain Spotify URI. Returns null when no Spotify track URI can be found.
+ */
+export function spotifyUriFromContentId(contentId) {
+    if (!contentId) return null;
+    const decoded = String(contentId).replace(/%3a/gi, ':');
+    const m = decoded.match(/spotify:track:[A-Za-z0-9]+/);
+    return m ? m[0] : null;
 }
 
 /**

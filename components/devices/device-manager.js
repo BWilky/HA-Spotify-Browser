@@ -1,4 +1,4 @@
-import { parseDeviceItems, normalizeDevice } from '../../utils.js';
+import { parseDeviceItems, normalizeDevice, deviceBrand } from '../../utils.js';
 
 export class DeviceManager {
     constructor(hass, config, storageManager) {
@@ -200,6 +200,7 @@ export class DeviceManager {
                 id: saved.id,
                 name: saved.name,
                 type: saved.type,
+                brand: deviceBrand(live) || saved.brand || null,
                 isActive: isActive,
                 isSaved: true,
                 isOnline: !!live,

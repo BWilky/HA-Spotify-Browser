@@ -14,6 +14,7 @@ export class SpotifyApi {
         this.hass = hass;
         this.entityId = entityId;
         this.deviceResolver = deviceResolver; // Function that returns Promise<deviceId or null>
+        this.sonosBridge = null; // Optional SonosBridge; set via setSonosBridge()
         this.defaultVolumeConfig = defaultVolumeConfig;
         this.onNotification = onNotification;
         this.onError = onError;
@@ -107,8 +108,14 @@ export class SpotifyApi {
 
     updateHass(hass) {
         this.hass = hass;
+        if (this.sonosBridge) this.sonosBridge.setHass(hass);
         // The wrapper's page reload replaces the connection object; re-subscribe.
         this._bindConnection();
+    }
+
+    /** Attach the Sonos integration bridge (used for Sonos offset/queue routing). */
+    setSonosBridge(bridge) {
+        this.sonosBridge = bridge;
     }
 
     /** Detach listeners. Call when replacing or discarding this instance. */
@@ -122,6 +129,26 @@ export class SpotifyApi {
             this._connection.removeEventListener('disconnected', this._onSocketDisconnected);
         }
         this._connection = null;
+    }
+
+    /**
+     * The media_player entity that transport/volume commands should target. When
+     * the active device is a Sonos speaker we drive the HA Sonos entity directly
+     * (local, instant) instead of relaying through SpotifyPlus (cloud).
+     */
+    _controlEntity() {
+        if (this.sonosBridge?.enabled) {
+            const attrs = this._activeAttributes();
+            if (this.sonosBridge.isSonosTarget(null, attrs)) {
+                const entity = this.sonosBridge.resolveSonosEntity(null, attrs);
+                if (entity) {
+                    this.sonosBridge.log(`control → ${entity} (LOCAL, bypassing SpotifyPlus cloud)`);
+                    return entity;
+                }
+                this.sonosBridge.log(`Sonos detected but no HA entity resolved for "${attrs.source || attrs.sp_device_name}" → falling back to SpotifyPlus. Add a device_map entry.`);
+            }
+        }
+        return this.entityId;
     }
 
     async fetchSpotifyPlus(service, params = {}, expectResponse = true, logError = true, throwOnError = false) {
@@ -141,7 +168,7 @@ export class SpotifyApi {
 
         if (standardServices[service]) {
             const haService = standardServices[service];
-            let callParams = { entity_id: this.entityId };
+            let callParams = { entity_id: this._controlEntity() };
 
             // Handle Shuffle (Map 'state' -> 'shuffle')
             if (service === 'player_shuffle') {
@@ -246,6 +273,7 @@ export class SpotifyApi {
 
         // 1. Determine Device Strategy
         let deviceToUse = null;
+        let resolvedDeviceObj = null; // The full resolved device object (for brand/Sonos detection)
 
         if (specificDevice) {
             deviceToUse = specificDevice;
@@ -257,6 +285,7 @@ export class SpotifyApi {
                         const resolvedDevice = await this.deviceResolver();
 
                         if (resolvedDevice) {
+                            resolvedDeviceObj = typeof resolvedDevice === 'object' ? resolvedDevice : null;
                             deviceToUse = typeof resolvedDevice === 'object' ? resolvedDevice.id : resolvedDevice;
                         } else {
                             // User cancelled or no device available
@@ -283,19 +312,38 @@ export class SpotifyApi {
             }
         }
 
+        // Sonos rejects offset_uri and only honours offset_position. Detect the
+        // target so context jumps pick the right parameter. For the active device
+        // we read brand off the entity attributes; for an idle launch we read it
+        // off the resolved device object.
+        const isSonosTarget = !!this.sonosBridge && this.sonosBridge.isSonosTarget(
+            resolvedDeviceObj,
+            isActive ? (stateObj?.attributes || {}) : {}
+        );
+        if (isSonosTarget && ['playlist', 'album', 'artist', 'show'].includes(type)) {
+            this.sonosBridge.log(`playMedia: Sonos target → ${extraOptions.offset_position != null ? `offset_position=${extraOptions.offset_position}` : 'offset_uri (no index)'}`);
+        }
+
         const executePlay = async (deviceIdToTry) => {
-            const params = { ...extraOptions };
+            // Strip the offset hints from the spread; we set the right one explicitly below.
+            const { offset_uri, offset_position, ...rest } = extraOptions;
+            const params = { ...rest };
             if (deviceIdToTry) params.device_id = deviceIdToTry;
 
             try {
                 if (['playlist', 'album', 'artist', 'show'].includes(type)) {
                     params.context_uri = uri;
-                    if (extraOptions.offset_uri) params.offset_uri = extraOptions.offset_uri;
+                    // Sonos -> offset_position (when we have an index); otherwise offset_uri.
+                    if (isSonosTarget && offset_position != null) {
+                        params.offset_position = offset_position;
+                    } else if (offset_uri) {
+                        params.offset_uri = offset_uri;
+                    }
 
                     // Enable throwOnError to catch validation errors
                     const res = await this.fetchSpotifyPlus('player_media_play_context', params, false, true, true);
 
-                    if ((!res || res.error) && extraOptions.offset_uri) {
+                    if ((!res || res.error) && offset_uri) {
                         console.warn("[SpotifyAPI] Context jump failed. Falling back to Track Play.");
                         return await this.playMedia(extraOptions.offset_uri, 'track', deviceIdToTry);
                     }
@@ -357,13 +405,34 @@ export class SpotifyApi {
         const service = play ? 'media_play' : 'media_pause';
         try {
             await this.hass.callService('media_player', service, {
-                entity_id: this.entityId
+                entity_id: this._controlEntity()
             });
             // Trigger Scan
             this.triggerScan();
         } catch (e) {
             console.error(`Failed to ${service}:`, e);
         }
+    }
+
+    /** The active SpotifyPlus entity attributes (empty object if unavailable). */
+    _activeAttributes() {
+        return this.hass?.states?.[this.entityId]?.attributes || {};
+    }
+
+    /**
+     * Add a track to the queue. For Sonos the queue lives on the device, so route
+     * through the HA Sonos integration; otherwise use SpotifyPlus. Returns
+     * { success: boolean }.
+     */
+    async addToQueue(uri) {
+        if (!this.hass || !uri) return { success: false };
+        const attrs = this._activeAttributes();
+        if (this.sonosBridge?.enabled && this.sonosBridge.isSonosTarget(null, attrs)) {
+            const entity = this.sonosBridge.resolveSonosEntity(null, attrs);
+            if (entity) return await this.sonosBridge.addToQueue(entity, uri);
+        }
+        const res = await this.fetchSpotifyPlus('add_player_queue_items', { uris: uri }, false);
+        return { success: !!res };
     }
 
     // --- PLAYLIST MANAGEMENT ---
@@ -587,6 +656,25 @@ export class SpotifyApi {
         return genres;
     }
 
+    /**
+     * Fetch a single track's album art URL by Spotify id, memoized for the
+     * session. Used to enrich the Sonos queue (sonos.get_queue returns no art).
+     * Returns a URL string or null.
+     */
+    async getTrackArt(trackId) {
+        if (!this.hass || !trackId) return null;
+        if (!this._trackArtCache) this._trackArtCache = new Map();
+        if (this._trackArtCache.has(trackId)) return this._trackArtCache.get(trackId);
+        let url = null;
+        try {
+            const res = await this.fetchSpotifyPlus('get_track', { track_id: trackId });
+            const track = res?.result || res;
+            url = track?.album?.images?.[0]?.url || null;
+        } catch (e) { url = null; }
+        this._trackArtCache.set(trackId, url);
+        return url;
+    }
+
     async searchPlaylists(query, limit = 10, offset = 0) {
         if (!this.hass || !query) return { result: { items: [] } };
 
@@ -675,7 +763,7 @@ export class SpotifyApi {
         if (!this.hass) return { success: false };
         try {
             await this.hass.callService('media_player', 'volume_set', {
-                entity_id: this.entityId,
+                entity_id: this._controlEntity(),
                 volume_level: volumeLevel
             });
             return { success: true };
@@ -689,7 +777,7 @@ export class SpotifyApi {
         if (!this.hass) return { success: false };
         try {
             await this.hass.callService('media_player', 'media_seek', {
-                entity_id: this.entityId,
+                entity_id: this._controlEntity(),
                 seek_position: Math.max(0, Math.floor(positionSeconds))
             });
             this.triggerScan();

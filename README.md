@@ -84,6 +84,7 @@ spotify_browser:
 | `homeonexit` | boolean / object | `true` | Reset view to home screen on close. Supports `timeout` (seconds). |
 | `device_playback` | object | none | Device helper (`input_select`), default volumes, and volume rules. |
 | `queue` | object | none | Mini-player buttons and desktop sidebar visibility. |
+| `sonos` | object | none | Sonos integration support (context offset + queue via the HA Sonos integration). |
 | `cache_size` | number | `10` | Maximum pages retained in history. |
 | `performance` | string | `auto` | Rendering profile: `auto`, `high` (full animations), or `low` (optimized). |
 | `animations` | object | none | Configures transition types (`page_transition`, `browser_open`, `blur`). |
@@ -121,13 +122,25 @@ Controls browser state reset on close/reopen. Can be `true` (always reset to Hom
   * `miniplayer` (boolean / object): If `true`, enables the mini-player. Or configure buttons individually:
     * `shuffle`, `previous`, `next`, `like`, `volume`, `device` (boolean).
 
+#### sonos
+Sonos speakers are "restricted" Spotify Connect devices — their playback and queue live on the device, not the Spotify Web API. With this enabled, when playback is on a Sonos speaker the card drives the player **locally through the Home Assistant [Sonos integration](https://www.home-assistant.io/integrations/sonos/)** instead of the Spotify cloud:
+* Now-playing state (track, progress, shuffle, repeat, volume) is read from the Sonos `media_player` entity.
+* Transport controls (play/pause, next/previous, seek, volume, shuffle, repeat) are sent directly to the Sonos entity.
+* Queue is read/added/played via the Sonos integration; in-context track jumps use `offset_position` (Sonos rejects `offset_uri`).
+
+SpotifyPlus is still used for browsing and for starting playback. Non-Sonos devices are unaffected.
+* `enabled` (boolean): Turn on Sonos handling (default: `false`).
+* `device_map` (list): Optional. Speakers are auto-detected by matching the Spotify device name to a Sonos `media_player` friendly name; add entries only to override a wrong match or force Sonos handling:
+  * `spotify` (string): Spotify Connect device name (or id).
+  * `entity` (string): The Home Assistant Sonos `media_player` entity.
+  * `is_sonos` (boolean): Force this device to be treated as Sonos.
+
 #### homescreen
 * `cache` (boolean): Cache homescreen data for faster loads (default: `true`).
 * `expiry` (number): Expiry window in minutes before refreshing cached data (default: `60`).
 * `sort` (list): Section sorting order. Allowed items: `pinned`, `recently played`, `followed_artists`, `favourite_playlists`, `favourite_albums`, `made_for_you`.
 * `sticky` (object): Configures pinned elements:
   * `helper` / `pinned_items_entity` (string): Entity ID of an `input_select` helper to persist pins.
-  * `limit` (number): Maximum number of pinned items to display (default: `10`).
 * `madeforyou` (list / object): If object, supports:
   * `content` / `items` (list): Custom playlists/albums.
   * `pills` / `desktop_pills` (boolean): Enable genre pills styling on desktop.
@@ -306,7 +319,6 @@ homescreen:
   expiry: 60 # minutes
   sticky:
     helper: input_select.spotify_pinned_items
-    limit: 10
   madeforyou:
     content:
       - id: "37i9dQZF1DXcBWIGoYBM5M"
