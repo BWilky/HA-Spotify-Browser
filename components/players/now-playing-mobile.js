@@ -267,7 +267,9 @@ export class SpotifyNowPlayingMobile extends LitElement {
     }
 
     _playerPosition() {
-        const stateObj = this.hass?.states[this.config?.entity];
+        // Read from the entity actually driving playback (the Sonos entity when
+        // casting to Sonos), not always SpotifyPlus, so the bar tracks correctly.
+        const stateObj = this.playerController?.playbackStateObj?.() || this.hass?.states[this.config?.entity];
         if (!stateObj) return { position: 0, duration: 0 };
         const attrs = stateObj.attributes;
         let duration = attrs.media_duration || (this.state?.track?.duration_ms ? this.state.track.duration_ms / 1000 : 0);
@@ -500,7 +502,8 @@ export class SpotifyNowPlayingMobile extends LitElement {
         setTimeout(() => this.playerController.refreshQueue(), 1500);
     }
     _repeatState() {
-        return this.hass?.states[this.config?.entity]?.attributes?.repeat || 'off';
+        const stateObj = this.playerController?.playbackStateObj?.() || this.hass?.states[this.config?.entity];
+        return stateObj?.attributes?.repeat || 'off';
     }
 
     _openDevices() { this.dispatchEvent(new CustomEvent('open-devices', { bubbles: true, composed: true })); }

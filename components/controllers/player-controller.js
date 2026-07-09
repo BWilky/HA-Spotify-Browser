@@ -1,4 +1,4 @@
-import { parseSpotifyUri } from '../../utils.js';
+import { parseSpotifyUri, spotifyUriFromContentId } from '../../utils.js';
 
 export class PlayerController extends EventTarget {
     constructor(api) {
@@ -6,6 +6,8 @@ export class PlayerController extends EventTarget {
         this.api = api;
         this.hass = null;
         this.config = null;
+        this.sonosBridge = null; // Optional SonosBridge for Sonos queue routing
+        this._sonosQueueBase = 0; // Absolute index of the first upcoming Sonos queue item
 
         // State
         this.state = {
@@ -50,6 +52,41 @@ export class PlayerController extends EventTarget {
         this.config = config;
     }
 
+    /** Attach the Sonos integration bridge (used for Sonos queue routing). */
+    setSonosBridge(bridge) {
+        this.sonosBridge = bridge;
+    }
+
+    /**
+     * The media_player entity currently driving playback: the HA Sonos entity
+     * when Sonos is the active device, otherwise the SpotifyPlus entity. UI
+     * components should read live playback attributes (position, repeat, etc.)
+     * from this so they stay correct for Sonos.
+     */
+    playbackEntityId() {
+        const sonos = this._sonosContext();
+        return (sonos.isSonos && sonos.entity) ? sonos.entity : this.config?.entity;
+    }
+
+    /** The HASS state object for the entity driving playback (see playbackEntityId). */
+    playbackStateObj() {
+        return this.hass?.states?.[this.playbackEntityId()] || null;
+    }
+
+    /**
+     * Whether the active device is a Sonos speaker handled by the HA Sonos
+     * integration, and the HA media_player entity to drive it. Returns
+     * { isSonos, entity }.
+     */
+    _sonosContext() {
+        if (!this.sonosBridge?.enabled) return { isSonos: false, entity: null };
+        // Always read the SpotifyPlus entity to learn the active Connect device —
+        // the Sonos entity's own `source` (e.g. "Line-in") doesn't tell us this.
+        const attrs = this.hass?.states?.[this.config?.entity]?.attributes || {};
+        if (!this.sonosBridge.isSonosTarget(null, attrs)) return { isSonos: false, entity: null };
+        return { isSonos: true, entity: this.sonosBridge.resolveSonosEntity(null, attrs) };
+    }
+
     updateHass(hass) {
         if (!hass) return;
         this.hass = hass;
@@ -62,14 +99,35 @@ export class PlayerController extends EventTarget {
         if (!this.hass || !this.config || !this.config.entity) {
             return;
         }
-        const stateObj = this.hass.states[this.config.entity];
+
+        // When playback is on a Sonos speaker, drive the player off the HA Sonos
+        // entity (local, live) instead of SpotifyPlus, which can't track the Sonos
+        // local queue. SpotifyPlus is then used only for browsing and launching.
+        const sonos = this._sonosContext();
+        const spStateObj = this.hass.states[this.config.entity];
+        const usingSonos = !!(sonos.isSonos && sonos.entity && this.hass.states[sonos.entity]);
+        const stateObj = usingSonos ? this.hass.states[sonos.entity] : spStateObj;
         this._lastStateObj = stateObj; // Store for re-calculation
+
+        // Log only when the source entity changes (so it's not per-tick spam).
+        const srcKey = usingSonos ? sonos.entity : this.config.entity;
+        if (this._lastSourceKey !== srcKey) {
+            this._lastSourceKey = srcKey;
+            this.sonosBridge?.log(usingSonos
+                ? `player state ← ${sonos.entity} (LOCAL Sonos entity)`
+                : `player state ← ${this.config.entity} (SpotifyPlus)`);
+        }
         if (!stateObj) {
             console.warn('[PlayerController] Entity not found in HASS:', this.config.entity);
             return;
         }
 
         const attrs = stateObj.attributes;
+        // The Connect device name lives on the SpotifyPlus entity even when we read
+        // playback from the Sonos entity (whose own `source` is e.g. "Line-in").
+        const activeDevice = sonos.isSonos
+            ? (spStateObj?.attributes?.source || attrs.friendly_name || null)
+            : (attrs.source || null);
 
         // 1. Determine Effective Track (HASS + Optimistic + API Fallback)
         const track = this._calculateEffectiveTrack(stateObj);
@@ -95,7 +153,7 @@ export class PlayerController extends EventTarget {
             isLiked: this.state.isLiked, // Persist until refreshed
             volume: (attrs.volume_level || 0) * 100,
             isMuted: attrs.is_volume_muted || false,
-            activeDevice: attrs.source || null,
+            activeDevice: activeDevice,
             queue: this.state.queue, // Persist queue
             recentTracks: this.state.recentTracks // Persist recent
         };
@@ -122,7 +180,8 @@ export class PlayerController extends EventTarget {
         if (this._optimisticTrack) {
             const optUri = this._optimisticTrack.uri;
             const optName = this._optimisticTrack.name;
-            const stateUri = attrs.media_content_id;
+            // Canonicalize so Sonos's x-sonos-spotify ids compare against spotify URIs.
+            const stateUri = spotifyUriFromContentId(attrs.media_content_id) || attrs.media_content_id;
             const stateName = attrs.media_title;
             const isMatch = (optUri && stateUri && stateUri.includes(optUri)) || (optName && stateName === optName);
             const stillFrom = this._optimisticFromUri && stateUri && stateUri.includes(this._optimisticFromUri);
@@ -154,7 +213,10 @@ export class PlayerController extends EventTarget {
         const attrs = stateObj.attributes;
         if (!attrs.media_title) { this._richCurrent = null; return null; }
 
-        const uri = attrs.media_content_id;
+        // Normalize the URI: on a Sonos entity media_content_id is an
+        // x-sonos-spotify:... string, so canonicalize it to spotify:track:<id>
+        // (falling back to the raw value) so matching and id derivation work.
+        const uri = spotifyUriFromContentId(attrs.media_content_id) || attrs.media_content_id;
 
         // Helper to check match
         const matches = (t) => t && (t.uri === uri || t.name === attrs.media_title);
@@ -217,6 +279,14 @@ export class PlayerController extends EventTarget {
 
     async refreshQueue() {
         if (!this.api) return;
+
+        // Sonos owns its own local queue; SpotifyPlus's get_player_queue_info is
+        // empty/stale for it. Read the live queue from the HA Sonos integration.
+        const sonos = this._sonosContext();
+        if (sonos.isSonos && sonos.entity) {
+            return this._refreshSonosQueue(sonos.entity);
+        }
+
         const fetchId = ++this._queueFetchId;
         try {
             const res = await this.api.fetchSpotifyPlus('get_player_queue_info');
@@ -235,6 +305,63 @@ export class PlayerController extends EventTarget {
         } catch (e) {
             console.error('[PlayerController] Queue fetch failed', e);
         }
+    }
+
+    /**
+     * Read the Sonos local queue via the HA Sonos integration. `sonos.get_queue`
+     * returns the *entire* queue; we trim it to the upcoming tracks (after the
+     * one playing) to match the Spotify queue UX, and remember the absolute base
+     * index so play-from-queue can map a clicked row back to a queue position.
+     */
+    async _refreshSonosQueue(entity) {
+        const fetchId = ++this._queueFetchId;
+        try {
+            const full = await this.sonosBridge.getQueue(entity);
+            if (fetchId !== this._queueFetchId) return; // superseded
+            if (!Array.isArray(full)) return;
+
+            // Prefer the Sonos entity's own queue_position (reliable) to find the
+            // current track; fall back to matching the playing uri in the queue.
+            const sonosAttrs = this.hass?.states?.[entity]?.attributes || {};
+            let curPos = Number.isInteger(sonosAttrs.queue_position) ? sonosAttrs.queue_position : -1;
+            if (curPos < 0) {
+                const curUri = this.state.track?.uri || this._lastStateObj?.attributes?.media_content_id;
+                curPos = curUri ? full.findIndex(t => t.uri === curUri) : -1;
+            }
+
+            this._sonosQueueBase = curPos >= 0 ? curPos + 1 : 0;
+            this._cachedSonosQueue = full;
+            // New object reference so Lit consumers (identity check) re-render.
+            this.state = { ...this.state, queue: full.slice(this._sonosQueueBase) };
+            this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
+
+            // sonos.get_queue returns no artwork; enrich the upcoming slice in the
+            // background (cached per track id) and re-render once art arrives.
+            this._enrichSonosArt(fetchId);
+        } catch (e) {
+            console.error('[PlayerController] Sonos queue fetch failed', e);
+        }
+    }
+
+    /**
+     * Fill in album art for the upcoming Sonos queue (capped) via SpotifyPlus
+     * get_track, then re-dispatch. Bails if a newer refresh has superseded it.
+     */
+    async _enrichSonosArt(fetchId, cap = 30) {
+        if (!this.api?.getTrackArt) return;
+        const slice = (this.state.queue || []).slice(0, cap);
+        const needs = slice.filter(t => t?.id && !(t.album?.images?.length));
+        if (!needs.length) return;
+
+        let changed = false;
+        await Promise.all(needs.map(async (t) => {
+            const url = await this.api.getTrackArt(t.id);
+            if (url) { t.album = { ...(t.album || {}), images: [{ url }] }; changed = true; }
+        }));
+
+        if (!changed || fetchId !== this._queueFetchId) return;
+        this.state = { ...this.state, queue: [...this.state.queue] };
+        this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
     }
 
     async refreshRecent() {
@@ -345,6 +472,14 @@ export class PlayerController extends EventTarget {
 
         this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
 
+        // Sonos: jump to the absolute queue position via the HA Sonos integration
+        // (the Spotify context-offset path doesn't drive the Sonos local queue).
+        const sonos = this._sonosContext();
+        if (sonos.isSonos && sonos.entity && queueIndex !== -1) {
+            await this.sonosBridge.playQueuePosition(sonos.entity, this._sonosQueueBase + queueIndex);
+            return;
+        }
+
         await this._playTrackInContext(track);
     }
 
@@ -357,6 +492,19 @@ export class PlayerController extends EventTarget {
      */
     async _playTrackInContext(track) {
         if (!this.api || !track || !track.uri) return;
+
+        // Sonos: context offset_uri doesn't drive the local queue. If the track is
+        // in the cached Sonos queue, jump to its position; otherwise fall through
+        // to the single-track fallback below.
+        const sonos = this._sonosContext();
+        if (sonos.isSonos && sonos.entity && Array.isArray(this._cachedSonosQueue)) {
+            const pos = this._cachedSonosQueue.findIndex(t => t.uri === track.uri);
+            if (pos !== -1) {
+                await this.sonosBridge.playQueuePosition(sonos.entity, pos);
+                return;
+            }
+        }
+
         const stateObj = this.hass?.states?.[this.config?.entity];
         const spAttributes = stateObj?.attributes || {};
         const contextUri = spAttributes.sp_context_uri || spAttributes.media_playlist;
@@ -391,6 +539,13 @@ export class PlayerController extends EventTarget {
 
     /** The most recent distinct track (the one we'd go "back" to), or null. */
     peekPrev() {
+        // Sonos keeps already-played tracks in its local queue, so the previous
+        // track is simply the entry before the current one (more reliable than the
+        // cloud recents, which don't reflect Sonos local-queue navigation).
+        if (Array.isArray(this._cachedSonosQueue) && this._sonosContext().isSonos) {
+            const prev = this._cachedSonosQueue[this._sonosQueueBase - 2];
+            if (prev) return prev;
+        }
         const curUri = this.state.track?.uri;
         for (const item of (this.state.recentTracks || [])) {
             const t = item.track || item;

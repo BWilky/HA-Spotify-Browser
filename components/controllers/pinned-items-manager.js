@@ -68,10 +68,6 @@ export class PinnedItemsManager {
         this.config = config || {};
     }
 
-    get _limit() {
-        return this.config.limit || 10;
-    }
-
     /**
      * Whether the pinned section can be SHOWN (read). True whenever a sensor
      * backend exists — everyone who can see the sensor sees the pins, even if

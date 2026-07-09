@@ -79,18 +79,17 @@ export class ConfigParser {
         }
 
         // Pinned Items (Sticky Feature)
-        // Supports: homescreen: { sticky: { helper: 'input_select.cx', limit: 10 } }
+        // Supports: homescreen: { sticky: { helper: 'input_select.cx' } }
         // OR legacy/alternate: pinned_items_entity
+        // (The max pin count is hard-coded; see MAX_PINNED_OTHERS in pinned-items-manager.js)
         if (rawHomescreen?.sticky) {
             homescreenConfig.sticky = {
-                helper: rawHomescreen.sticky.helper,
-                limit: rawHomescreen.sticky.limit || 10
+                helper: rawHomescreen.sticky.helper
             };
         } else if (rawHomescreen?.pinned_items_entity) {
             // Backward compatibility or alternative simple key
             homescreenConfig.sticky = {
-                helper: rawHomescreen.pinned_items_entity,
-                limit: 10
+                helper: rawHomescreen.pinned_items_entity
             };
         }
 
@@ -197,6 +196,24 @@ export class ConfigParser {
             }
         }
 
+
+        // --- 4b. Sonos Integration Config ---
+        // Opt-in support for Sonos speakers. When enabled, context jumps use
+        // offset_position (Sonos rejects offset_uri) and queue read/add/play-from
+        // route through the Home Assistant Sonos integration instead of SpotifyPlus.
+        let sonosConfig = { enabled: false, debug: false, deviceMap: [] };
+        if (config.sonos && typeof config.sonos === 'object') {
+            sonosConfig.enabled = config.sonos.enabled === true;
+            sonosConfig.debug = config.sonos.debug === true;
+            const rawMap = Array.isArray(config.sonos.device_map) ? config.sonos.device_map : [];
+            sonosConfig.deviceMap = rawMap
+                .filter(m => m && typeof m === 'object')
+                .map(m => ({
+                    spotify: m.spotify ?? m.device ?? null, // Spotify Connect device name or id
+                    entity: m.entity ?? null,              // HA Sonos media_player entity
+                    isSonos: m.is_sonos === true           // manual brand override
+                }));
+        }
 
         // --- 5. Made For You Config (DEBUGGING) ---
         // Log the state of parser to help debug "missing made for you"
@@ -328,6 +345,7 @@ export class ConfigParser {
             device_manager: (config.device_playback && config.device_playback.helper) || null,
             device_playback: devicePlayback,
             queue_settings: queueSettings,
+            sonos: sonosConfig,
             storage: storageConfig,
             cache_size: config.cache_size === undefined ? 10 : config.cache_size,
 

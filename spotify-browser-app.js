@@ -18,6 +18,7 @@ import './components/spotify-popups.js';
 import './components/spotify-reorder-dialog.js';
 import { PinnedItemsManager } from './components/controllers/pinned-items-manager.js';
 import { DeviceManager } from './components/devices/device-manager.js';
+import { SonosBridge } from './components/devices/sonos-bridge.js';
 import { StorageManager } from './components/controllers/storage-manager.js';
 import { PlayerController } from './components/controllers/player-controller.js';
 
@@ -342,6 +343,7 @@ class SpotifyBrowserApp extends LitElement {
             if (this.api) this.api.updateHass(this.hass);
             if (this.storageManager) this.storageManager.updateHass(this.hass);
             if (this.deviceManager) this.deviceManager.updateHass(this.hass);
+            if (this.sonosBridge) this.sonosBridge.setHass(this.hass);
             if (this.pinnedManager) this.pinnedManager.updateHass(this.hass);
             if (this.playerController) this.playerController.updateHass(this.hass);
             if (this.router) this.router.updateDependencies({ hass: this.hass });
@@ -865,9 +867,15 @@ class SpotifyBrowserApp extends LitElement {
             }
         );
 
+        // Sonos integration bridge (no-op unless config.sonos.enabled). Shared by
+        // the API (offset_position routing) and the PlayerController (queue routing).
+        this.sonosBridge = new SonosBridge(this.hass, this.config.sonos);
+        this.api.setSonosBridge(this.sonosBridge);
+
         // Initialize Player Controller
         this.playerController = new PlayerController(this.api);
         this.playerController.updateConfig(this.config);
+        this.playerController.setSonosBridge(this.sonosBridge);
 
         // Listen to state changes
         this.playerController.addEventListener('state-changed', this._onPlayerStateChange);
@@ -1054,7 +1062,7 @@ class SpotifyBrowserApp extends LitElement {
                 this.api.playMedia(track.uri, 'track');
                 break;
             case 'tm-queue':
-                this.api.fetchSpotifyPlus('add_player_queue_items', { uris: track.uri });
+                this.api.addToQueue(track.uri);
                 break;
             // more actions here
         }

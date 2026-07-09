@@ -785,7 +785,7 @@ export class SpotifyPlaylistView extends LitElement {
             }
 
             return html`
-            <div class="track-row interactive ${isPlaying ? 'playing' : ''}" data-track-id="${track.id}" data-uri="${track.uri}" @click=${(e) => this._handleTrackClick(e, track)}>
+            <div class="track-row interactive ${isPlaying ? 'playing' : ''}" data-track-id="${track.id}" data-uri="${track.uri}" @click=${(e) => this._handleTrackClick(e, track, index - 1)}>
                 ${firstColContent}
                 <div class="track-info">
                     <div class="track-name" style="${isPlaying ? '' : (isAlbum ? '' : 'color: white;')}">
@@ -961,17 +961,23 @@ export class SpotifyPlaylistView extends LitElement {
     async _handleQueueTrack(e, track) {
         e.stopPropagation();
         if (!this.api || !track?.uri) return;
-        const res = await this.api.fetchSpotifyPlus('add_player_queue_items', { uris: track.uri }, false);
+        const res = await this.api.addToQueue(track.uri);
         this.dispatchEvent(new CustomEvent('show-toast', {
-            detail: { message: res ? 'Added to queue' : 'Failed to add to queue' },
+            detail: { message: res?.success ? 'Added to queue' : 'Failed to add to queue' },
             bubbles: true, composed: true
         }));
     }
 
-    async _handleTrackClick(e, track) {
+    async _handleTrackClick(e, track, position = null) {
         if (e.target.closest('button')) return; // Ignore button clicks
 
         const contextType = this.data.type;
+
+        // Sonos needs offset_position (the track's 0-based index in the context)
+        // since it rejects offset_uri. The rendered index maps directly to the
+        // context position for albums/playlists; only pass it when the list isn't
+        // genre-filtered (Liked Songs), where the index wouldn't match the context.
+        const offsetPos = (position != null && !this._activeGenre) ? position : null;
 
         // Optimistic: assume this row is now playing and reflect it immediately;
         // HASS will confirm (and the handoff in updated() clears the guess).
@@ -992,13 +998,13 @@ export class SpotifyPlaylistView extends LitElement {
             const userId = await this.api.getCurrentUserId();
             if (userId) {
                 const collectionUri = `spotify:user:${userId}:collection`;
-                await this.api.playMedia(collectionUri, 'playlist', null, { offset_uri: track.uri });
+                await this.api.playMedia(collectionUri, 'playlist', null, { offset_uri: track.uri, offset_position: offsetPos });
             } else {
                 await this.api.playMedia(track.uri, 'track');
             }
         } else {
             // For Playlists/Albums, play context with offset
-            await this.api.playMedia(this.data.uri, contextType, null, { offset_uri: track.uri });
+            await this.api.playMedia(this.data.uri, contextType, null, { offset_uri: track.uri, offset_position: offsetPos });
         }
     }
 

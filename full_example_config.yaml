@@ -63,6 +63,25 @@ queue:
         volume: true # Volume slider
         device: true # Device picker
 
+# --- Sonos Integration (optional) ---
+# Sonos speakers are "restricted" Spotify Connect devices: their playback and
+# queue live on the device, not the Spotify Web API. When enabled and playback is
+# on a Sonos speaker, the card drives the player locally via the Home Assistant
+# Sonos integration: now-playing state, transport controls, volume and queue all
+# use the Sonos media_player entity, and in-context jumps use offset_position
+# (Sonos rejects offset_uri). SpotifyPlus is still used for browsing/launching.
+# Has no effect on non-Sonos devices.
+sonos:
+  enabled: true
+
+  # Optional. Sonos speakers are auto-detected by matching the Spotify device
+  # name to a Sonos media_player's friendly name. Add entries only to override
+  # the auto-detection (wrong match) or to force a device to be treated as Sonos.
+  device_map:
+    - spotify: "Living Room"              # Spotify Connect device name (or id)
+      entity: media_player.living_room    # HA Sonos media_player entity
+      is_sonos: true                      # force Sonos handling for this device
+
 # --- Cache & Performance ---
 # Max number of pages to keep in memory (default 10)
 # Uses Least-Recently-Used (LRU) eviction policy.
@@ -158,8 +177,7 @@ homescreen:
   # Requires an input_select entity in Home Assistant to store the pinned items.
   sticky:
     helper: input_select.spotify_pinned_items
-    limit: 10 # Optional, defaults to 10
-  
+
   # Section Sorting & Visibility
   # Define the order of sections. Omit items to hide them.
   # Available options: pinned, recently played, followed_artists, favourite_playlists, favourite_albums, made_for_you
