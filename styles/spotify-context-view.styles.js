@@ -14,11 +14,13 @@ export const contextViewStyles = css`
     }
     .page.is-refreshing .hero-banner, .page.is-refreshing .artist-hero { height: 360px !important; }
     
-    .hero-bg { 
-        position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+    .hero-bg {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
         background: #181818; /* Fallback skeleton color */
-        z-index: 0; 
+        z-index: 0;
         overflow: hidden;
+        transition: all 0.5s ease;
+        transform-origin: top center; will-change: transform;
     }
     
     .hero-gradient, .artist-hero .hero-gradient { 
@@ -116,37 +118,29 @@ export const contextViewStyles = css`
     .track-title { font-size: 14px; font-weight: 600; color: var(--spf-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .track-meta { font-size: 12px; color: var(--spf-text-sub); margin-top: 2px; }
 
-    /* Track Rows */
+    /* Track Rows — the base rules (columns, hover, text colours) live in
+       shared-styles.js; this block only carries the context-view overrides. */
     .track-row {
         overflow: visible;
         display: grid;
         /* num/art | title+artist | action buttons (flush right) */
         grid-template-columns: 40px 1fr auto;
         gap: 16px;
-        padding: 8px 16px; 
+        padding: 8px 16px;
         align-items: center; cursor: pointer;
-        
+
         /* User Customization: Transparent default, hover effect only */
         background: transparent;
         border-radius: 8px;
-        margin: 0 4px 4px 4px; 
-        
+        margin: 0 4px 4px 4px;
+
         /* FIX: Enforce minimum height to match loaded content */
-        min-height: 56px; 
+        min-height: 56px;
         box-sizing: border-box;
     }
-    .track-row.with-art { grid-template-columns: 40px 48px 1fr auto; }
-
-    @media (hover: hover) { 
-        .track-row:hover { background: var(--spf-hover-white); } 
-        .track-row:active { background: var(--spf-active-white); }
-    }
-    
-    .track-row.playing .track-name { color: var(--spf-brand); }
     /* Inline now-playing layout: equalizer sits left of the green title */
     .track-name { display: flex; align-items: center; gap: 6px; }
     .track-name-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .track-num { color: var(--spf-text-sub); font-size: 14px; text-align: center; }
 
     /* Now-playing equalizer (inline, next to the track title) */
     .track-eq {
@@ -169,35 +163,9 @@ export const contextViewStyles = css`
         0%, 100% { transform: scaleY(0.3); }
         50% { transform: scaleY(1); }
     }
-    
-    .track-art-small {
-        width: 40px; height: 40px; background-size: cover; background-position: center;
-        border-radius: 4px; background-color: var(--spf-skeleton-bg);
-    }
 
-    .track-name { color: var(--spf-text-main); font-size: 15px; }
-    .track-artist { color: var(--spf-text-sub); font-size: 13px; }
-    .track-duration { color: var(--spf-text-sub); font-size: 14px; text-align: right; }
-
-    .track-actions-right {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 8px;
-    }
-
-
-    .track-action-btn { background: transparent; border: none; color: var(--spf-text-sub); cursor: pointer; padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: color 0.2s, background 0.2s; }
-    @media (hover: hover) { .track-action-btn:hover { color: var(--spf-text-main); background: var(--spf-hover-white); } }
-    .track-action-btn.is-favorite { color: var(--spf-brand); }
-    .track-action-btn.is-favorite svg { fill: var(--spf-brand); }
-
-    /* Artist / Skeleton Styles */
-    .skeleton-pulse { animation: pulse 1.5s infinite ease-in-out; background: var(--spf-bg-card-hover); }
-    .card-image-sk { background: var(--spf-bg-card-hover); }
-    .card-text-sk { height: 12px; background: var(--spf-bg-card-hover); margin-bottom: 8px; border-radius: 2px; width: 80%; }
-    .card-text-sk.short { width: 50%; }
-    @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+    /* Skeleton styles (.skeleton-pulse, @keyframes pulse, .card-*-sk) live in
+       shared-styles.js, which every consumer of this module also imports. */
 
     /* Artist View Specifics */
     .artist-content { padding-top: 24px; }

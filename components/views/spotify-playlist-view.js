@@ -74,38 +74,16 @@ export class SpotifyPlaylistView extends LitElement {
                 .hero-bg { overflow: visible !important; }
                 .hero-bg, .hero-bg img { width: 100%; height: 100%; object-fit: cover; }
 
-                /* Hero Content Layout */
-                .hero-content { 
-                    position: absolute; bottom: 0; left: 0; width: 100%; 
-                    z-index: 2; padding: 24px; box-sizing: border-box;
-                    display: flex; align-items: flex-end; gap: 24px;
-                }
-                .hero-art { 
-                    width: 220px; height: 220px; 
-                    box-shadow: 0 4px 60px rgba(0,0,0,0.5); 
-                    background: #282828; flex-shrink: 0; 
-                    position: relative;
-                }
-                .hero-art-img { width: 100%; height: 100%; object-fit: cover; }
-                
-                .hero-text { flex: 1; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
-                .hero-type { font-size: 12px; text-transform: uppercase; font-weight: 700; margin-bottom: 4px; }
-                .hero-title { font-size: 3rem; font-weight: 900; margin: 0 0 8px 0; line-height: 1; }
-                .hero-subtitle { font-size: 14px; color: rgba(255,255,255,0.7); }
+                /* Hero layout/buttons come from spotify-context-view.styles.js;
+                   only the playlist-specific differences live here. */
+                .hero-art { width: 220px; height: 220px; background: #282828; }
+                .hero-text { text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
                 /* Native mobile-only text rows (shown in the mobile media query). */
                 .hero-desc, .hero-owner, .hero-meta { display: none; }
-                .hero-actions { display: flex; align-items: center; gap: 16px; margin-top: 16px; }
                 /* Album: shuffle + play grouped and pushed to the right edge as a
                    single unit (mirrors the single right-aligned play button used
                    elsewhere, which lays out reliably). */
                 .ha-right { display: flex; align-items: center; gap: 16px; margin-left: auto; }
-
-                .hero-btn-play {
-                    width: 56px; height: 56px; border-radius: 50%; background: var(--spf-brand); color: black; border: none;
-                    display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s;
-                }
-                .hero-btn-play:hover { transform: scale(1.05); background: var(--spf-brand-hover); }
-                .hero-btn-play svg { width: 28px; height: 28px; fill: currentColor; }
 
                 /* ================= LIKED SONGS NATIVE STYLING ================= */
                 .liked-gradient {
