@@ -1,11 +1,19 @@
 import { LitElement, html, css } from "../../../lit.js";
 import { sharedStyles } from '../../../styles/shared-styles.js';
 import { queueStyles } from '../../../styles/spotify-queue.styles.js';
+import { msToTime } from '../../../utils.js';
+import { renderQueueRow } from '../queue-row.js';
 
-export class SpotifySidebarQueue extends LitElement {
+/**
+ * Sidebar track list. Renders either the upcoming queue (`mode="queue"`) or
+ * the recently played history (`mode="recent"`) — recent items carry a
+ * `played_at` timestamp shown under the artist line. Tapping a row plays it.
+ */
+export class SpotifySidebarTrackList extends LitElement {
     static get properties() {
         return {
             items: { type: Array },
+            mode: { type: String },
             playerController: { type: Object }
         };
     }
@@ -24,6 +32,11 @@ export class SpotifySidebarQueue extends LitElement {
         `];
     }
 
+    constructor() {
+        super();
+        this.mode = 'queue';
+    }
+
     render() {
         if (!this.items || this.items.length === 0) {
             return this.renderEmpty();
@@ -31,26 +44,28 @@ export class SpotifySidebarQueue extends LitElement {
 
         return html`
             <div class="queue-list">
-                ${this.items.map(track => this.renderRow(track))}
+                ${this.items.map(item => this.renderRow(item))}
             </div>
         `;
     }
 
-    renderRow(track) {
-        return html`
-            <div class="queue-item" @click=${() => this._playTrack(track)}>
-                <div class="queue-art" 
-                    style="${track?.album?.images?.[0]?.url ? `background-image: url('${track.album.images[0].url}')` : 'background-color: #333'}"
-                ></div>
-                <div class="queue-info">
-                    <div class="queue-title">${track?.name || 'Unknown Track'}</div>
-                    <div class="queue-artist">${track?.artists?.map(a => a.name).join(', ') || 'Unknown Artist'}</div>
-                </div>
-            </div>
-        `;
+    renderRow(item) {
+        const track = item.track || item;
+        return renderQueueRow(track, {
+            onClick: () => this._playTrack(track),
+            playedAt: item.played_at ? `${msToTime(new Date(item.played_at).getTime())} ago` : ''
+        });
     }
 
     renderEmpty() {
+        if (this.mode === 'recent') {
+            return html`
+                <div class="queue-empty-state">
+                    <div class="empty-text">No recent tracks found</div>
+                    <button class="device-refresh-btn" style="margin-top:16px;" @click=${() => this.playerController?.refreshRecent()}>Refresh</button>
+                </div>
+            `;
+        }
         return html`
             <div class="queue-empty-state">
                 <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#333" stroke-width="1"><path d="M9 17H5v-2h4v2zm9-2h-4v2h4v-2zm-9-4H5v-2h4v2zm9-2h-4v2h4v-2zm-9-4H5V3h4v2zm9-2h-4v2h4V3zM3 21h18v-2H3v2z"/></svg>
@@ -68,4 +83,4 @@ export class SpotifySidebarQueue extends LitElement {
     }
 }
 
-customElements.define('spotify-sidebar-queue', SpotifySidebarQueue);
+customElements.define('spotify-sidebar-tracklist', SpotifySidebarTrackList);

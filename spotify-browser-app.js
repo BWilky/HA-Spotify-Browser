@@ -1,7 +1,7 @@
 import { LitElement, html } from "./lit.js";
 
 import { SpotifyApi } from './api.js';
-import { parseDeviceItems, normalizeDevice, fireHaptic } from './utils.js';
+import { parseDeviceItems, normalizeDevice, fireHaptic, extrapolatedPosition, setDebug, debugLog } from './utils.js';
 import { sharedStyles } from './styles/shared-styles.js';
 import { Router } from './router.js';
 import './components/spotify-header.js';
@@ -29,7 +29,7 @@ class SpotifyBrowserApp extends LitElement {
         return {
             hass: { type: Object },
             config: { type: Object },
-            api: { type: Object }, // Add api to properties
+            api: { type: Object },
             _isOpen: { type: Boolean },
             _entered: { type: Boolean, state: true }, // drives the `open` class for enter transitions
             _currentPageId: { type: String },
@@ -363,6 +363,7 @@ class SpotifyBrowserApp extends LitElement {
         }
 
         if (changedProperties.has('config') && this.config) {
+            setDebug(this.config.debug === true);
             if (this.router) this.router.updateDependencies({ config: this.config });
 
             // Queue Init Logic
@@ -445,8 +446,6 @@ class SpotifyBrowserApp extends LitElement {
             if (this._searchVisible && this._currentPageId !== 'search') {
                 this._searchCloseTimer = setTimeout(() => {
                     this._searchVisible = false;
-                    // Force update if needed, though property change usually triggers it
-                    // this.requestUpdate(); 
                 }, 30000); // 30 seconds
             }
         }
@@ -570,7 +569,7 @@ class SpotifyBrowserApp extends LitElement {
                 </spotify-header>
                 `}
 
-                <div class="page-container ${this._currentPageId && (this._currentPageId === 'likedsongs' || this._currentPageId.startsWith('artist:') || this._currentPageId.startsWith('album:') || this._currentPageId.startsWith('playlist:')) ? 'has-hero' : ''}">
+                <div class="page-container ${this.router?.isHeroPage(this._currentPageId) ? 'has-hero' : ''}">
                 </div>
 
                 <spotify-sidebar-player
@@ -933,11 +932,10 @@ class SpotifyBrowserApp extends LitElement {
     async _handleDeviceResolution() {
         // 1. Check Device Manager for Default
         if (this.deviceManager) {
-            // await this.deviceManager.validateAndClean(); // Deprecated/Removed
             const devices = await this.deviceManager.getDevices();
             const defaultDev = devices.find(d => d.is_default);
             if (defaultDev) {
-                console.log("[SpotifyBrowser] Using Default Device from Manager:", defaultDev.name);
+                debugLog("Using Default Device from Manager:", defaultDev.name);
                 return defaultDev;
             }
         }
@@ -1264,14 +1262,8 @@ class SpotifyBrowserApp extends LitElement {
         let duration = 1;
 
         if (stateObj.attributes.media_duration) {
-            position = stateObj.attributes.media_position || 0;
+            position = extrapolatedPosition(stateObj);
             duration = stateObj.attributes.media_duration;
-
-            if (stateObj.state === 'playing') {
-                const lastUpdated = new Date(stateObj.last_updated).getTime();
-                const now = new Date().getTime();
-                position += (now - lastUpdated) / 1000;
-            }
         } else if (this._playerState?.track?.duration_ms) {
             duration = this._playerState.track.duration_ms / 1000;
             position = (this._playerState.track.progress_ms || 0) / 1000;

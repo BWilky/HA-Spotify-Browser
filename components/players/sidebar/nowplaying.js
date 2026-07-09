@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "../../../lit.js";
-import { parseDeviceItems, normalizeDevice, parseSpotifyUri } from "../../../utils.js";
+import { parseDeviceItems, normalizeDevice, parseSpotifyUri, extrapolatedPosition } from "../../../utils.js";
 import "../../common/spotify-slider.js";
 import "../../devices/index.js";
 
@@ -315,14 +315,8 @@ export class SpotifySidebarNowPlaying extends LitElement {
         let duration = 1;
 
         if (stateObj.attributes.media_duration) {
-            position = stateObj.attributes.media_position || 0;
+            position = extrapolatedPosition(stateObj);
             duration = stateObj.attributes.media_duration;
-
-            if (stateObj.state === 'playing') {
-                const lastUpdated = new Date(stateObj.last_updated).getTime();
-                const now = new Date().getTime();
-                position += (now - lastUpdated) / 1000;
-            }
         } else if (this.track?.duration_ms) {
             duration = this.track.duration_ms / 1000;
             position = (this.track.progress_ms || 0) / 1000;

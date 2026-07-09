@@ -4,7 +4,6 @@ import { queueStyles } from '../../../styles/spotify-queue.styles.js';
 
 import './nowplaying.js';
 import './queue.js';
-import './recentlyplayed.js';
 
 export class SpotifySidebarPlayer extends LitElement {
     static get properties() {
@@ -205,8 +204,8 @@ export class SpotifySidebarPlayer extends LitElement {
                 
                 <div class="queue-list-container ${this._isVolumeOverlayOpen ? 'blurred' : ''}" @click=${this._handleBlurClick}>
                     ${this._activeTab === 'queue'
-                ? html`<spotify-sidebar-queue .items=${queue} .playerController=${this.playerController}></spotify-sidebar-queue>`
-                : html`<spotify-sidebar-recent .items=${recent} .playerController=${this.playerController}></spotify-sidebar-recent>`
+                ? html`<spotify-sidebar-tracklist mode="queue" .items=${queue} .playerController=${this.playerController}></spotify-sidebar-tracklist>`
+                : html`<spotify-sidebar-tracklist mode="recent" .items=${recent} .playerController=${this.playerController}></spotify-sidebar-tracklist>`
             }
                 </div>
 

@@ -4,12 +4,9 @@ import { homeStyles } from '../styles/spotify-home.styles.js';
 import { renderCardTemplate, renderCardSkeletonTemplate } from './media-templates.js';
 import { loadMadeForYouItems, dedupeRecentAlbums } from './controllers/home-content.js';
 import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj } from '../utils.js';
+import { playingBarsIcon } from './common/icons.js';
 
 // --- Shared snippets (lit templates) ---
-
-function eqBars() {
-    return html`<svg width="18" height="18" viewBox="0 0 24 24" fill="var(--spf-brand)"><rect x="4" y="10" width="3" height="10"><animate attributeName="height" values="5;10;3;10;5" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="14;9;16;9;14" dur="1s" repeatCount="indefinite" /></rect><rect x="10" y="5" width="3" height="15"><animate attributeName="height" values="10;15;5;15;10" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="9;4;14;4;9" dur="1s" repeatCount="indefinite" /></rect><rect x="16" y="8" width="3" height="12"><animate attributeName="height" values="8;12;4;12;8" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="11;7;15;7;11" dur="1s" repeatCount="indefinite" /></rect></svg>`;
-}
 
 function recentPillSkeleton() {
     return html`
@@ -274,10 +271,10 @@ class SpotifyHome extends LitElement {
         return html`
         <div class="recent-pill interactive" @click=${() => this._onItemClick(item, item.type)}>
             <div class="recent-pill-img" style="background-image: url('${img}');">
-                 ${isPlaying ? html`<div class="play-btn-overlay mini" style="opacity: 1; background: rgba(0,0,0,0.7);">${eqBars()}</div>` : ''}
+                 ${isPlaying ? html`<div class="play-btn-overlay mini" style="opacity: 1; background: rgba(0,0,0,0.7);">${playingBarsIcon(18)}</div>` : ''}
             </div>
             <div class="recent-pill-text" style="${isPlaying ? 'color: var(--spf-brand); font-weight: bold;' : ''}">${title}</div>
-            ${contextPlaying ? html`<div class="pill-eq" aria-label="Now playing">${eqBars()}</div>` : ''}
+            ${contextPlaying ? html`<div class="pill-eq" aria-label="Now playing">${playingBarsIcon(18)}</div>` : ''}
         </div>
         `;
     }

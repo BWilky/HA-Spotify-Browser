@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic } from "../../utils.js";
+import { renderQueueRow } from './queue-row.js';
 import '../bottom-sheet.js';
 
 /**
@@ -128,22 +129,17 @@ export class SpotifyQueuePanel extends LitElement {
     }
 
     _row(track, { now = false } = {}) {
-        const art = track?.album?.images?.[0]?.url || '';
-        const artist = track?.artists?.map(a => a.name).join(', ') || 'Unknown Artist';
-        return html`
-            <div class="row ${now ? 'now' : ''}" @click=${() => now ? null : this._playTrack(track)}>
-                <div class="art" style="${art ? `background-image: url('${art}')` : ''}"></div>
-                <div class="meta">
-                    <div class="name">${now ? this._eqIcon() : ''}${track?.name || 'Unknown Track'}</div>
-                    <div class="sub">${artist}</div>
-                </div>
-                ${now ? html`
-                    <button class="np-toggle" @click=${this._togglePlay} aria-label="${this.state?.isPlaying ? 'Pause' : 'Play'}">
-                        <svg viewBox="0 0 24 24"><path d="${this.state?.isPlaying ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z'}"/></svg>
-                    </button>
-                ` : ''}
-            </div>
-        `;
+        return renderQueueRow(track, {
+            variant: 'panel',
+            active: now,
+            onClick: () => now ? null : this._playTrack(track),
+            titleIcon: now ? this._eqIcon() : null,
+            trailing: now ? html`
+                <button class="np-toggle" @click=${this._togglePlay} aria-label="${this.state?.isPlaying ? 'Pause' : 'Play'}">
+                    <svg viewBox="0 0 24 24"><path d="${this.state?.isPlaying ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z'}"/></svg>
+                </button>
+            ` : null,
+        });
     }
 
     _renderQueueTab() {

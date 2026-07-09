@@ -104,6 +104,20 @@ export class SonosBridge {
             || null;
     }
 
+    /**
+     * Resolve the active playback target from the SpotifyPlus entity attributes:
+     * whether the active Spotify Connect device is a Sonos speaker, and which HA
+     * Sonos media_player entity drives it. Returns { isSonos, entity }. Note
+     * isSonos can be true with a null entity (Sonos detected but no HA entity
+     * matched) — callers fall back to the SpotifyPlus entity in that case.
+     */
+    activeTarget(attributes = {}) {
+        if (!this.enabled || !this.isSonosTarget(null, attributes)) {
+            return { isSonos: false, entity: null };
+        }
+        return { isSonos: true, entity: this.resolveSonosEntity(null, attributes) };
+    }
+
     /* --- Spotify id helpers --- */
 
     /** Normalize one `sonos.get_queue` item into the card's track shape. */

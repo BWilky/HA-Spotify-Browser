@@ -1,3 +1,5 @@
+import { debugLog } from './utils.js';
+
 export class SpotifyApi {
     // Only these (user-initiated playback) services should surface a validation
     // error to the app's error callback, which opens the device picker. Reads
@@ -137,13 +139,13 @@ export class SpotifyApi {
      * (local, instant) instead of relaying through SpotifyPlus (cloud).
      */
     _controlEntity() {
-        if (this.sonosBridge?.enabled) {
+        if (this.sonosBridge) {
             const attrs = this._activeAttributes();
-            if (this.sonosBridge.isSonosTarget(null, attrs)) {
-                const entity = this.sonosBridge.resolveSonosEntity(null, attrs);
-                if (entity) {
-                    this.sonosBridge.log(`control → ${entity} (LOCAL, bypassing SpotifyPlus cloud)`);
-                    return entity;
+            const target = this.sonosBridge.activeTarget(attrs);
+            if (target.isSonos) {
+                if (target.entity) {
+                    this.sonosBridge.log(`control → ${target.entity} (LOCAL, bypassing SpotifyPlus cloud)`);
+                    return target.entity;
                 }
                 this.sonosBridge.log(`Sonos detected but no HA entity resolved for "${attrs.source || attrs.sp_device_name}" → falling back to SpotifyPlus. Add a device_map entry.`);
             }
@@ -289,7 +291,7 @@ export class SpotifyApi {
                             deviceToUse = typeof resolvedDevice === 'object' ? resolvedDevice.id : resolvedDevice;
                         } else {
                             // User cancelled or no device available
-                            console.log("[SpotifyBrowser] Playback cancelled: No device selected.");
+                            debugLog("Playback cancelled: No device selected.");
                             return { success: false, error: "No Device Selected" };
                         }
                     } catch (e) {
@@ -304,7 +306,7 @@ export class SpotifyApi {
                 // We might want to make this optional or tied to the device in future
                 const vol = this._resolveDefaultVolume();
                 if (vol !== null) {
-                    console.log("[SpotifyBrowser] Applying Default Volume:", vol);
+                    debugLog("Applying Default Volume:", vol);
                     this.setVolume(vol / 100);
                 }
             } else {
@@ -426,10 +428,9 @@ export class SpotifyApi {
      */
     async addToQueue(uri) {
         if (!this.hass || !uri) return { success: false };
-        const attrs = this._activeAttributes();
-        if (this.sonosBridge?.enabled && this.sonosBridge.isSonosTarget(null, attrs)) {
-            const entity = this.sonosBridge.resolveSonosEntity(null, attrs);
-            if (entity) return await this.sonosBridge.addToQueue(entity, uri);
+        const target = this.sonosBridge?.activeTarget(this._activeAttributes());
+        if (target?.isSonos && target.entity) {
+            return await this.sonosBridge.addToQueue(target.entity, uri);
         }
         const res = await this.fetchSpotifyPlus('add_player_queue_items', { uris: uri }, false);
         return { success: !!res };

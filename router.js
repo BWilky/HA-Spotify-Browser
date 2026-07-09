@@ -84,7 +84,7 @@ export class Router extends EventTarget {
                 pageId,
                 data,
                 direction,
-                isHeroPage: this._isHeroPage(pageId)
+                isHeroPage: this.isHeroPage(pageId)
             }
         }));
     }
@@ -255,7 +255,8 @@ export class Router extends EventTarget {
         }
     }
 
-    _isHeroPage(pageId) {
+    /** Whether the page renders a hero header (transparent app header, hero layout). */
+    isHeroPage(pageId) {
         if (!pageId) return false;
         return pageId === 'likedsongs' ||
             pageId.startsWith('artist:') ||
