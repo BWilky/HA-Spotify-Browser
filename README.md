@@ -128,12 +128,24 @@ Sonos speakers are "restricted" Spotify Connect devices — their playback and q
 * Transport controls (play/pause, next/previous, seek, volume, shuffle, repeat) are sent directly to the Sonos entity.
 * Queue is read/added/played via the Sonos integration; in-context track jumps use `offset_position` (Sonos rejects `offset_uri`).
 
-SpotifyPlus is still used for browsing and for starting playback. Non-Sonos devices are unaffected.
+* Playlist/album launches go straight onto the Sonos queue (`media_player.play_media` + `sonos.play_queue`), so "start at track N" works natively. Liked Songs load via SpotifyPlus track favorites (up to 200 tracks, loaded progressively) and jump to the tapped track once it arrives.
+* Grouped speakers are controlled through the group coordinator automatically.
+
+SpotifyPlus is still used for browsing, metadata, and as the automatic fallback for launches. Non-Sonos devices are unaffected.
 * `enabled` (boolean): Turn on Sonos handling (default: `false`).
+* `launch_mode` (string): `local` (default) — the card drives the HA Sonos entity directly for playback launches, falling back to SpotifyPlus on failure; `spotifyplus` — all launches route through the SpotifyPlus integration (best when its Spotify Web Player token authentication is configured).
 * `device_map` (list): Optional. Speakers are auto-detected by matching the Spotify device name to a Sonos `media_player` friendly name; add entries only to override a wrong match or force Sonos handling:
   * `spotify` (string): Spotify Connect device name (or id).
   * `entity` (string): The Home Assistant Sonos `media_player` entity.
   * `is_sonos` (boolean): Force this device to be treated as Sonos.
+* `debug` (boolean): Log `[Sonos]` routing decisions to the console (default: `false`).
+
+**Requirements & notes for best results:**
+* SpotifyPlus **v1.0.95 or newer** recommended (group-coordinator handling and the Spotify Web Player token play path).
+* Configuring SpotifyPlus's [Spotify Web Player token authentication](https://github.com/thlucas1/homeassistantcomponent_spotifyplus/wiki) is strongly recommended — it lets the fallback path drive Sonos under real Spotify Connect control instead of the slower share-link queue load.
+* The Spotify account must be linked in the Sonos app for local launches; the card's multi-account switching does not change which account Sonos plays from.
+* Avoid controlling the same speaker from the Sonos app while the card is driving it — the SpotifyPlus maintainer documents erratic behavior under dual control.
+* If a Sonos speaker is detected but can't be matched to an HA entity, the card shows a one-time hint and falls back to SpotifyPlus — add a `device_map` entry to fix the mapping.
 
 #### homescreen
 * `cache` (boolean): Cache homescreen data for faster loads (default: `true`).

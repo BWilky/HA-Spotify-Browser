@@ -67,12 +67,21 @@ queue:
 # Sonos speakers are "restricted" Spotify Connect devices: their playback and
 # queue live on the device, not the Spotify Web API. When enabled and playback is
 # on a Sonos speaker, the card drives the player locally via the Home Assistant
-# Sonos integration: now-playing state, transport controls, volume and queue all
-# use the Sonos media_player entity, and in-context jumps use offset_position
-# (Sonos rejects offset_uri). SpotifyPlus is still used for browsing/launching.
-# Has no effect on non-Sonos devices.
+# Sonos integration: now-playing state, transport controls, volume, queue AND
+# playback launches (playlists/albums/tracks) route through the HA Sonos
+# media_player entity. Grouped speakers are automatically controlled via the
+# group coordinator. Has no effect on non-Sonos devices.
+# Recommended: SpotifyPlus >= 1.0.95 and its Spotify Web Player token auth.
 sonos:
   enabled: true
+
+  # Launch strategy for playlists/albums/tracks on Sonos (default 'local'):
+  #   local       - card drives the HA Sonos entity directly (play_media +
+  #                 sonos.play_queue for start-at-track-N); falls back to
+  #                 SpotifyPlus automatically if the local launch fails.
+  #   spotifyplus - all launches go through the SpotifyPlus integration
+  #                 (best with Web Player token auth configured).
+  launch_mode: local
 
   # Optional. Sonos speakers are auto-detected by matching the Spotify device
   # name to a Sonos media_player's friendly name. Add entries only to override

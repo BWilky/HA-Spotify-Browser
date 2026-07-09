@@ -147,10 +147,53 @@ export class SpotifyApi {
                     this.sonosBridge.log(`control → ${target.entity} (LOCAL, bypassing SpotifyPlus cloud)`);
                     return target.entity;
                 }
-                this.sonosBridge.log(`Sonos detected but no HA entity resolved for "${attrs.source || attrs.sp_device_name}" → falling back to SpotifyPlus. Add a device_map entry.`);
+                this.sonosBridge.reportUnmapped(attrs.source || attrs.sp_device_name);
             }
         }
         return this.entityId;
+    }
+
+    /** Whether Sonos launches should try the local (HA Sonos entity) path first. */
+    _sonosLaunchLocal() {
+        return !!this.sonosBridge && this.sonosBridge.launchMode !== 'spotifyplus';
+    }
+
+    /**
+     * Local Sonos launch for a context play. Regular playlist/album contexts go
+     * straight onto the Sonos queue; the Liked Songs collection URI (which has no
+     * playable local form) loads via SpotifyPlus track favorites — unshuffled so
+     * queue order matches the list — then jumps to the tapped position once the
+     * progressive load reaches it. Returns true when playback started.
+     */
+    async _playSonosLocal(sonosEntity, uri, offsetPosition, offsetUri) {
+        if (!sonosEntity) return false;
+        const isCollection = typeof uri === 'string' && uri.endsWith(':collection');
+        if (isCollection) {
+            // No usable position (genre-filtered list): play the tapped track
+            // itself rather than silently starting the collection at track 0.
+            if (offsetPosition == null && offsetUri) {
+                const ok = await this.sonosBridge.playTrack(sonosEntity, offsetUri);
+                if (ok) this.triggerScan();
+                return ok;
+            }
+            const res = await this.fetchSpotifyPlus('player_media_play_track_favorites',
+                { shuffle: false }, false);
+            if (!res) return false;
+            if (offsetPosition != null && offsetPosition > 0) {
+                // Favorites load at roughly 5 tracks/sec on the Sonos path; allow
+                // a longer window before giving up (playback continues from 0).
+                this.sonosBridge.jumpWhenLoaded(sonosEntity, offsetPosition, { tries: 40, intervalMs: 500 });
+            }
+            this.triggerScan();
+            return true;
+        }
+        // Playlist/album contexts launch straight onto the Sonos queue; artist and
+        // show contexts return false here and take the SpotifyPlus path instead.
+        const ok = await this.sonosBridge.playContext(sonosEntity, uri, {
+            offsetPosition: offsetPosition != null ? offsetPosition : 0
+        });
+        if (ok) this.triggerScan();
+        return ok;
     }
 
     async fetchSpotifyPlus(service, params = {}, expectResponse = true, logError = true, throwOnError = false) {
@@ -186,7 +229,24 @@ export class SpotifyApi {
             }
 
             try {
+                // HA Sonos quirk: shuffle_set can reset the repeat mode (core #13984).
+                // Capture repeat before toggling shuffle on a Sonos entity so we can
+                // re-assert it afterwards.
+                let repeatToRestore = null;
+                if (service === 'player_shuffle' && callParams.entity_id !== this.entityId) {
+                    const attrs = this.hass.states?.[callParams.entity_id]?.attributes;
+                    if (attrs?.repeat) repeatToRestore = attrs.repeat;
+                }
+
                 await this.hass.callService('media_player', haService, callParams);
+
+                if (repeatToRestore) {
+                    await this.hass.callService('media_player', 'repeat_set', {
+                        entity_id: callParams.entity_id,
+                        repeat: repeatToRestore
+                    });
+                }
+
                 this.triggerScan(); // Trigger scan after standard transport
                 return { success: true };
             } catch (e) {
@@ -334,6 +394,16 @@ export class SpotifyApi {
 
             try {
                 if (['playlist', 'album', 'artist', 'show'].includes(type)) {
+                    // LOCAL-FIRST for Sonos (sonos.launch_mode: local, the default):
+                    // drive the HA Sonos entity directly. Falls through to the
+                    // SpotifyPlus (cloud / elevated-token) path on any failure.
+                    if (isSonosTarget && this._sonosLaunchLocal()) {
+                        const sonosEntity = this.sonosBridge.resolveSonosEntity(
+                            resolvedDeviceObj, isActive ? (stateObj?.attributes || {}) : {});
+                        const played = await this._playSonosLocal(sonosEntity, uri, offset_position, offset_uri);
+                        if (played) return { success: true };
+                    }
+
                     params.context_uri = uri;
                     // Sonos -> offset_position (when we have an index); otherwise offset_uri.
                     if (isSonosTarget && offset_position != null) {
@@ -376,6 +446,15 @@ export class SpotifyApi {
                         if (!res) return { success: false, error: "Call Failed" };
                     } else {
                         const contentId = Array.isArray(uri) ? uri[0] : uri;
+                        // Active-device single-track play: drive the Sonos entity
+                        // locally when the active device is Sonos, else SpotifyPlus.
+                        if (isSonosTarget && this._sonosLaunchLocal()) {
+                            const sonosEntity = this.sonosBridge.resolveSonosEntity(null, stateObj?.attributes || {});
+                            if (sonosEntity && await this.sonosBridge.playTrack(sonosEntity, contentId)) {
+                                this.triggerScan();
+                                return { success: true };
+                            }
+                        }
                         await this.hass.callService('media_player', 'play_media', {
                             entity_id: this.entityId,
                             media_content_id: contentId,
@@ -431,6 +510,11 @@ export class SpotifyApi {
         const target = this.sonosBridge?.activeTarget(this._activeAttributes());
         if (target?.isSonos && target.entity) {
             return await this.sonosBridge.addToQueue(target.entity, uri);
+        }
+        if (target?.isSonos && !target.entity) {
+            // Cloud queue-adds are ignored by an unmapped Sonos local queue —
+            // tell the user how to fix it instead of failing silently.
+            this.sonosBridge.reportUnmapped(this._activeAttributes().source);
         }
         const res = await this.fetchSpotifyPlus('add_player_queue_items', { uris: uri }, false);
         return { success: !!res };

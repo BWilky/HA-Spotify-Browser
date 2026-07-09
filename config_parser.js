@@ -201,10 +201,19 @@ export class ConfigParser {
         // Opt-in support for Sonos speakers. When enabled, context jumps use
         // offset_position (Sonos rejects offset_uri) and queue read/add/play-from
         // route through the Home Assistant Sonos integration instead of SpotifyPlus.
-        let sonosConfig = { enabled: false, debug: false, deviceMap: [] };
+        let sonosConfig = { enabled: false, debug: false, launch_mode: 'local', deviceMap: [] };
         if (config.sonos && typeof config.sonos === 'object') {
             sonosConfig.enabled = config.sonos.enabled === true;
             sonosConfig.debug = config.sonos.debug === true;
+            // Launch strategy: 'local' (default — card drives the HA Sonos entity
+            // directly, falling back to SpotifyPlus) or 'spotifyplus' (all launches
+            // go through the integration, e.g. with Web Player token auth).
+            const rawMode = String(config.sonos.launch_mode || 'local').toLowerCase();
+            if (rawMode === 'spotifyplus' || rawMode === 'local') {
+                sonosConfig.launch_mode = rawMode;
+            } else {
+                console.warn(`[SpotifyBrowser] Unknown sonos.launch_mode "${config.sonos.launch_mode}" — using "local".`);
+            }
             const rawMap = Array.isArray(config.sonos.device_map) ? config.sonos.device_map : [];
             sonosConfig.deviceMap = rawMap
                 .filter(m => m && typeof m === 'object')
