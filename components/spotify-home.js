@@ -1,108 +1,18 @@
-import { LitElement, html, unsafeHTML } from "../lit.js";
+import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { homeStyles } from '../styles/spotify-home.styles.js';
-import { renderCardHtml } from './media-templates.js';
+import { renderCardTemplate, renderCardSkeletonTemplate } from './media-templates.js';
 import { loadMadeForYouItems, dedupeRecentAlbums } from './controllers/home-content.js';
 import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj } from '../utils.js';
 
-// --- HTML-string section templates (home uses unsafeHTML + event delegation) ---
-function renderCarouselSection(title, sectionId, items = null, seeMoreParams = null) {
-    let headerAction = '';
-    // If items exist, show See All logic
-    if (items && items.length > 0) {
-        // New "See All" button -> Navigates to full table view
-        headerAction = `<button class="see-all-btn" data-action="navigate-section" data-section="${sectionId}">See All</button>`;
-    } else {
-        headerAction = `<button class="see-all-btn" style="display:none">See All</button>`;
-    }
+// --- Shared snippets (lit templates) ---
 
-    // Expand Icon (Chevron) - Toggles Grid/Carousel in place
-    const expandIcon = `
-        <button class="icon-btn expand-btn" data-action="toggle-view" aria-label="Toggle View" style="background:none; border:none; color:var(--secondary-text-color, #b3b3b3); cursor:pointer; margin-left: 8px; padding: 4px; display: flex; align-items: center;">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="6 9 12 15 18 9"></polyline>
-            </svg>
-        </button>
-    `;
-
-    let contentHtml = '';
-    if (items === null) { // Loading
-        contentHtml = Array(6).fill(0).map(() => cardSkeleton(sectionId.includes('artists'))).join('');
-    } else if (items.length === 0) { // Empty
-        contentHtml = `<div style="padding:20px; opacity:0.5; white-space:nowrap;">No content found.</div>`;
-    } else {
-        contentHtml = items.map(item => renderCardHtml(item, item.type || item._fallbackType)).join('');
-    }
-
-    return `
-    <section class="home-section" data-section-id="${sectionId}">
-        <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
-            <div style="display: flex; align-items: center;">
-                <h3 class="section-title" style="margin:0;">${title}</h3>
-                ${expandIcon}
-            </div>
-            ${headerAction}
-        </div>
-        <div class="carousel-wrapper">
-            <div class="carousel-layout" id="carousel-${sectionId}" data-section="${sectionId}">
-                ${contentHtml}
-            </div>
-            <button class="scroll-btn right" data-action="scroll-right" style="${items && items.length > 5 ? '' : 'display:none'}">
-                <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
-            </button>
-        </div>
-    </section>
-    `;
-}
-
-function cardSkeleton(isCircle = false) {
-    return `
-      <div class="media-card skeleton-pulse ${isCircle ? 'artist-card' : ''}">
-        <div class="media-image-wrapper">
-            <div class="card-image-sk" style="${isCircle ? 'border-radius:50%' : ''}"></div>
-        </div>
-        <div class="card-text-sk"></div>
-        <div class="card-text-sk short"></div>
-      </div>
-    `;
-}
-
-function renderPillSection(title, sectionId, items = null, playingId = null, canEdit = false) {
-    let contentHtml = '';
-    if (items === null) {
-        contentHtml = Array(8).fill(0).map(() => recentPillSkeleton()).join('');
-    } else if (items.length === 0) {
-        contentHtml = `<div style="padding:20px; opacity:0.5; white-space:nowrap;">No content found.</div>`;
-    } else {
-        contentHtml = items.map(item => recentPill(item, playingId)).join('');
-    }
-
-    let headerAction = '';
-    if (sectionId === 'pinned' && canEdit) {
-        // Add Reorder Button for Pinned Section (only when the user can edit)
-        headerAction = `
-            <button class="icon-btn reorder-btn" data-action="reorder-pinned" aria-label="Reorder Items" style="background:none; border:none; color:var(--secondary-text-color, #b3b3b3); cursor:pointer; margin-left: 8px; padding: 4px; display: flex; align-items: center;">
-                 <span style="font-size: 0.8rem; margin-right: 4px; font-weight: bold;">Edit</span>
-                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
-            </button>
-        `;
-    }
-
-    return `
-    <section class="home-section" data-section-id="${sectionId}">
-        <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
-             <h3 class="section-title" style="margin:0;">${title}</h3>
-             ${headerAction}
-        </div>
-        <div class="recent-grid-layout" id="grid-${sectionId}" data-section="${sectionId}">
-            ${contentHtml}
-        </div>
-    </section>
-    `;
+function eqBars() {
+    return html`<svg width="18" height="18" viewBox="0 0 24 24" fill="var(--spf-brand)"><rect x="4" y="10" width="3" height="10"><animate attributeName="height" values="5;10;3;10;5" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="14;9;16;9;14" dur="1s" repeatCount="indefinite" /></rect><rect x="10" y="5" width="3" height="15"><animate attributeName="height" values="10;15;5;15;10" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="9;4;14;4;9" dur="1s" repeatCount="indefinite" /></rect><rect x="16" y="8" width="3" height="12"><animate attributeName="height" values="8;12;4;12;8" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="11;7;15;7;11" dur="1s" repeatCount="indefinite" /></rect></svg>`;
 }
 
 function recentPillSkeleton() {
-    return `
+    return html`
       <div class="recent-pill skeleton-pulse">
         <div class="recent-pill-img"></div>
         <div class="recent-pill-text" style="width: 60%; height: 12px; background: #333; border-radius: 4px;"></div>
@@ -110,37 +20,13 @@ function recentPillSkeleton() {
     `;
 }
 
-function recentPill(item, playingId = null, contextPlaying = false) {
-    const id = item.id;
-    const uri = item.uri;
-    const title = item.name || item.title || 'Unknown';
-    const img = getItemImage(item);
-
-    // Track-level playing (overlay on the art). Note: pinned items might be
-    // playlists/albums, but we only match Track ID reliably from HASS.
-    let isPlaying = false;
-    if (playingId) {
-        if (item.type === 'track' && (id === playingId || uri === `spotify:track:${playingId}`)) {
-            isPlaying = true;
-        }
-    }
-
-    const eqBars = `<svg width="18" height="18" viewBox="0 0 24 24" fill="var(--spf-brand)"><rect x="4" y="10" width="3" height="10"><animate attributeName="height" values="5;10;3;10;5" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="14;9;16;9;14" dur="1s" repeatCount="indefinite" /></rect><rect x="10" y="5" width="3" height="15"><animate attributeName="height" values="10;15;5;15;10" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="9;4;14;4;9" dur="1s" repeatCount="indefinite" /></rect><rect x="16" y="8" width="3" height="12"><animate attributeName="height" values="8;12;4;12;8" dur="1s" repeatCount="indefinite" /><animate attributeName="y" values="11;7;15;7;11" dur="1s" repeatCount="indefinite" /></rect></svg>`;
-
-    return `
-    <div class="recent-pill interactive"
-         data-id="${id}"
-         data-type="${item.type}"
-         data-uri="${uri}"
-         data-title="${title.replace(/"/g, '&quot;')}"
-         data-subtitle="">
-        <div class="recent-pill-img" style="background-image: url('${img}');">
-             ${isPlaying ? `<div class="play-btn-overlay mini" style="opacity: 1; background: rgba(0,0,0,0.7);">${eqBars}</div>` : ''}
-        </div>
-        <div class="recent-pill-text" style="${isPlaying ? 'color: var(--spf-brand); font-weight: bold;' : ''}">${title}</div>
-        ${contextPlaying ? `<div class="pill-eq" aria-label="Now playing">${eqBars}</div>` : ''}
-    </div>
-    `;
+/** Subtitle shown on home cards (owner, then artists, then 'Artist'). */
+function cardSubtitle(item, type) {
+    let subtitle = item.subtitle;
+    if (!subtitle && item.owner) subtitle = item.owner.display_name;
+    if (!subtitle && item.artists && Array.isArray(item.artists)) subtitle = item.artists.map(a => a.name).join(', ');
+    if (!subtitle) subtitle = type === 'artist' ? 'Artist' : '';
+    return subtitle;
 }
 
 class SpotifyHome extends LitElement {
@@ -154,6 +40,7 @@ class SpotifyHome extends LitElement {
             _fetching: { type: Object, state: true },
             _manualData: { type: Array, state: true },
             _sectionData: { type: Object, state: true },
+            _expandedSections: { type: Object, state: true },
         };
     }
 
@@ -167,12 +54,14 @@ class SpotifyHome extends LitElement {
         this._totals = { favorites: null, artists: null, albums: null, recent: null };
         this._fetching = { favorites: false, artists: false, albums: false, recent: false, madeforyou: false };
         this._sectionData = {}; // Stores { sectionKey: [items] }
+        this._expandedSections = new Set(); // Section ids toggled from carousel to grid
         this._hasLoaded = false;
+        this._hassSig = undefined;
     }
 
     firstUpdated(changedProperties) {
         super.firstUpdated(changedProperties);
-        if (this.hass && this.api) {
+        if (this.hass && this.api && !this._hasLoaded) {
             this.loadHomeData();
         }
     }
@@ -182,7 +71,16 @@ class SpotifyHome extends LitElement {
         this._clearLongPress();
     }
 
-    updated(changedProperties) {
+    /**
+     * Gate re-renders on HASS ticks: hass updates arrive ~1/s while playing,
+     * but home only shows playing-state info (pill overlays / eq indicators).
+     * Skipping unchanged ticks preserves carousel scroll positions and avoids
+     * re-rendering the whole home tree every second.
+     *
+     * The data-load triggers live here (not in updated()) because they must
+     * still run on ticks whose render is skipped.
+     */
+    shouldUpdate(changedProperties) {
         if (changedProperties.has('hass') || changedProperties.has('api') || changedProperties.has('pinned')) {
             if (this.hass && this.api && !this._hasLoaded) {
                 this.loadHomeData();
@@ -201,6 +99,30 @@ class SpotifyHome extends LitElement {
             }
         }
 
+        if (changedProperties.has('hass')) {
+            const sig = this._hassRenderSignature();
+            const hassChanged = sig !== this._hassSig;
+            this._hassSig = sig;
+            // hass-only tick with nothing home displays changed -> skip render
+            if (!hassChanged && changedProperties.size === 1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** Everything home reads from hass at render time, as a comparable string. */
+    _hassRenderSignature() {
+        const entityId = this.api?.entityId || this.config?.entity;
+        const stateObj = getPlayerStateObj(this.hass, entityId);
+        const attrs = stateObj?.attributes || {};
+        return [
+            stateObj?.state,
+            attrs.media_content_id,
+            attrs.media_context_content_id,
+            !!this.pinned && this.pinned.checkAvailability(),
+            !!this.pinned && this.pinned.canEdit(),
+        ].join('|');
     }
 
     /* --- Long-press on a pinned button opens the reorder editor --- */
@@ -240,7 +162,49 @@ class SpotifyHome extends LitElement {
         }
     }
 
-    _handleCardClick(e) {
+    /* --- Click handlers (per-element, attached in the lit templates) --- */
+
+    _onScrollRight(e) {
+        e.stopPropagation();
+        const wrapper = e.currentTarget.closest('.carousel-wrapper');
+        const layout = wrapper ? wrapper.querySelector('.carousel-layout') : null;
+        if (layout) {
+            const scrollAmount = layout.clientWidth * 0.75;
+            // Simple right scroll only for now as requested, but logic supports both if we add left btn
+            const direction = 1;
+            layout.scrollBy({ left: scrollAmount * direction, behavior: 'smooth' });
+        }
+    }
+
+    _onReorderClick(e) {
+        e.stopPropagation();
+        this.dispatchEvent(new CustomEvent('open-reorder', { bubbles: true, composed: true }));
+    }
+
+    _onNavigateSection(e, sectionId) {
+        e.stopPropagation();
+        // Dispatch navigation to a route format: 'section:{id}'.
+        // This informs the app to load the full table view for this section.
+        this.dispatchEvent(new CustomEvent('navigate', {
+            detail: { pageId: `section:${sectionId}` },
+            bubbles: true, composed: true
+        }));
+    }
+
+    /** Toggle a section between carousel and grid (survives re-renders). */
+    _toggleSectionView(e, sectionId) {
+        e.stopPropagation();
+        const next = new Set(this._expandedSections);
+        if (next.has(sectionId)) {
+            next.delete(sectionId);
+        } else {
+            next.add(sectionId);
+        }
+        this._expandedSections = next;
+    }
+
+    /** Click on a media card or pill (navigate to detail, or play tracks). */
+    _onItemClick(item, type, subtitle = '') {
         // A long-press just opened the editor — swallow the click it would
         // otherwise fire (which would navigate/play the pressed item).
         if (this._suppressClick) {
@@ -248,125 +212,145 @@ class SpotifyHome extends LitElement {
             return;
         }
 
-        // 1. Scroll Buttons
-        const scrollBtn = e.target.closest('.scroll-btn');
-        if (scrollBtn) {
-            e.stopPropagation();
-            const wrapper = scrollBtn.closest('.carousel-wrapper');
-            const layout = wrapper ? wrapper.querySelector('.carousel-layout') : null;
-            if (layout) {
-                const scrollAmount = layout.clientWidth * 0.75;
-                // Simple right scroll only for now as requested, but logic supports both if we add left btn
-                const direction = 1;
-                layout.scrollBy({ left: scrollAmount * direction, behavior: 'smooth' });
-            }
+        const id = item.id;
+        const title = item.name || item.title || 'Unknown';
+
+        // SPECIAL CASE: User Library Pinned Item
+        if (id === 'user-library') {
+            this.dispatchEvent(new CustomEvent('navigate', {
+                detail: { pageId: 'likedsongs' },
+                bubbles: true, composed: true
+            }));
             return;
         }
 
-        // 2. See All Buttons (Navigate OR Toggle)
-        const seeAllBtn = e.target.closest('.see-all-btn, .reorder-btn');
-        if (seeAllBtn) {
-            e.stopPropagation();
-            const action = seeAllBtn.dataset.action;
-
-            if (action === 'reorder-pinned') {
-                this.dispatchEvent(new CustomEvent('open-reorder', { bubbles: true, composed: true }));
-            }
-            else if (action === 'search-more') {
-                // Navigate to search-all page
-                const query = seeAllBtn.dataset.query;
-                const type = seeAllBtn.dataset.type;
-                this.dispatchEvent(new CustomEvent('navigate', {
-                    detail: { pageId: `search-all:${type}:${encodeURIComponent(query)}` },
-                    bubbles: true, composed: true
-                }));
-            }
-            // --- NEW: Library Link ---
-            else if (action === 'library-link') {
-                this.dispatchEvent(new CustomEvent('navigate', {
-                    detail: { pageId: 'collection:playlists' },
-                    bubbles: true, composed: true
-                }));
-            }
-            // --- NEW: Full Section Navigation ---
-            else if (action === 'navigate-section') {
-                const sectionId = seeAllBtn.dataset.section;
-                // Dispatch navigation to a new route format: 'section:{id}'
-                // This informs the app to load the full table view for this section.
-                this.dispatchEvent(new CustomEvent('navigate', {
-                    detail: { pageId: `section:${sectionId}` },
-                    bubbles: true, composed: true
-                }));
-            }
+        // Tracks have no detail page — play them directly (e.g. pinned tracks)
+        if (type === 'track') {
+            const uri = item.uri || `spotify:track:${id}`;
+            this.api.playMedia(uri, 'track');
             return;
         }
 
-        // 3. Toggle View / Expand Button (Icon)
-        const toggleBtn = e.target.closest('[data-action="toggle-view"]');
-        if (toggleBtn) {
-            e.stopPropagation();
-            const section = toggleBtn.closest('.home-section');
-            if (section) {
-                const container = section.querySelector('.carousel-layout, .section-grid');
-                const scrollBtn = section.querySelector('.scroll-btn');
-                const iconSvg = toggleBtn.querySelector('svg');
+        if (id && type) {
+            this.dispatchEvent(new CustomEvent('navigate', {
+                detail: {
+                    pageId: `${type}:${id}`,
+                    data: { title, type, subtitle }
+                },
+                bubbles: true,
+                composed: true
+            }));
+        } else {
+            console.warn('[Home] Card click missing id or type:', { id, type });
+        }
+    }
 
-                if (container) {
-                    const isGrid = container.classList.contains('section-grid');
-                    if (isGrid) {
-                        // Collapse back to Carousel
-                        container.classList.remove('section-grid');
-                        container.classList.add('carousel-layout');
-                        if (scrollBtn) scrollBtn.style.display = 'flex';
-                        // Rotate icon back
-                        if (iconSvg) iconSvg.style.transform = 'rotate(0deg)';
-                    } else {
-                        // Expand to Grid
-                        container.classList.remove('carousel-layout');
-                        container.classList.add('section-grid');
-                        if (scrollBtn) scrollBtn.style.display = 'none';
-                        // Rotate icon down
-                        if (iconSvg) iconSvg.style.transform = 'rotate(180deg)';
-                    }
-                }
+    /* --- Section templates --- */
+
+    _cardTemplate(item, type) {
+        const subtitle = cardSubtitle(item, type);
+        return renderCardTemplate(
+            { ...item, subtitle },
+            type,
+            () => this._onItemClick(item, type, subtitle)
+        );
+    }
+
+    _recentPillTemplate(item, playingId = null, contextPlaying = false) {
+        const id = item.id;
+        const uri = item.uri;
+        const title = item.name || item.title || 'Unknown';
+        const img = getItemImage(item);
+
+        // Track-level playing (overlay on the art). Note: pinned items might be
+        // playlists/albums, but we only match Track ID reliably from HASS.
+        let isPlaying = false;
+        if (playingId) {
+            if (item.type === 'track' && (id === playingId || uri === `spotify:track:${playingId}`)) {
+                isPlaying = true;
             }
-            return;
         }
 
-        // 4. Media Cards
-        const card = e.target.closest('.interactive');
-        if (card) {
-            const { id, type, title, subtitle } = card.dataset;
+        return html`
+        <div class="recent-pill interactive" @click=${() => this._onItemClick(item, item.type)}>
+            <div class="recent-pill-img" style="background-image: url('${img}');">
+                 ${isPlaying ? html`<div class="play-btn-overlay mini" style="opacity: 1; background: rgba(0,0,0,0.7);">${eqBars()}</div>` : ''}
+            </div>
+            <div class="recent-pill-text" style="${isPlaying ? 'color: var(--spf-brand); font-weight: bold;' : ''}">${title}</div>
+            ${contextPlaying ? html`<div class="pill-eq" aria-label="Now playing">${eqBars()}</div>` : ''}
+        </div>
+        `;
+    }
 
-            // SPECIAL CASE: User Library Pinned Item
-            if (id === 'user-library') {
-                this.dispatchEvent(new CustomEvent('navigate', {
-                    detail: { pageId: 'likedsongs' },
-                    bubbles: true, composed: true
-                }));
-                return;
-            }
+    _carouselSection(title, sectionId, items = null) {
+        const hasItems = !!items && items.length > 0;
+        const expanded = this._expandedSections.has(sectionId);
 
-            // Tracks have no detail page — play them directly (e.g. pinned tracks)
-            if (type === 'track') {
-                const uri = card.dataset.uri || `spotify:track:${id}`;
-                this.api.playMedia(uri, 'track');
-                return;
-            }
-
-            if (id && type) {
-                this.dispatchEvent(new CustomEvent('navigate', {
-                    detail: {
-                        pageId: `${type}:${id}`,
-                        data: { title, type, subtitle }
-                    },
-                    bubbles: true,
-                    composed: true
-                }));
-            } else {
-                console.warn('[Home] Card click missing id or type:', { id, type });
-            }
+        let content;
+        if (items === null) { // Loading
+            content = Array(6).fill(0).map(() => renderCardSkeletonTemplate(sectionId.includes('artists')));
+        } else if (items.length === 0) { // Empty
+            content = html`<div style="padding:20px; opacity:0.5; white-space:nowrap;">No content found.</div>`;
+        } else {
+            content = items.map(item => this._cardTemplate(item, item.type || item._fallbackType));
         }
+
+        return html`
+        <section class="home-section" data-section-id="${sectionId}">
+            <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center;">
+                    <h3 class="section-title" style="margin:0;">${title}</h3>
+                    <button class="icon-btn expand-btn" @click=${(e) => this._toggleSectionView(e, sectionId)} aria-label="Toggle View" style="background:none; border:none; color:var(--secondary-text-color, #b3b3b3); cursor:pointer; margin-left: 8px; padding: 4px; display: flex; align-items: center;">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(${expanded ? 180 : 0}deg);">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>
+                </div>
+                ${hasItems
+                ? html`<button class="see-all-btn" @click=${(e) => this._onNavigateSection(e, sectionId)}>See All</button>`
+                : html`<button class="see-all-btn" style="display:none">See All</button>`}
+            </div>
+            <div class="carousel-wrapper">
+                <div class="${expanded ? 'section-grid' : 'carousel-layout'}" id="carousel-${sectionId}" data-section="${sectionId}">
+                    ${content}
+                </div>
+                <button class="scroll-btn right" @click=${this._onScrollRight} style="${hasItems && items.length > 5 && !expanded ? '' : 'display:none'}">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+            </div>
+        </section>
+        `;
+    }
+
+    _pillSection(title, sectionId, items = null, playingId = null, canEdit = false) {
+        let content;
+        if (items === null) {
+            content = Array(8).fill(0).map(() => recentPillSkeleton());
+        } else if (items.length === 0) {
+            content = html`<div style="padding:20px; opacity:0.5; white-space:nowrap;">No content found.</div>`;
+        } else {
+            content = items.map(item => this._recentPillTemplate(item, playingId));
+        }
+
+        // Reorder Button for Pinned Section (only when the user can edit)
+        const headerAction = (sectionId === 'pinned' && canEdit) ? html`
+            <button class="icon-btn reorder-btn" @click=${this._onReorderClick} aria-label="Reorder Items" style="background:none; border:none; color:var(--secondary-text-color, #b3b3b3); cursor:pointer; margin-left: 8px; padding: 4px; display: flex; align-items: center;">
+                 <span style="font-size: 0.8rem; margin-right: 4px; font-weight: bold;">Edit</span>
+                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
+            </button>
+        ` : '';
+
+        return html`
+        <section class="home-section" data-section-id="${sectionId}">
+            <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
+                 <h3 class="section-title" style="margin:0;">${title}</h3>
+                 ${headerAction}
+            </div>
+            <div class="recent-grid-layout" id="grid-${sectionId}" data-section="${sectionId}">
+                ${content}
+            </div>
+        </section>
+        `;
     }
 
     render() {
@@ -434,11 +418,11 @@ class SpotifyHome extends LitElement {
 
         // 1. Loading — headerless card skeletons (no "Pinned" title).
         if (items === null) {
-            return `
+            return html`
             <section class="home-section" data-section-id="${sectionId}">
                 <div class="carousel-wrapper">
                      <div class="carousel-layout" style="gap: 16px; padding-bottom: 8px;">
-                        ${Array(6).fill(0).map(() => cardSkeleton()).join('')}
+                        ${Array(6).fill(0).map(() => renderCardSkeletonTemplate())}
                      </div>
                 </div>
             </section>
@@ -451,13 +435,11 @@ class SpotifyHome extends LitElement {
         // 3. Cards. Pinned is capped at 8, so it always renders as a card row
         // (the carousel scrolls horizontally on overflow). No title, no Edit
         // button — long-pressing any pinned button opens the editor (editors only).
-        const contentHtml = items.map(item => renderCardHtml(item, item.type || 'playlist')).join('');
-
-        return `
+        return html`
         <section class="home-section" data-section-id="${sectionId}">
             <div class="carousel-wrapper">
                  <div class="carousel-layout" style="gap: 16px; padding-bottom: 8px;">
-                    ${contentHtml}
+                    ${items.map(item => this._cardTemplate(item, item.type || 'playlist'))}
                  </div>
             </div>
         </section>
@@ -472,25 +454,25 @@ class SpotifyHome extends LitElement {
     renderPinnedMobile(title, sectionId, items, playingId, canEdit) {
         // Loading. Row count is capped at 4 (then columns flow sideways), but
         // shrinks to the item count so a couple of pins don't reserve 4 empty rows.
-        let contentHtml;
+        let content;
         let rows = 4;
         if (items === null) {
-            contentHtml = Array(8).fill(0).map(() => recentPillSkeleton()).join('');
+            content = Array(8).fill(0).map(() => recentPillSkeleton());
         } else if (items.length === 0) {
             // Read-only guests don't see an empty section; editors get a prompt.
             if (!canEdit) return '';
-            contentHtml = `<div style="padding: 8px 0; color: var(--secondary-text-color); font-size: 0.9rem; opacity: 0.7;">Nothing there.</div>`;
+            content = html`<div style="padding: 8px 0; color: var(--secondary-text-color); font-size: 0.9rem; opacity: 0.7;">Nothing there.</div>`;
         } else {
-            contentHtml = items.map(item => recentPill(item, playingId, this._isContextPlaying(item.uri))).join('');
+            content = items.map(item => this._recentPillTemplate(item, playingId, this._isContextPlaying(item.uri)));
             rows = Math.min(4, items.length);
         }
 
         // No "Pinned" title and no Edit button — long-pressing any pinned button
         // opens the editor (editors only). See _onPinnedPointerDown.
-        return `
+        return html`
         <section class="home-section" data-section-id="${sectionId}">
             <div class="pinned-grid-mobile" id="grid-${sectionId}" data-section="${sectionId}" style="grid-template-rows: repeat(${rows}, 56px);">
-                ${contentHtml}
+                ${content}
             </div>
         </section>
         `;
@@ -505,25 +487,22 @@ class SpotifyHome extends LitElement {
 
         const sections = {
             'pinned': this.renderPinnedSection('Pinned', 'pinned', sd['pinned'], playingId),
-            'recent': renderCarouselSection('Recently Played', 'recent', sd['recent']),
-            'favorites': renderCarouselSection('Your Favorite Playlists', 'favorites', sd['favorites']),
-            'artists': renderCarouselSection('Followed Artists', 'artists', sd['artists']),
-            'albums': renderCarouselSection('Your Favorite Albums', 'albums', sd['albums']),
+            'recent': this._carouselSection('Recently Played', 'recent', sd['recent']),
+            'favorites': this._carouselSection('Your Favorite Playlists', 'favorites', sd['favorites']),
+            'artists': this._carouselSection('Followed Artists', 'artists', sd['artists']),
+            'albums': this._carouselSection('Your Favorite Albums', 'albums', sd['albums']),
             'madeforyou': hasMadeForYou
-                ? (usePills ? renderPillSection('Made For You', 'madeforyou', sd['madeforyou'], playingId) : renderCarouselSection('Made For You', 'madeforyou', sd['madeforyou']))
+                ? (usePills ? this._pillSection('Made For You', 'madeforyou', sd['madeforyou'], playingId) : this._carouselSection('Made For You', 'madeforyou', sd['madeforyou']))
                 : ''
         };
 
-        const htmlContent = order.map(key => sections[key] || '').join('');
-
         return html`<div class="scroll-content"
-            @click=${this._handleCardClick}
             @pointerdown=${this._onPinnedPointerDown}
             @pointermove=${this._onPinnedPointerMove}
             @pointerup=${this._clearLongPress}
             @pointercancel=${this._clearLongPress}
             @pointerleave=${this._clearLongPress}
-        >${unsafeHTML(htmlContent)}</div>`;
+        >${order.map(key => sections[key] || '')}</div>`;
     }
 
     _getSectionOrder() {
@@ -583,46 +562,44 @@ class SpotifyHome extends LitElement {
         // Helper to render special recent grid or standard sections
         const renderSection = (key) => {
             if (key === 'recent') {
-                let recentHtml = '';
+                let recentContent;
                 if (!sd['recent']) { // Loading
-                    recentHtml = Array(6).fill(0).map(() => recentPillSkeleton()).join('');
+                    recentContent = Array(6).fill(0).map(() => recentPillSkeleton());
                 } else if (sd['recent'].length === 0) { // Empty
-                    recentHtml = 'No recent items.';
+                    recentContent = 'No recent items.';
                 } else { // Data
-                    recentHtml = sd['recent'].map(item => recentPill(item, playingId, this._isContextPlaying(item.uri))).join('');
+                    recentContent = sd['recent'].map(item => this._recentPillTemplate(item, playingId, this._isContextPlaying(item.uri)));
                 }
-                return `
+                return html`
                     <h3 class="section-title" style="margin-bottom:16px;">Good Morning</h3>
                     <div class="recent-grid-layout" id="grid-recent" data-section="recent" style="margin-bottom: 32px;">
-                        ${recentHtml}
+                        ${recentContent}
                     </div>
                 `;
             } else if (key === 'pinned') {
                 return this.renderPinnedSection('Pinned', 'pinned', sd['pinned'], playingId, true);
             } else if (key === 'favorites') {
-                return renderCarouselSection('Your Playlists', 'favorites', sd['favorites']);
+                return this._carouselSection('Your Playlists', 'favorites', sd['favorites']);
             } else if (key === 'artists') {
-                return renderCarouselSection('Your Artists', 'artists', sd['artists']);
+                return this._carouselSection('Your Artists', 'artists', sd['artists']);
             } else if (key === 'albums') {
-                return renderCarouselSection('Your Albums', 'albums', sd['albums']);
+                return this._carouselSection('Your Albums', 'albums', sd['albums']);
             } else if (key === 'madeforyou') {
                 const usePills = this.config.homescreen?.madeforyou?.pills || false;
                 return hasMadeForYou
-                    ? (usePills ? renderPillSection('Made For You', 'madeforyou', sd['madeforyou'], playingId) : renderCarouselSection('Made For You', 'madeforyou', sd['madeforyou']))
+                    ? (usePills ? this._pillSection('Made For You', 'madeforyou', sd['madeforyou'], playingId) : this._carouselSection('Made For You', 'madeforyou', sd['madeforyou']))
                     : '';
             }
             return '';
         };
 
-        const htmlContent = order.map(key => renderSection(key)).join('');
         return html`<div class="scroll-content"
-            @click=${this._handleCardClick}
             @pointerdown=${this._onPinnedPointerDown}
             @pointermove=${this._onPinnedPointerMove}
             @pointerup=${this._clearLongPress}
             @pointercancel=${this._clearLongPress}
             @pointerleave=${this._clearLongPress}
-        >${unsafeHTML(htmlContent)}</div>`;
+        >${order.map(key => renderSection(key))}</div>`;
     }
 
 
@@ -735,7 +712,7 @@ class SpotifyHome extends LitElement {
 
                 // DATA UPDATE: Append new items to state
                 const currentItems = this._sectionData[sectionKey] || [];
-                // We need to store type with the item if not present, or know it generally. 
+                // We need to store type with the item if not present, or know it generally.
                 // mediaCard logic uses item.type OR fallback type.
                 // Let's ensure items have type if possible, or we pass it to render.
                 const newItems = data.items.map(i => ({ ...i, _fallbackType: type }));

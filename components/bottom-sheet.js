@@ -82,6 +82,15 @@ export class SpotifyBottomSheet extends LitElement {
         this._onUp = this._onUp.bind(this);
     }
 
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        // If removed mid-drag, drop the window listeners added in _onDown.
+        this._dragging = false;
+        window.removeEventListener('pointermove', this._onMove);
+        window.removeEventListener('pointerup', this._onUp);
+        window.removeEventListener('pointercancel', this._onUp);
+    }
+
     _close() { this.dispatchEvent(new CustomEvent('close', { bubbles: true, composed: true })); }
 
     _onDown(e) {

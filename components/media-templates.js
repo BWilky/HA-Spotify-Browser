@@ -14,7 +14,9 @@ export function renderCardTemplate(item, type, clickHandler) {
     const isArtist = type === true || type === 'artist';
     const imgUrl = getItemImage(item);
     const name = item.name || item.title || 'Unknown';
-    const subtitle = item.subtitle || item.release_date?.split('-')[0] || item.type || '';
+    // An explicitly provided subtitle wins (even an empty one — home passes a
+    // precomputed subtitle); otherwise fall back to release year / type.
+    const subtitle = item.subtitle ?? (item.release_date?.split('-')[0] || item.type || '');
 
     return html`
         <div class="media-card interactive ${isArtist ? 'artist-card' : ''}" 
@@ -77,51 +79,6 @@ export function renderPillTemplate(item, playHandler, menuHandler, saveHandler, 
                 </button>
             </div>
         </div>
-    `;
-}
-
-/**
- * Returns HTML String for the "Card" layout.
- * Used by spotify-home.js which relies on innerHTML.
- */
-export function renderCardHtml(item, type) {
-    const id = item.id;
-    const uri = item.uri;
-    const title = item.name || item.title || 'Unknown';
-
-    let subtitle = item.subtitle;
-    if (!subtitle && item.owner) subtitle = item.owner.display_name;
-    if (!subtitle && item.artists && Array.isArray(item.artists)) subtitle = item.artists.map(a => a.name).join(', ');
-    if (!subtitle) subtitle = type === 'artist' ? 'Artist' : '';
-
-    const img = getItemImage(item, type);
-
-    const safeTitle = title.replace(/"/g, '&quot;');
-    const safeSubtitle = subtitle.replace(/"/g, '&quot;');
-    const isArtist = type === 'artist';
-    const containerClass = isArtist ? 'media-card artist-card interactive' : 'media-card interactive';
-
-    // IMPORTANT: Matches structure of renderCardTemplate
-    return `
-      <div class="${containerClass}" 
-           data-id="${id}" 
-           data-type="${type}" 
-           data-uri="${uri || ''}" 
-           data-title="${safeTitle}"
-           data-subtitle="${safeSubtitle}">
-        
-        <div class="media-image-wrapper">
-            <div class="media-image" style="background-image: url('${img}'); ${isArtist ? 'border-radius: 50%;' : ''}"></div>
-            ${!isArtist ? `
-            <div class="play-btn-overlay">
-                <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-            </div>
-            ` : ''}
-        </div>
-        
-        <div class="media-title" ${isArtist ? 'style="text-align:center;"' : ''}>${title}</div>
-        ${!isArtist ? `<div class="media-subtitle">${subtitle}</div>` : ''}
-      </div>
     `;
 }
 

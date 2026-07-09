@@ -156,15 +156,18 @@ export const contextViewStyles = css`
         gap: 2px; box-sizing: border-box;
     }
     .track-eq span {
-        width: 2px; background: var(--spf-brand); border-radius: 1px;
+        width: 2px; height: 100%; background: var(--spf-brand); border-radius: 1px;
+        /* Animate scaleY (compositor-only) instead of height (layout per frame);
+           bottom origin keeps the bars growing up from the baseline. */
+        transform-origin: bottom;
         animation: track-eq-bounce 0.9s ease-in-out infinite;
     }
     .track-eq span:nth-child(1) { animation-delay: -0.2s; }
     .track-eq span:nth-child(2) { animation-delay: -0.5s; }
     .track-eq span:nth-child(3) { animation-delay: -0.1s; }
     @keyframes track-eq-bounce {
-        0%, 100% { height: 30%; }
-        50% { height: 100%; }
+        0%, 100% { transform: scaleY(0.3); }
+        50% { transform: scaleY(1); }
     }
     
     .track-art-small {

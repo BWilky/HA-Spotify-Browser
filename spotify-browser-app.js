@@ -178,9 +178,9 @@ class SpotifyBrowserApp extends LitElement {
 
 
 
-        // Desktop Media Query Listener
-        const mediaQuery = window.matchMedia('(min-width: 769px)');
-        const handleRez = (e) => {
+        // Desktop Media Query Listener (stored on `this` for disconnect cleanup)
+        this._mediaQuery = window.matchMedia('(min-width: 769px)');
+        this._onMediaQueryChange = (e) => {
             this._isDesktop = e.matches;
             if (this._isDesktop) {
                 this._stopMiniPlayerProgressTimer();
@@ -189,12 +189,12 @@ class SpotifyBrowserApp extends LitElement {
             }
         };
         try {
-            mediaQuery.addEventListener('change', handleRez);
+            this._mediaQuery.addEventListener('change', this._onMediaQueryChange);
         } catch (e) {
             // Safari older fallback
-            mediaQuery.addListener(handleRez);
+            this._mediaQuery.addListener(this._onMediaQueryChange);
         }
-        this._isDesktop = mediaQuery.matches;
+        this._isDesktop = this._mediaQuery.matches;
 
         // Re-capture the full (pre-keyboard) height on rotation, a real layout
         // change. Plain resizes are the keyboard — handled by _updateAppHeight,
@@ -261,6 +261,14 @@ class SpotifyBrowserApp extends LitElement {
         if (this._onViewportResize) {
             window.visualViewport?.removeEventListener('resize', this._onViewportResize);
             window.removeEventListener('resize', this._onViewportResize);
+        }
+        if (this._mediaQuery && this._onMediaQueryChange) {
+            try {
+                this._mediaQuery.removeEventListener('change', this._onMediaQueryChange);
+            } catch (e) {
+                // Safari older fallback
+                this._mediaQuery.removeListener(this._onMediaQueryChange);
+            }
         }
         this._restoreViewport();
     }

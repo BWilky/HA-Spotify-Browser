@@ -1,7 +1,7 @@
-import { LitElement, html, css } from "../../lit.js";
+import { LitElement, html, css, repeat } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
-import { isContextPlaying, getPlayingTrackId, getCurrentTrackId, fireHaptic } from '../../utils.js';
+import { fireHaptic } from '../../utils.js';
 
 export class SpotifyPlaylistView extends LitElement {
     static get properties() {
@@ -11,6 +11,12 @@ export class SpotifyPlaylistView extends LitElement {
             hass: { type: Object },
             config: { type: Object },
             pinned: { type: Object }, // Add pinned
+            // Narrow values derived from hass by the parent context-view; these
+            // (not raw hass) drive re-renders on player state ticks.
+            playingTrackId: { type: String },
+            currentTrackId: { type: String },
+            isPlaying: { type: Boolean },
+            pinnedSensorState: { type: Object },
             _isFollowing: { type: Boolean, state: true },
             _currentUserId: { type: String, state: true },
             _isPinned: { type: Boolean, state: true },
@@ -356,6 +362,13 @@ export class SpotifyPlaylistView extends LitElement {
 
     constructor() {
         super();
+        this.playingTrackId = null;
+        this.currentTrackId = null;
+        this.isPlaying = false;
+        this.pinnedSensorState = undefined;
+        // Cache the MediaQueryList once; reading window.matchMedia() inside the
+        // rAF scroll handler re-parses the query on every frame.
+        this._mobileMql = window.matchMedia('(max-width: 768px)');
         this._isFollowing = false;
         this._currentUserId = null;
         this._isPinned = false;
@@ -391,6 +404,16 @@ export class SpotifyPlaylistView extends LitElement {
         this._scrollRaf = null;
     }
 
+    /**
+     * Raw `hass` is kept only as an interaction-time reference; re-renders on
+     * player ticks are driven by the derived props (playingTrackId, isPlaying,
+     * currentTrackId, pinnedSensorState) the parent context-view maintains.
+     */
+    shouldUpdate(changedProperties) {
+        if (changedProperties.size === 1 && changedProperties.has('hass')) return false;
+        return true;
+    }
+
     updated(changedProperties) {
         if (changedProperties.has('data')) {
             this._checkFollowStatus();
@@ -405,18 +428,16 @@ export class SpotifyPlaylistView extends LitElement {
 
         // Optimistic-track handoff: once HASS reports the track we optimistically
         // marked as playing, drop the optimistic flag and let real state drive.
-        if (this._optimisticPlayingTrackId && changedProperties.has('hass')) {
-            const realId = getCurrentTrackId(this.hass, this.api?.entityId || this.config?.entity);
-            if (realId === this._optimisticPlayingTrackId) {
+        if (this._optimisticPlayingTrackId && changedProperties.has('currentTrackId')) {
+            if (this.currentTrackId === this._optimisticPlayingTrackId) {
                 this._optimisticPlayingTrackId = null;
             }
         }
 
-        // Check for HASS updates to the Pinned Items helper
-        if (changedProperties.has('hass') && this.pinned && this.pinned.sensorEntity) {
-            const oldHass = changedProperties.get('hass');
-            const entityId = this.pinned.sensorEntity;
-            if (oldHass && this.hass && oldHass.states[entityId] !== this.hass.states[entityId]) {
+        // Check for HASS updates to the Pinned Items helper (the parent derives
+        // the sensor's state object, so any change here is a real change).
+        if (changedProperties.has('pinnedSensorState') && this.pinned && this.pinned.sensorEntity) {
+            if (changedProperties.get('pinnedSensorState') !== undefined) {
                 this._checkPinStatus();
             }
         }
@@ -467,13 +488,13 @@ export class SpotifyPlaylistView extends LitElement {
         if (this._optimisticPlayState) {
             return this._optimisticPlayState === 'playing';
         }
-        return isContextPlaying(this.hass, this.api?.entityId || this.config?.entity, this.data?.uri);
+        return !!this.isPlaying;
     }
 
     /** Spotify track id currently playing (optimistic guess wins), or null. */
     _getPlayingTrackId() {
         if (this._optimisticPlayingTrackId) return this._optimisticPlayingTrackId;
-        return getPlayingTrackId(this.hass, this.api?.entityId || this.config?.entity);
+        return this.playingTrackId || null;
     }
 
     async _togglePin() {
@@ -571,7 +592,7 @@ export class SpotifyPlaylistView extends LitElement {
 
         if (target.classList.contains('has-hero')) {
             let alpha, textAlpha;
-            if (window.matchMedia('(max-width: 768px)').matches) {
+            if (this._mobileMql.matches) {
                 // Mobile hero is tall (height: auto) and centered, so a fixed
                 // 200px threshold fades the header in while the hero is still
                 // fully visible. Tie the fade to the actual hero height so the
@@ -744,7 +765,15 @@ export class SpotifyPlaylistView extends LitElement {
                         <div class="track-list">
                             ${(() => {
                     const playingId = this._getPlayingTrackId();
-                    return trackItems.map((item, index) => this.renderTrackRow(item.track || item, index + 1, playingId));
+                    // Keyed rows let Lit reuse existing row DOM when pages are
+                    // appended (load-more). Key includes the index because a
+                    // playlist may legally contain the same track twice, and
+                    // repeat() requires unique keys.
+                    return repeat(
+                        trackItems,
+                        (item, index) => `${(item.track || item)?.id || 'na'}:${index}`,
+                        (item, index) => this.renderTrackRow(item.track || item, index + 1, playingId)
+                    );
                 })()}
                             ${isLiked && this._activeGenre && trackItems.length === 0
                 ? html`<div style="padding: 32px 16px; text-align: center; color: var(--spf-text-sub);">No liked songs match this filter yet.</div>`
