@@ -772,76 +772,13 @@ export const sharedStyles = css`
     .media-title { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
     .media-subtitle { font-size: 12px; color: var(--spf-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    /* --- Global Pills Grid --- */
-    .recent-grid-layout {
-        display: grid; grid-template-rows: repeat(2, 1fr); 
-        grid-auto-flow: column; grid-auto-columns: 180px; 
-        gap: 12px; overflow-x: auto; padding-bottom: 16px; 
-        scroll-behavior: smooth; scrollbar-width: none;
-    }
-    .recent-grid-layout::-webkit-scrollbar { display: none; }
+    /* Hero & artist-pill styles live in spotify-context-view.styles.js
+       (playlist/artist views are the only consumers and import it).
+       .recent-grid-layout lives in spotify-home.styles.js (home is the only
+       consumer); the scrollbar rules below still reference it. */
 
-
-    /* Hero & Artist Profile */
-    .hero-banner, .artist-hero { 
-        position: relative; height: 300px; width: 100%; overflow: hidden;
-        transition: height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); will-change: height;
-    }
-    .page.is-refreshing .hero-banner, .page.is-refreshing .artist-hero { height: 360px !important; }
-    
-    .hero-bg { 
-        position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
-        background: linear-gradient(to bottom, #555, var(--spf-bg)); 
-        z-index: 0; transition: all 0.5s ease; 
-        transform-origin: top center; will-change: transform;
-    }
-    
-    .hero-gradient, .artist-hero .hero-gradient { 
-        position: absolute; top: 0; left: 0; right: 0; bottom: 0; 
-        background: linear-gradient(to top, var(--spf-bg) 0%, transparent 50%);
-        z-index: 1; pointer-events: none;
-    }
-    
-    .hero-content, .artist-header-content { 
-        position: absolute; bottom: 0; left: 0; width: 100%; 
-        z-index: 2; padding: 24px; box-sizing: border-box;
-        display: flex; align-items: flex-end; gap: 24px;
-    }
-    .artist-header-content { flex-direction: column !important; align-items: flex-start !important; justify-content: flex-end; }
-    .artist-header-content .hero-actions { margin-top: 0; margin-left: 4px; }
-    
-    /* Ensure the skeleton art inside the hero is fixed size */
-    .hero-art { 
-        width: 180px; height: 180px; 
-        box-shadow: 0 4px 60px rgba(0,0,0,0.5); 
-        background: #333; flex-shrink: 0; 
-        
-        /* FIX: Prevent collapse if image is missing */
-        display: block; 
-    }
-    .hero-text { flex: 1; }
-    .hero-type { font-size: 12px; text-transform: uppercase; font-weight: 700; margin-bottom: 4px; }
-    .hero-title { font-size: 3rem; font-weight: 900; margin: 0 0 8px 0; line-height: 1; }
-    .hero-subtitle { font-size: 14px; color: rgba(255,255,255,0.7); }
-    .hero-actions { display: flex; align-items: center; gap: 16px; margin-top: 16px; }
-    .artist-hero-name { position: static; margin-bottom: 16px; font-size: 4rem; font-weight: 900; color: white; text-shadow: 0 4px 12px rgba(0,0,0,0.5); }
-    
-    .hero-btn-play {
-        width: 56px; height: 56px; border-radius: 50%; background: var(--spf-brand); color: black; border: none;
-        display: flex; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.2s;
-    }
-    .hero-btn-play:hover { transform: scale(1.05); background: var(--spf-brand-hover); }
-    .hero-btn-play svg { width: 28px; height: 28px; fill: currentColor; }
-    
-    .hero-btn-fav {
-        background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white;
-        padding: 8px 16px; border-radius: 20px; display: flex; align-items: center; justify-content: center;
-        cursor: pointer; transition: all 0.2s; font-size: 12px; font-weight: 700; letter-spacing: 1px;
-    }
-    .hero-btn-fav:hover { border-color: white; transform: scale(1.05); }
-    .hero-btn-fav.is-favorite { color: var(--spf-brand); border-color: var(--spf-brand); }
-
-    /* Track Rows */
+    /* Track Rows (also consumed by spotify-context-list, which imports only
+       sharedStyles — keep these here) */
     .track-row {
         overflow: visible;
         display: grid;
@@ -892,49 +829,6 @@ export const sharedStyles = css`
     .card-text-sk { height: 12px; background: var(--spf-bg-card-hover); margin-bottom: 8px; border-radius: 2px; width: 80%; }
     .card-text-sk.short { width: 50%; }
     @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
-    
-    .artist-track-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 32px; }
-    @media (max-width: 600px) { .artist-track-grid { grid-template-columns: 1fr; } .artist-hero-name { font-size: 2.5rem; } }
-
-    .artist-top-track { display: flex; align-items: center; background: rgba(255,255,255,0.05); border-radius: 6px; overflow: hidden; transition: background 0.2s; height: 56px; cursor: pointer; position: relative; padding-right: 8px; }
-    @media (hover: hover) { 
-        .artist-top-track:hover { background: var(--spf-hover-white); } 
-        .artist-top-track:active { background: var(--spf-active-white); }
-    }
-    
-    .artist-top-track.playing .track-title { color: var(--spf-brand); }
-    .track-art-left { 
-        width: 56px; height: 56px; 
-        background-size: cover; background-position: center; 
-        position: relative; flex-shrink: 0; margin-right: 12px; 
-    }
-
-    /* FIX: Standardize positioning so it matches the hover transform */
-    .artist-top-track .play-btn-overlay.mini { 
-        width: 32px; height: 32px; 
-        
-        /* Reset the conflicting centering method */
-        bottom: auto; right: auto; margin: 0;
-        
-        /* Use standard centering (Top/Left 50%) */
-        top: 50%; left: 50%; 
-        transform: translate(-50%, -50%) scale(0.8); /* Start slightly smaller */
-        
-        opacity: 0; 
-        transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-    }
-
-    /* On Row Hover: Reveal and scale to normal */
-    @media (hover: hover) { 
-        .artist-top-track:hover .play-btn-overlay.mini { 
-            opacity: 1; 
-            transform: translate(-50%, -50%) scale(1);
-        } 
-    }
-    
-    .track-info-middle { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
-    .track-title { font-size: 14px; font-weight: 600; color: var(--spf-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .track-meta { font-size: 12px; color: var(--spf-text-sub); margin-top: 2px; }
 
     .browser-wrapper.is-dragging .page-container,
     .browser-wrapper.is-dragging .queue-panel {

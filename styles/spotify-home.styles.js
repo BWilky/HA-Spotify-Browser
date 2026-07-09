@@ -78,10 +78,6 @@ export const homeStyles = css`
         .recent-pill-text { font-size: 12px; }
     }
 
-    /* Artist / Skeleton Styles */
-    .skeleton-pulse { animation: pulse 1.5s infinite ease-in-out; background: var(--spf-bg-card-hover); }
-    .card-image-sk { background: var(--spf-bg-card-hover); }
-    .card-text-sk { height: 12px; background: var(--spf-bg-card-hover); margin-bottom: 8px; border-radius: 2px; width: 80%; }
-    .card-text-sk.short { width: 50%; }
-    @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+    /* Skeleton styles (.skeleton-pulse, @keyframes pulse, .card-*-sk) live in
+       shared-styles.js, which spotify-home also imports. */
 `;
