@@ -191,13 +191,6 @@ homescreen:
    
 # --- Advanced Features ---
 advanced:
-  # Radio Generator (requires external provider)
-  radio_track:
-    enabled: true
-    provider: "lastfm"
-    limit: 30
-    dontstopthemusic: true
-
   # Similar Artists logic
   similar_artists:
     provider: "lastfm"

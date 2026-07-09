@@ -90,7 +90,7 @@ spotify_browser:
 | `animations` | object | none | Configures transition types (`page_transition`, `browser_open`, `blur`). |
 | `storage` | object | none | Entities and scripts used for persistent pinned items/device settings. |
 | `homescreen` | object | none | Section visibility, ordering, and refresh timers. |
-| `advanced` | object | none | Last.fm-based radio track generation and similar artist configurations. |
+| `advanced` | object | none | Last.fm-based similar artist configuration. |
 | `external_providers` | object | none | Integration credentials for external metadata services. |
 | `auto_close_seconds` | number | `0` | Closes browser automatically after inactive seconds. `0` disables. |
 | `closeondisconnect` | boolean | `true` | Closes the browser interface if connection to Home Assistant is lost. |
@@ -149,12 +149,6 @@ SpotifyPlus is still used for browsing and for starting playback. Non-Sonos devi
 * `similar_artists` (object):
   * `provider` (string): External metadata provider (e.g., `'lastfm'`).
   * `limit` (number): Max recommendations to fetch (default: `10`).
-* `radio_track` (object):
-  * `enabled` (boolean): Generates a custom track radio when playing.
-  * `provider` (string): Metadata provider (e.g., `'lastfm'`).
-  * `limit` (number): Maximum radio track queue size (default: `30`).
-  * `dontstopthemusic` (boolean): Continues track radio play indefinitely.
-
 #### desktop_style
 * `mode` (string): Dialog sizing method (`'default'`, `'fixed'`, `'fullscreen'`).
 * `width` (string): Width in CSS units (e.g. `'1000px'`).
@@ -334,11 +328,6 @@ homescreen:
     - favourite_albums
 
 advanced:
-  radio_track:
-    enabled: true
-    provider: "lastfm"
-    limit: 30
-    dontstopthemusic: true
   similar_artists:
     provider: "lastfm"
     limit: 10

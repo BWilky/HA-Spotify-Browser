@@ -135,11 +135,6 @@ class SpotifyPopups extends LitElement {
                     Add to Queue
                 </button>
                 
-                <button class="track-popup-item" @click=${() => this.dispatchEvent(new CustomEvent('track-action', { detail: 'tm-radio' }))}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-5.5-2.5l7.51-3.22-7.51-3.22V17.5z"/></svg>
-                    Start Radio
-                </button>
-                
                 <button class="track-popup-item" @click=${() => this.dispatchEvent(new CustomEvent('track-action', { detail: 'tm-artist' }))}>
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                     Go to Artist
