@@ -203,10 +203,48 @@ export class PlayerController extends EventTarget {
         this._resyncEOSTimer(stateObj);
 
         // Diff and Emit
-        if (JSON.stringify(this.state) !== JSON.stringify(newState)) {
+        if (!this._statesEqual(this.state, newState)) {
             this.state = newState;
             this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
         }
+    }
+
+    /**
+     * Cheap equality check between two player-state snapshots, replacing a
+     * per-tick JSON.stringify of the whole state (which serialized the ~30-item
+     * queue/recents arrays every second). `queue`/`recentTracks`/`isLiked` are
+     * copied by reference from `this.state` when `newState` is built, so
+     * reference equality there is exact; tracks are compared by identity
+     * fields (see _tracksEqual).
+     */
+    _statesEqual(a, b) {
+        return a.isPlaying === b.isPlaying
+            && a.isShuffle === b.isShuffle
+            && a.isLiked === b.isLiked
+            && a.volume === b.volume
+            && a.isMuted === b.isMuted
+            && a.activeDevice === b.activeDevice
+            && a.queue === b.queue
+            && a.recentTracks === b.recentTracks
+            && this._tracksEqual(a.track, b.track);
+    }
+
+    /**
+     * Track identity comparison. Track objects are stable references except the
+     * optimistic override, which is re-spread each tick — so when references
+     * differ, compare the fields that determine what the UI renders (id/uri/
+     * name/artist/art/duration and the optimistic flag).
+     */
+    _tracksEqual(a, b) {
+        if (a === b) return true;
+        if (!a || !b) return false;
+        return a.uri === b.uri
+            && a.id === b.id
+            && a.name === b.name
+            && a.duration_ms === b.duration_ms
+            && a.is_optimistic_match === b.is_optimistic_match
+            && (a.artists?.[0]?.name) === (b.artists?.[0]?.name)
+            && (a.album?.images?.[0]?.url) === (b.album?.images?.[0]?.url);
     }
 
     _calculateEffectiveTrack(stateObj) {

@@ -3,6 +3,7 @@ import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { contextViewStyles } from '../styles/spotify-context-view.styles.js';
 import { loadMadeForYouItems, dedupeRecentAlbums } from './controllers/home-content.js';
+import { getPlayingTrackId, getCurrentTrackId, isContextPlaying } from '../utils.js';
 
 // Import new sub-views
 import './views/spotify-context-list.js';
@@ -30,13 +31,60 @@ class SpotifyContextView extends LitElement {
         return [sharedStyles, contextViewStyles];
     }
 
-    /* shouldUpdate removed to allow reactive HASS updates to propagate to children (Artist View) */
+    /*
+     * HASS ticks arrive ~1/s while music plays. Children only consume a few
+     * narrow values from hass (playing track id, play state, pinned sensor),
+     * so derive those here and skip the whole subtree when none of them moved.
+     * The raw `hass` object is still forwarded (children keep it as an
+     * interaction-time reference and gate their own updates on it).
+     */
+    shouldUpdate(changedProperties) {
+        // Keep the derived snapshot fresh for every render pass.
+        const derivedChanged = this._deriveHassState();
+        if (changedProperties.size === 1 && changedProperties.has('hass')) {
+            // Ignore no-op ticks, but always let the very first hass through
+            // (it may be what unblocks loadPageData()).
+            if (changedProperties.get('hass') && !derivedChanged) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Snapshot the values children actually render from hass. Returns true
+     * when any of them changed since the last snapshot.
+     */
+    _deriveHassState() {
+        const entityId = this.api?.entityId || this.config?.entity;
+        const playingTrackId = getPlayingTrackId(this.hass, entityId);
+        const currentTrackId = getCurrentTrackId(this.hass, entityId);
+        const isPlaying = isContextPlaying(this.hass, entityId, this._contextData?.uri);
+        const pinnedSensorState = (this.pinned?.sensorEntity && this.hass)
+            ? this.hass.states[this.pinned.sensorEntity]
+            : undefined;
+
+        const changed = playingTrackId !== this._playingTrackId
+            || currentTrackId !== this._currentTrackId
+            || isPlaying !== this._isPlaying
+            || pinnedSensorState !== this._pinnedSensorState;
+
+        this._playingTrackId = playingTrackId;
+        this._currentTrackId = currentTrackId;
+        this._isPlaying = isPlaying;
+        this._pinnedSensorState = pinnedSensorState;
+        return changed;
+    }
 
     constructor() {
         super();
         this._contextData = null;
         this._isFollowing = false;
         this._currentUserId = null;
+        // Derived-from-hass snapshot (plain fields; render binds them and
+        // shouldUpdate keeps them fresh before every render pass).
+        this._playingTrackId = null;
+        this._currentTrackId = null;
+        this._isPlaying = false;
+        this._pinnedSensorState = undefined;
     }
 
     connectedCallback() {
@@ -611,18 +659,25 @@ class SpotifyContextView extends LitElement {
                     .hass=${this.hass}
                     .config=${this.config}
                     .pinned=${this.pinned}
+                    .playingTrackId=${this._playingTrackId}
+                    .currentTrackId=${this._currentTrackId}
+                    .isPlaying=${this._isPlaying}
+                    .pinnedSensorState=${this._pinnedSensorState}
                     @load-more=${this._handleLoadMore}
                     @navigate=${(e) => { e.stopPropagation(); this.dispatchEvent(new CustomEvent('navigate', { detail: e.detail, bubbles: true, composed: true })); }}
                 ></spotify-playlist-view>
             `;
         } else if (type === 'artist') {
             return html`
-                <spotify-artist-view 
-                    .data=${this._contextData} 
-                    .api=${this.api} 
+                <spotify-artist-view
+                    .data=${this._contextData}
+                    .api=${this.api}
                     .hass=${this.hass}
                     .config=${this.config}
                     .pinned=${this.pinned}
+                    .playingTrackId=${this._playingTrackId}
+                    .currentTrackId=${this._currentTrackId}
+                    .isPlaying=${this._isPlaying}
                 ></spotify-artist-view>
             `;
         } else if (type === 'section') {
@@ -659,10 +714,14 @@ class SpotifyContextView extends LitElement {
 
         // Fallback or explicit other types
         return html`
-            <spotify-playlist-view 
-                .data=${this._contextData} 
-                .api=${this.api} 
+            <spotify-playlist-view
+                .data=${this._contextData}
+                .api=${this.api}
                 .hass=${this.hass}
+                .playingTrackId=${this._playingTrackId}
+                .currentTrackId=${this._currentTrackId}
+                .isPlaying=${this._isPlaying}
+                .pinnedSensorState=${this._pinnedSensorState}
             ></spotify-playlist-view>
         `;
     }

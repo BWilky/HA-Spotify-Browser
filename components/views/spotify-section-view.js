@@ -73,12 +73,28 @@ export class SpotifySectionView extends LitElement {
         }));
     }
 
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        if (this._scrollRaf) cancelAnimationFrame(this._scrollRaf);
+        this._scrollRaf = null;
+    }
+
+    // Scroll fires many times per gesture; coalesce the work into one frame.
     _handleScroll(e) {
+        this._scrollTarget = e.target;
+        if (this._scrollRaf) return;
+        this._scrollRaf = requestAnimationFrame(() => {
+            this._scrollRaf = null;
+            this._applyScroll(this._scrollTarget);
+        });
+    }
+
+    _applyScroll(el) {
+        if (!el) return;
         // Keep the title pinned in the app header during scroll
         this._emitHeaderState();
         // Infinite scroll: request the next page when near the bottom.
         if (!this.data || this.data.isLoading || !this.data.hasMore) return;
-        const el = e.target;
         if (el.scrollTop + el.clientHeight >= el.scrollHeight - 300) {
             this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
         }

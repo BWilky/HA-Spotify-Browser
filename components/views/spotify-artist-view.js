@@ -2,7 +2,6 @@ import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { renderCardTemplate, renderPillTemplate, renderCardSkeletonTemplate, renderPillSkeletonTemplate } from '../media-templates.js';
 import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
-import { getPlayingTrackId, getCurrentTrackId, isContextPlaying } from '../../utils.js';
 
 export class SpotifyArtistView extends LitElement {
     static get styles() {
@@ -60,6 +59,11 @@ export class SpotifyArtistView extends LitElement {
             api: { type: Object },
             config: { type: Object },
             pinned: { type: Object }, // Add pinned
+            // Narrow values derived from hass by the parent context-view; these
+            // (not raw hass) drive re-renders on player state ticks.
+            playingTrackId: { type: String },
+            currentTrackId: { type: String },
+            isPlaying: { type: Boolean },
             _isFollowing: { type: Boolean, state: true },
             _currentUserId: { type: String, state: true },
             _isPinned: { type: Boolean, state: true },
@@ -73,6 +77,9 @@ export class SpotifyArtistView extends LitElement {
     constructor() {
         super();
         this.hass = null;
+        this.playingTrackId = null;
+        this.currentTrackId = null;
+        this.isPlaying = false;
         this._isPinned = false;
         this._pinnedEntity = null;
         this._trackLikes = {};
@@ -92,8 +99,20 @@ export class SpotifyArtistView extends LitElement {
         super.disconnectedCallback();
         if (this._optimisticTimer) clearTimeout(this._optimisticTimer);
         if (this._optimisticContextTimer) clearTimeout(this._optimisticContextTimer);
+        if (this._scrollRaf) cancelAnimationFrame(this._scrollRaf);
         this._optimisticTimer = null;
         this._optimisticContextTimer = null;
+        this._scrollRaf = null;
+    }
+
+    /**
+     * Raw `hass` is kept only as an interaction-time reference; re-renders on
+     * player ticks are driven by the derived props (playingTrackId, isPlaying,
+     * currentTrackId) the parent context-view maintains.
+     */
+    shouldUpdate(changedProperties) {
+        if (changedProperties.size === 1 && changedProperties.has('hass')) return false;
+        return true;
     }
 
     updated(changedProperties) {
@@ -107,20 +126,14 @@ export class SpotifyArtistView extends LitElement {
         // Clear the optimistic track once HASS catches up to it. We intentionally do NOT
         // clear on other track changes: HASS can report intermediate IDs during a skip,
         // which would make the UI revert briefly.
-        if (this._optimisticPlayingTrackId && this.hass) {
-            const realId = this._getHassTrackId();
-            if (realId === this._optimisticPlayingTrackId) {
+        if (this._optimisticPlayingTrackId && changedProperties.has('currentTrackId')) {
+            if (this.currentTrackId === this._optimisticPlayingTrackId) {
                 this._optimisticPlayingTrackId = null;
             }
         }
 
         // Check header state on updates (handles back navigation scroll restoration)
         setTimeout(() => this._updateHeaderState(), 0);
-        setTimeout(() => this._updateHeaderState(), 50);
-    }
-
-    _playerEntityId() {
-        return this.api?.entityId || this.config?.entity;
     }
 
     _getPlayingTrackId() {
@@ -128,14 +141,14 @@ export class SpotifyArtistView extends LitElement {
         if (this._optimisticPlayingTrackId) {
             return this._optimisticPlayingTrackId;
         }
-        return getPlayingTrackId(this.hass, this._playerEntityId());
+        return this.playingTrackId || null;
     }
 
     _getIsPlaying() {
         if (this._optimisticPlayState) {
             return this._optimisticPlayState === 'playing';
         }
-        return isContextPlaying(this.hass, this._playerEntityId(), this.data?.uri);
+        return !!this.isPlaying;
     }
 
     _handleHeroPlayClick() {
@@ -145,13 +158,11 @@ export class SpotifyArtistView extends LitElement {
 
         // Optimistic Update
         this._optimisticPlayState = newState;
-        this.requestUpdate();
 
         // Clear optimistic state after 3s
         if (this._optimisticContextTimer) clearTimeout(this._optimisticContextTimer);
         this._optimisticContextTimer = setTimeout(() => {
             this._optimisticPlayState = null;
-            this.requestUpdate();
         }, 3000);
 
         if (newState === 'playing') {
@@ -176,7 +187,7 @@ export class SpotifyArtistView extends LitElement {
     }
 
     _getHassTrackId() {
-        return getCurrentTrackId(this.hass, this._playerEntityId());
+        return this.currentTrackId || null;
     }
 
     async _checkFollowStatus() {
@@ -226,7 +237,6 @@ export class SpotifyArtistView extends LitElement {
             if (confirmedState !== null && confirmedState !== newState) {
                 console.warn("[SpotifyArtistView] Follow state mismatch detected after verification. Correcting.");
                 this._isFollowing = confirmedState;
-                this.requestUpdate();
             }
         }, 3000);
     }
@@ -315,16 +325,26 @@ export class SpotifyArtistView extends LitElement {
             if (confirmedState !== null && confirmedState !== newState) {
                 console.warn(`[SpotifyArtistView] Track like mismatch for ${track.id}. Correcting.`);
                 this._trackLikes = { ...this._trackLikes, [track.id]: confirmedState };
-                this.requestUpdate();
             }
         }, 3000);
     }
 
+    // Scroll fires many times per gesture; coalesce the work into one frame and
+    // reuse cached element refs instead of re-querying the shadow root each time.
     _handleScroll(e) {
-        const container = e.currentTarget || e.target;
+        this._scrollTarget = e.currentTarget || e.target;
+        if (this._scrollRaf) return;
+        this._scrollRaf = requestAnimationFrame(() => {
+            this._scrollRaf = null;
+            this._applyScroll(this._scrollTarget);
+        });
+    }
+
+    _applyScroll(container) {
         if (container) {
             const scrollTop = container.scrollTop;
-            const heroImg = this.shadowRoot.querySelector('.artist-hero .hero-bg img');
+            let heroImg = this._heroImgEl;
+            if (!heroImg || !heroImg.isConnected) heroImg = this._heroImgEl = this.shadowRoot.querySelector('.artist-hero .hero-bg img');
             if (heroImg) {
                 if (scrollTop < 0) {
                     const scale = 1 - scrollTop / 375;
@@ -344,7 +364,8 @@ export class SpotifyArtistView extends LitElement {
     }
 
     _updateHeaderState() {
-        const scrollContainer = this.shadowRoot.querySelector('.main-scroll-container');
+        let scrollContainer = this._scrollContainerEl;
+        if (!scrollContainer || !scrollContainer.isConnected) scrollContainer = this._scrollContainerEl = this.shadowRoot.querySelector('.main-scroll-container');
         if (!scrollContainer) return;
 
         const scrollTop = scrollContainer.scrollTop;
@@ -391,13 +412,11 @@ export class SpotifyArtistView extends LitElement {
         }
 
         this._optimisticPlayingTrackId = startId;
-        this.requestUpdate();
 
         // Safety Timeout (8s): If HASS never updates (e.g. failure), clear state eventually
         this._optimisticTimer = setTimeout(() => {
             if (this._optimisticPlayingTrackId === startId) {
                 this._optimisticPlayingTrackId = null;
-                this.requestUpdate();
             }
         }, 8000);
         // ---------------------------
