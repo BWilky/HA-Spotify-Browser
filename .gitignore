@@ -1,3 +1,12 @@
 .DS_Store
 CLAUDE.md
 .claude/
+node_modules/
+dist/
+
+# Local deploy helper — contains HA credentials, never commit
+build.sh
+
+# Circular Std woff2s — commercially licensed, not redistributable
+# (see README "Typeface"; deployed separately by build.sh)
+fonts/
