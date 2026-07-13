@@ -83,7 +83,7 @@ class SpotifyReorderDialog extends LitElement {
 
                 .dialog-title {
                     margin: 0;
-                    font-size: 1.2rem;
+                    font-size: var(--spf-text-lg, 17px);
                     font-weight: bold;
                     color: #fff;
                 }
@@ -168,8 +168,8 @@ class SpotifyReorderDialog extends LitElement {
                     flex-shrink: 0;
                 }
                 .item-info { flex: 1; min-width: 0; }
-                .item-title { font-size: 0.95rem; color: #fff; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                .item-subtitle { font-size: 0.8rem; color: #b3b3b3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .item-title { font-size: var(--spf-text-md, 15px); color: #fff; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .item-subtitle { font-size: var(--spf-text-sm, 12px); color: #b3b3b3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
                 /* Action Buttons */
                 .action-btn {

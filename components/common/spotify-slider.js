@@ -6,7 +6,8 @@ export class SpotifySlider extends LitElement {
             value: { type: Number },
             min: { type: Number },
             max: { type: Number },
-            step: { type: Number }
+            step: { type: Number },
+            disabled: { type: Boolean, reflect: true }
         };
     }
 
@@ -72,6 +73,19 @@ export class SpotifySlider extends LitElement {
                 pointer-events: none;
             }
 
+            :host([disabled]) {
+                cursor: default;
+            }
+
+            :host([disabled]) .slider-fill {
+                opacity: 0.35;
+            }
+
+            :host([disabled]) .native-input {
+                cursor: default;
+                pointer-events: none;
+            }
+
             /* Native input overlay for accessibility and interaction */
             .native-input {
                 position: absolute;
@@ -92,11 +106,13 @@ export class SpotifySlider extends LitElement {
         this.min = 0;
         this.max = 100;
         this.step = 1;
+        this.disabled = false;
         this._isDragging = false;
     }
 
     _handleInput(e) {
         e.stopPropagation(); // Stop propagation of native input
+        if (this.disabled) return;
         this.value = Number(e.target.value);
         this.dispatchEvent(new CustomEvent('input', {
             detail: { value: this.value },
@@ -107,6 +123,7 @@ export class SpotifySlider extends LitElement {
 
     _handleChange(e) {
         e.stopPropagation();
+        if (this.disabled) return;
         this.value = Number(e.target.value);
         this.dispatchEvent(new CustomEvent('change', {
             detail: { value: this.value },
@@ -116,6 +133,7 @@ export class SpotifySlider extends LitElement {
     }
 
     _handlePointerDown() {
+        if (this.disabled) return;
         this._isDragging = true;
         this.requestUpdate();
     }
@@ -143,6 +161,7 @@ export class SpotifySlider extends LitElement {
                     .max=${this.max} 
                     .step=${this.step} 
                     .value=${this.value}
+                    ?disabled=${this.disabled}
                     @input=${this._handleInput}
                     @change=${this._handleChange}
                     @pointerdown=${this._handlePointerDown}

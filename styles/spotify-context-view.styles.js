@@ -54,9 +54,9 @@ export const contextViewStyles = css`
         display: block;
     }
     .hero-text { flex: 1; }
-    .hero-type { font-size: 12px; text-transform: uppercase; font-weight: 700; margin-bottom: 4px; }
+    .hero-type { font-size: var(--spf-text-sm, 12px); text-transform: uppercase; font-weight: 700; margin-bottom: 4px; }
     .hero-title { font-size: 3rem; font-weight: 900; margin: 0 0 8px 0; line-height: 1; }
-    .hero-subtitle { font-size: 14px; color: rgba(255,255,255,0.7); }
+    .hero-subtitle { font-size: var(--spf-text-base, 13.5px); color: rgba(255,255,255,0.7); }
     .hero-actions { display: flex; align-items: center; gap: 16px; margin-top: 16px; }
     .artist-hero-name { position: static; margin-bottom: 16px; font-size: 4rem; font-weight: 900; color: white; text-shadow: 0 4px 12px rgba(0,0,0,0.5); }
     
@@ -70,7 +70,7 @@ export const contextViewStyles = css`
     .hero-btn-fav {
         background: transparent; border: 1px solid rgba(255,255,255,0.3); color: white;
         padding: 8px 16px; border-radius: 20px; display: flex; align-items: center; justify-content: center;
-        cursor: pointer; transition: all 0.2s; font-size: 12px; font-weight: 700; letter-spacing: 1px;
+        cursor: pointer; transition: all 0.2s; font-size: var(--spf-text-sm, 12px); font-weight: 700; letter-spacing: 1px;
     }
     .hero-btn-fav:hover { border-color: white; transform: scale(1.05); }
     .hero-btn-fav.is-favorite { color: var(--spf-brand); border-color: var(--spf-brand); }
@@ -115,8 +115,8 @@ export const contextViewStyles = css`
     }
     
     .track-info-middle { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
-    .track-title { font-size: 14px; font-weight: 600; color: var(--spf-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .track-meta { font-size: 12px; color: var(--spf-text-sub); margin-top: 2px; }
+    .track-title { font-size: var(--spf-text-base, 13.5px); font-weight: 700; color: var(--spf-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .track-meta { font-size: var(--spf-text-sm, 12px); color: var(--spf-text-sub); margin-top: 2px; }
 
     /* Track Rows — the base rules (columns, hover, text colours) live in
        shared-styles.js; this block only carries the context-view overrides. */
@@ -170,7 +170,7 @@ export const contextViewStyles = css`
     /* Artist View Specifics */
     .artist-content { padding-top: 24px; }
     .artist-section { margin-bottom: 40px; }
-    .artist-section h2 { margin-bottom: 16px; font-size: 24px; font-weight: 700; color: var(--spf-text-main); }
+    .artist-section h2 { margin-bottom: 16px; font-size: var(--spf-text-xl, 22px); font-weight: 700; color: var(--spf-text-main); }
 
     /* ================= SPOTIFY-STYLE MOBILE TRACK LIST ================= */
     @media (max-width: 768px) {
@@ -213,12 +213,12 @@ export const contextViewStyles = css`
 
         /* Clean track text (sized to match the native app's mobile list). */
         .track-name {
-            font-size: 14px !important;
+            font-size: var(--spf-text-base, 13.5px) !important;
             font-weight: 500 !important;
         }
 
         .track-artist {
-            font-size: 12px !important;
+            font-size: var(--spf-text-sm, 12px) !important;
             margin-top: 3px !important;
         }
 

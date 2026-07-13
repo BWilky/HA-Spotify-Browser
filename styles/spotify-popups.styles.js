@@ -27,7 +27,7 @@ export const popupsStyles = css`
         box-shadow: 0 10px 40px rgba(0,0,0,0.8);
         display: flex; flex-direction: column; gap: 16px;
     }
-    .device-popup-title { margin: 0; font-size: 18px; font-weight: 700; text-align: center; color: var(--spf-text-main); }
+    .device-popup-title { margin: 0; font-size: var(--spf-text-lg, 17px); font-weight: 700; text-align: center; color: var(--spf-text-main); }
     .device-list { max-height: 300px; overflow-y: auto; }
     
     .device-row {
@@ -41,10 +41,10 @@ export const popupsStyles = css`
     
     .device-icon { width: 24px; height: 24px; }
     .device-info { flex: 1; }
-    .device-name { font-weight: 600; font-size: 14px; display:flex; align-items:center; gap:6px; }
-    .device-type { font-size: 12px; opacity: 0.7; text-transform: capitalize; }
+    .device-name { font-weight: 700; font-size: var(--spf-text-base, 13.5px); display:flex; align-items:center; gap:6px; }
+    .device-type { font-size: var(--spf-text-sm, 12px); opacity: 0.7; text-transform: capitalize; }
     .device-active-icon { display: flex; }
-    .device-default-badge { color: var(--spf-brand); font-size: 10px; border: 1px solid var(--spf-brand); border-radius: 4px; padding: 0 4px; margin-left: 6px; }
+    .device-default-badge { color: var(--spf-brand); font-size: var(--spf-text-xs, 11px); border: 1px solid var(--spf-brand); border-radius: 4px; padding: 0 4px; margin-left: 6px; }
     .device-close-btn { background: transparent; border: none; color: var(--spf-text-main); font-weight: 700; padding: 12px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; align-self: center; }
     
     .device-empty-state {
@@ -58,7 +58,7 @@ export const popupsStyles = css`
         border: 1px solid var(--spf-border);
         color: var(--spf-text-main); padding: 8px 20px; 
         border-radius: 20px; cursor: pointer; 
-        font-size: 12px; font-weight: 700; 
+        font-size: var(--spf-text-sm, 12px); font-weight: 700; 
         text-transform: uppercase; letter-spacing: 1px;
         transition: all 0.2s;
     }
@@ -73,98 +73,11 @@ export const popupsStyles = css`
     }
     .dropdown-menu.visible { display: flex; }
     
-    .menu-item { padding: 12px 16px; cursor: pointer; font-size: 14px; color: var(--spf-text-main); transition: background 0.2s; }
+    .menu-item { padding: 12px 16px; cursor: pointer; font-size: var(--spf-text-base, 13.5px); color: var(--spf-text-main); transition: background 0.2s; }
     @media (hover: hover) { .menu-item:hover { background: var(--spf-hover-white); } }
     .menu-item:active { background: var(--spf-active-white); }
     .menu-item:first-child { border-radius: 8px 8px 0 0; }
     .menu-item:last-child { border-radius: 0 0 8px 8px; }
-
-    /* --- TRACK MENU (header + actions) --- */
-    .track-popup-header {
-        display: grid;
-        grid-template-columns: 56px 1fr;
-        align-items: center;
-        gap: 16px;
-        padding-bottom: 16px;
-        margin-bottom: 12px;
-        border-bottom: 1px solid var(--spf-border);
-        width: 100%;
-        box-sizing: border-box;
-    }
-
-    .track-popup-art {
-        width: 100%;
-        height: 56px;
-        background-color: var(--spf-skeleton-bg);
-        background-size: cover;
-        background-position: center;
-        border-radius: 4px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.4);
-    }
-
-    .track-popup-info {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: flex-start;
-        min-width: 0; /* Required for text truncation in Grid */
-    }
-
-    .track-popup-title-text {
-        font-size: 1.1rem;
-        font-weight: 700;
-        color: var(--spf-text-main);
-        line-height: 1.2;
-        width: 100%;
-        margin-bottom: 2px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .track-popup-artist-text {
-        font-size: 1rem;
-        color: var(--spf-text-sub);
-        line-height: 1.2;
-        width: 100%;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-
-    .track-popup-item {
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        gap: 20px;
-        width: 100%;
-        padding: 14px 8px;
-        background: transparent;
-        border: none;
-        border-radius: 4px;
-        font-size: 16px;
-        color: var(--spf-text-main);
-        text-align: left;
-        cursor: pointer;
-        transition: background 0.2s, opacity 0.2s;
-    }
-
-    .track-popup-item svg {
-        width: 24px;
-        height: 24px;
-        fill: var(--spf-text-sub);
-        flex-shrink: 0;
-        pointer-events: none;
-    }
-
-    .track-popup-item:active,
-    .track-popup-item:hover {
-        background-color: var(--spf-hover-white);
-    }
-
-    .track-popup-item:hover svg {
-        fill: var(--spf-text-main);
-    }
 
     /* --- Reusable Alert Modal --- */
     .alert-content {
@@ -179,13 +92,13 @@ export const popupsStyles = css`
     .alert-content.large { max-width: 480px; }
     .popup-backdrop.visible .alert-content { transform: scale(1); }
 
-    .alert-title { font-size: 18px; font-weight: 700; color: var(--spf-text-main); margin-bottom: 8px; }
-    .alert-message { font-size: 14px; color: var(--spf-text-sub); line-height: 1.5; margin-bottom: 24px; }
+    .alert-title { font-size: var(--spf-text-lg, 17px); font-weight: 700; color: var(--spf-text-main); margin-bottom: 8px; }
+    .alert-message { font-size: var(--spf-text-base, 13.5px); color: var(--spf-text-sub); line-height: 1.5; margin-bottom: 24px; }
 
     .alert-btn {
         background: transparent; border: 1px solid var(--spf-border);
         color: var(--spf-text-main); padding: 12px; border-radius: 24px;
-        font-size: 14px; font-weight: 700; cursor: pointer;
+        font-size: var(--spf-text-base, 13.5px); font-weight: 700; cursor: pointer;
         text-transform: uppercase; letter-spacing: 1px;
         transition: background 0.2s;
     }

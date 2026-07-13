@@ -35,6 +35,47 @@ export function fireHaptic(hapticType) {
     window.dispatchEvent(event);
 }
 
+/* --- Library sort preference --- */
+
+const SORT_KEYS = {
+    playlist: 'spf-playlist-sort',
+    album: 'spf-album-sort',
+    artist: 'spf-artist-sort',
+};
+
+/**
+ * Per-device, per-bucket ordering for library/picker/home lists:
+ *   'recents' (default) — Spotify's native library order (newest-added /
+ *                         last-followed first)
+ *   'alpha'             — SpotifyPlus's client-side A–Z sort
+ */
+export function getLibrarySort(type = 'playlist') {
+    try {
+        return localStorage.getItem(SORT_KEYS[type] || SORT_KEYS.playlist) === 'alpha' ? 'alpha' : 'recents';
+    } catch (_) {
+        return 'recents';
+    }
+}
+
+export function setLibrarySort(type, value) {
+    try {
+        localStorage.setItem(SORT_KEYS[type] || SORT_KEYS.playlist, value === 'alpha' ? 'alpha' : 'recents');
+    } catch (_) { /* private mode etc. — preference just won't persist */ }
+}
+
+/**
+ * Service params for the favorites/followed services honoring the sort
+ * preference. Note: with A–Z + offset paging the integration sorts each page
+ * independently (pre-existing quirk); Recents pages consistently.
+ */
+export function librarySortParams(type = 'playlist') {
+    return { sort_result: getLibrarySort(type) === 'alpha' };
+}
+
+export function getPlaylistSort() { return getLibrarySort('playlist'); }
+export function setPlaylistSort(value) { setLibrarySort('playlist', value); }
+export function playlistSortParams() { return librarySortParams('playlist'); }
+
 /* --- SpotifyPlus response helpers --- */
 
 /**
@@ -46,6 +87,21 @@ export function parseDeviceItems(response) {
     if (Array.isArray(response)) return response;
     if (Array.isArray(response.result)) return response.result;
     if (Array.isArray(response.result?.Items)) return response.result.Items;
+    return [];
+}
+
+/**
+ * Unwraps a `get_player_devices` response (Spotify Web API Device objects,
+ * which carry `supports_volume` — the Connect-device model from
+ * get_spotify_connect_devices does not) into a raw device array.
+ */
+export function parseWebApiDevices(response) {
+    if (!response) return [];
+    if (Array.isArray(response)) return response;
+    if (Array.isArray(response.result)) return response.result;
+    if (Array.isArray(response.result?.devices)) return response.result.devices;
+    if (Array.isArray(response.result?.Items)) return response.result.Items;
+    if (Array.isArray(response.devices)) return response.devices;
     return [];
 }
 

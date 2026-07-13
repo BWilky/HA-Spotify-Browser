@@ -6,11 +6,11 @@ export class DataTriggerTemplate {
     constructor(hass, config) {
         this.hass = hass;
         this.config = config || {};
-        this._sensorEntity = this.config.sensor_entity || 'sensor.spotify_browser_data';
-        this._eventType = this.config.event_type || 'spotify_browser_store_data';
+        this._sensorEntity = this.config.sensor || 'sensor.spotify_browser_data';
+        this._eventType = this.config.event || 'spotify_browser_store_data';
         // Optional middle-man script (e.g. 'script.spotify_browser_store') used to
         // persist data for non-admin users — see _write().
-        this._writeScript = this.config.write_script || null;
+        this._writeScript = this.config.script || null;
         this._storageAttribute = 'data';
     }
 
@@ -27,10 +27,10 @@ export class DataTriggerTemplate {
      * Whether the current user can persist to the sensor, and why not. Reads
      * always work for anyone who can see the sensor; this only describes WRITES.
      *   'no_backend'     — the storage sensor doesn't exist
-     *   'ok'             — admin (fires the event) or guest with a write_script configured
-     *   'guest_local'    — non-admin, no write_script -> read-only for them
+     *   'ok'             — admin (fires the event) or guest with a storage.script configured
+     *   'guest_local'    — non-admin, no storage.script -> read-only for them
      *
-     * Note: when a write_script is configured we trust it rather than requiring
+     * Note: when a storage.script is configured we trust it rather than requiring
      * the script entity to be present in hass.states. Non-admin users can CALL a
      * script they aren't allowed to SEE, so the entity is often absent from their
      * state map even though the call succeeds — gating on its visibility would
@@ -103,7 +103,7 @@ export class DataTriggerTemplate {
     /**
      * Persist the full data object to the sensor. Admins fire the event directly
      * over the websocket (fast, no extra config). Non-admins can't fire events,
-     * so when a `write_script` middle-man is configured they call it instead —
+     * so when a `storage.script` middle-man is configured they call it instead —
      * the script validates the payload and fires the event in HA's context.
      */
     async _write(fullData) {

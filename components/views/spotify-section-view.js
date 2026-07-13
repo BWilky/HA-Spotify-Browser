@@ -43,8 +43,8 @@ export class SpotifySectionView extends LitElement {
                  .table-row:hover { background: rgba(255,255,255,0.1); }
                  .row-img { width: 48px; height: 48px; background-size: cover; background-position: center; border-radius: 4px; background-color: #282828; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
                  .row-info { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
-                 .row-title { font-size: 16px; font-weight: 500; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-                 .row-sub { font-size: 14px; color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
+                 .row-title { font-size: var(--spf-text-md, 15px); font-weight: 500; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+                 .row-sub { font-size: var(--spf-text-base, 13.5px); color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
                  
                  @media (min-width: 769px) {
                      .table-row {

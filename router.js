@@ -10,7 +10,7 @@ export class Router extends EventTarget {
         this.currentPageData = null;
 
         this.pageCache = new Map();
-        this.maxCacheSize = this.config.cache_size || 10; // Matches ConfigParser default
+        this.maxCacheSize = this.config.browser?.cache_size || 10; // Matches ConfigParser default
 
         // Dependencies needed for page creation
         this.hass = null;
@@ -29,7 +29,7 @@ export class Router extends EventTarget {
         }
         if (config) {
             this.config = config;
-            this.maxCacheSize = this.config.cache_size || 10;
+            this.maxCacheSize = this.config.browser?.cache_size || 10;
             this.pageCache.forEach(page => page.config = config);
         }
         if (pinned) {
@@ -71,7 +71,7 @@ export class Router extends EventTarget {
         const oldPage = this.pageCache.get(oldPageId);
 
         // 3. Handle Transitions
-        const transitionType = this.config?.animations?.page_transition || 'fade';
+        const transitionType = this.config?.appearance?.animations?.page_transition || 'fade';
         this._executeTransition(newPage, oldPage, transitionType, direction);
 
         // 4. Update State
@@ -116,6 +116,17 @@ export class Router extends EventTarget {
         this.currentPageData = null;
     }
 
+    /**
+     * Drop a single cached page (e.g. a deleted playlist) from the cache, the
+     * DOM and the history stack. Navigate away first if it's on screen.
+     */
+    dropPage(pageId) {
+        const page = this.pageCache.get(pageId);
+        if (page && page.parentNode) page.parentNode.removeChild(page);
+        this.pageCache.delete(pageId);
+        this.history = this.history.filter(id => id !== pageId);
+    }
+
     _addToCache(id, element) {
         if (this.pageCache.has(id)) return;
         this.pageCache.set(id, element);
@@ -157,11 +168,7 @@ export class Router extends EventTarget {
             }
             search.addEventListener('navigate', (e) => this.navigateTo(e.detail.pageId, e.detail.data));
             search.addEventListener('back', () => this.goBack());
-            search.addEventListener('open-track-menu', (e) => {
-                if (this.host && this.host._handleOpenTrackMenu) {
-                    this.host._handleOpenTrackMenu(e);
-                }
-            });
+            // open-track-menu bubbles (composed) to the app wrapper's listener.
             return search;
         } else if (pageId === 'library') {
             const lib = document.createElement('spotify-library');
@@ -176,13 +183,7 @@ export class Router extends EventTarget {
             contextView.pageId = pageId;
             contextView.data = data;
 
-            // Forward track menu events to the host (App)
-            contextView.addEventListener('open-track-menu', (e) => {
-                if (this.host && this.host._handleOpenTrackMenu) {
-                    this.host._handleOpenTrackMenu(e);
-                }
-            });
-
+            // open-track-menu bubbles (composed) to the app wrapper's listener.
             contextView.addEventListener('header-scroll', (e) => {
                 this.dispatchEvent(new CustomEvent('header-scroll', { detail: e.detail }));
             });

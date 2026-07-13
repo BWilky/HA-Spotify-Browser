@@ -71,7 +71,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 padding-bottom: 12px;
                 border-bottom: 1px solid var(--spf-border-subtle);
             }
-            .col-title { font-size: 16px; font-weight: 700; color: var(--spf-text-main); text-transform: uppercase; letter-spacing: 0.5px; }
+            .col-title { font-size: var(--spf-text-md, 15px); font-weight: 700; color: var(--spf-text-main); text-transform: uppercase; letter-spacing: 0.5px; }
             
             .refresh-btn, .reset-btn {
                 background: transparent; border: none; 
@@ -82,7 +82,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
             .refresh-btn { color: var(--spf-brand); }
             .refresh-btn:hover { background: rgba(30,215,96,0.1); }
             
-            .reset-btn { color: var(--spf-text-sub); font-size: 11px; font-weight: 600; text-transform: uppercase; gap:4px; }
+            .reset-btn { color: var(--spf-text-sub); font-size: var(--spf-text-xs, 11px); font-weight: 700; text-transform: uppercase; gap:4px; }
             .reset-btn:hover { color: #ff5555; background: rgba(255,85,85,0.1); }
             
             .refresh-btn svg, .reset-btn svg { width: 18px; height: 18px; }
@@ -119,8 +119,8 @@ export class SpotifyDeviceManagerPopup extends LitElement {
             .row-icon svg { width: 20px; height: 20px; fill: currentColor; }
 
             .row-info { display: flex; flex-direction: column; overflow: hidden; }
-            .row-name { font-weight: 600; color: var(--spf-text-main); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .row-type { font-size: 11px; color: var(--spf-text-sub); text-transform: uppercase; margin-top: 2px; }
+            .row-name { font-weight: 700; color: var(--spf-text-main); font-size: var(--spf-text-base, 13.5px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .row-type { font-size: var(--spf-text-xs, 11px); color: var(--spf-text-sub); text-transform: uppercase; margin-top: 2px; }
 
             .row-actions { display: flex; gap: 4px; align-items: center; }
 
@@ -155,8 +155,8 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 padding: 12px; background: rgba(255,255,255,0.05);
                 border-radius: 8px; margin-top: auto; /* Push to bottom */
             }
-            .setting-label { font-size: 14px; font-weight: 600; color: var(--spf-text-main); }
-            .setting-desc { font-size: 11px; color: var(--spf-text-sub); margin-top: 2px; }
+            .setting-label { font-size: var(--spf-text-base, 13.5px); font-weight: 700; color: var(--spf-text-main); }
+            .setting-desc { font-size: var(--spf-text-xs, 11px); color: var(--spf-text-sub); margin-top: 2px; }
             
             .switch { position: relative; display: inline-block; width: 36px; height: 20px; }
             .switch input { opacity: 0; width: 0; height: 0; }
@@ -205,8 +205,8 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 /* Settings follow the saved list rather than being pushed to the
                    bottom of a now-scrolling column. */
                 .setting-row { margin-top: 8px !important; }
-                .col-title { font-size: 14px; }
-                .row-name { font-size: 15px; }
+                .col-title { font-size: var(--spf-text-base, 13.5px); }
+                .row-name { font-size: var(--spf-text-md, 15px); }
                 /* Bigger tap targets for the row action buttons. */
                 .icon-btn { width: 34px; height: 34px; }
                 .icon-btn svg { width: 18px; height: 18px; }
@@ -466,7 +466,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                             </div>
                             
                             <div class="device-list">
-                                ${this._savedDevices.length === 0 ? html`<div style="opacity:0.5; text-align:center; padding:20px 0; font-size:13px;">No saved devices.<br>Add from the Live list.</div>` : ''}
+                                ${this._savedDevices.length === 0 ? html`<div style="opacity:0.5; text-align:center; padding:20px 0; font-size: var(--spf-text-base, 13.5px);">No saved devices.<br>Add from the Live list.</div>` : ''}
                                 ${this._savedDevices.map((d, index) => html`
                                     <div class="manager-row" 
                                          draggable="true"
@@ -557,7 +557,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                             </div>
 
                             <div class="device-list">
-                                ${this._liveDevices.length === 0 && !this._isLoadingLive ? html`<div style="opacity:0.5; text-align:center; padding:20px 0; font-size:13px;">No devices found nearby.<br>Start playback on a device to see it here.</div>` : ''}
+                                ${this._liveDevices.length === 0 && !this._isLoadingLive ? html`<div style="opacity:0.5; text-align:center; padding:20px 0; font-size: var(--spf-text-base, 13.5px);">No devices found nearby.<br>Start playback on a device to see it here.</div>` : ''}
                                 
                                 ${this._liveDevices.map(d => {
             const isAlreadySaved = this._savedDevices.find(s => s.id === d.id);
@@ -575,7 +575,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                                                     <button class="icon-btn add" title="Add to Saved" @click=${() => this.handleAdd(d)}>
                                                         <svg viewBox="0 0 24 24"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
                                                     </button>
-                                                ` : html`<span style="font-size:10px; opacity:0.6; padding:0 8px;">Saved</span>`}
+                                                ` : html`<span style="font-size: var(--spf-text-xs, 11px); opacity:0.6; padding:0 8px;">Saved</span>`}
                                             </div>
                                         </div>
                                     `;

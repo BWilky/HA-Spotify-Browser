@@ -73,7 +73,7 @@ export class SpotifySidebarPlayer extends LitElement {
                 color: #b3b3b3;
                 padding: 0 16px;
                 height: 100%;
-                font-size: 0.9rem;
+                font-size: var(--spf-text-base, 13.5px);
                 font-weight: 700;
                 cursor: pointer;
                 transition: color 0.2s ease;

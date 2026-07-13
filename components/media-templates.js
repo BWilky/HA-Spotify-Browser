@@ -23,7 +23,7 @@ export function renderCardTemplate(item, type, clickHandler) {
         <div class="media-card interactive ${isArtist ? 'artist-card' : ''}" 
              @click=${clickHandler}>
             <div class="media-image-wrapper">
-                <div class="media-image" style="background-image: url('${imgUrl}'); ${isArtist ? 'border-radius: 50%;' : ''}"></div>
+                <div class="media-image ${imgUrl ? '' : 'art-fallback'}" style="${imgUrl ? `background-image: url('${imgUrl}');` : ''} ${isArtist ? 'border-radius: 50%;' : ''}"></div>
                 ${!isArtist ? html`
                 <div class="play-btn-overlay">
                     ${playIcon(24)}
@@ -53,7 +53,7 @@ export function renderPillTemplate(item, playHandler, menuHandler, saveHandler, 
 
     return html`
         <div class="artist-top-track interactive">
-            <div class="track-art-left" style="background-image: url('${imgUrl}')">
+            <div class="track-art-left ${imgUrl ? '' : 'art-fallback'}" style="${imgUrl ? `background-image: url('${imgUrl}')` : ''}">
                 <button class="play-btn-overlay mini" @click=${(e) => { e.stopPropagation(); playHandler(e); }}>
                     ${isPlaying ? playingBarsIcon(24) : playIcon()}
                 </button>
@@ -128,15 +128,11 @@ export function renderTrackSkeletonTemplate() {
  * Standardizes the "Track Row" layout (Index + Image + Title + Artist + Actions).
  * Used for Playlists, Albums, and Track Lists.
  *
- * Default (legacy) mode dispatches 'open-track-menu', 'play-track' (via click),
- * 'save-track', 'queue-track' and renders the index column plus an optional
- * small-art column.
- *
  * Playlist mode (options.layout === 'playlist') is the superset used by the
  * live playlist view: album art replaces the index column (playlists only —
  * albums keep the index), the playing row carries an inline equalizer and
- * 'playing' class, the like button reflects optimistic state, and the action
- * buttons call the supplied handlers instead of dispatching events.
+ * 'playing' class, and the like button reflects optimistic state. Action
+ * buttons render only for the handlers the caller supplies.
  *
  * @param {Object} track
  * @param {number} index - 1-based row number.
@@ -158,6 +154,7 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
     const trackData = {
         name: track.name,
         artist: artistNames,
+        album: track.album?.name || '',
         uri: track.uri,
         id: track.id,
         image,
@@ -165,16 +162,6 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
 
     const isPlaylist = options.layout === 'playlist';
     const { isPlaying = false, isAlbum = false, liked = false, onSave, onQueue, onMenu } = options;
-
-    const dispatchAction = (e, action, detail = {}) => {
-        e.stopPropagation();
-        const target = e.target;
-        target.dispatchEvent(new CustomEvent(action, {
-            detail: { ...detail, trackData: trackData }, // standardized detail
-            bubbles: true,
-            composed: true
-        }));
-    };
 
     // First column. Playlist mode keeps the album art (playlists) / index
     // (albums) there even while playing — the now-playing cue is the inline
@@ -193,30 +180,20 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
             </div>`
         : html`<div class="track-name">${track.name}</div>`;
 
-    const actions = isPlaylist
-        ? html`
+    // Row actions require caller-supplied handlers (like / queue / context menu).
+    const actions = html`
+        ${onSave ? html`
             <button class="track-action-btn ${liked ? 'is-favorite' : ''}" data-action="save" @click=${(e) => onSave(e, track)}>
                ${heartToggleIcon(liked)}
-            </button>
+            </button>` : ''}
+        ${onQueue ? html`
             <button class="track-action-btn" data-action="queue" @click=${(e) => onQueue(e, track)}>
                ${queueIcon}
-            </button>
+            </button>` : ''}
+        ${onMenu ? html`
             <button class="track-action-btn" data-action="menu" @click=${(e) => onMenu(e, trackData)}>
                 ${menuIcon}
-            </button>`
-        : html`
-            <button class="track-action-btn" data-action="save"
-                    @click=${(e) => dispatchAction(e, 'save-track')}>
-               ${heartIcon(false)}
-            </button>
-            <button class="track-action-btn" data-action="queue"
-                    @click=${(e) => dispatchAction(e, 'queue-track')}>
-               ${queueIcon}
-            </button>
-            <button class="track-action-btn" data-action="menu"
-                    @click=${(e) => dispatchAction(e, 'open-track-menu', trackData)}>
-                ${menuIcon}
-            </button>`;
+            </button>` : ''}`;
 
     return html`
         <div class="track-row interactive ${isPlaylist ? (isPlaying ? 'playing' : '') : (image ? 'with-art' : '')}"
@@ -263,10 +240,10 @@ export function renderMediaRowTemplate(item, type, clickHandler) {
              style="grid-template-columns: 80px 1fr auto; height: auto; padding: 12px;"
              @click=${clickHandler}>
             
-            <div class="track-art-small" style="background-image: url('${imgUrl}'); width: 64px; height: 64px; border-radius: ${isArtist ? '50%' : '4px'}; margin-right: 16px;"></div>
+            <div class="track-art-small ${imgUrl ? '' : 'art-fallback'}" style="${imgUrl ? `background-image: url('${imgUrl}');` : ''} width: 64px; height: 64px; border-radius: ${isArtist ? '50%' : '4px'}; margin-right: 16px;"></div>
 
             <div class="track-info">
-                <div class="track-name" style="font-size: 16px; margin-bottom: 4px;">${name}</div>
+                <div class="track-name" style="font-size: var(--spf-text-md, 15px); margin-bottom: 4px;">${name}</div>
                 <div class="track-artist">${subtitle}</div>
             </div>
 

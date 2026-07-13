@@ -90,8 +90,8 @@ class SpotifyHeader extends LitElement {
 
     render() {
         return html`
-            <div 
-                class="header ${this.transparent ? 'transparent' : ''}"
+            <div
+                class="header ${this.transparent ? 'transparent' : ''} ${this.transparent && this.scrollAlpha > 0.01 ? 'blurred' : ''}"
                 style="--header-alpha: ${this.transparent ? this.scrollAlpha : 1};"
             >
                 <div class="header-left">

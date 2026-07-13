@@ -29,7 +29,7 @@ export class SpotifyAccountPanel extends LitElement {
         return css`
             :host { display: contents; }
 
-            .title { font-size: 26px; font-weight: 800; margin: 0 0 18px; flex-shrink: 0; }
+            .title { font-size: var(--spf-text-2xl, 26px); font-weight: 900; margin: 0 0 18px; flex-shrink: 0; }
 
             .list {
                 overflow-y: auto;
@@ -51,17 +51,17 @@ export class SpotifyAccountPanel extends LitElement {
             .av svg { width: 28px; height: 28px; fill: currentColor; }
             .row-text { min-width: 0; flex: 1; }
             .row-name {
-                font-size: 17px; font-weight: 600; color: #fff;
+                font-size: var(--spf-text-lg, 17px); font-weight: 700; color: #fff;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .row.active .row-name { color: var(--spf-brand, #1ed760); }
             .badge {
                 flex-shrink: 0;
-                font-size: 12px; font-weight: 700;
+                font-size: var(--spf-text-sm, 12px); font-weight: 700;
                 color: #000; background: var(--spf-brand, #1ed760);
                 padding: 3px 10px; border-radius: 999px;
             }
-            .empty { text-align: center; color: var(--spf-text-sub, #b3b3b3); padding: 28px 0; font-size: 14px; }
+            .empty { text-align: center; color: var(--spf-text-sub, #b3b3b3); padding: 28px 0; font-size: var(--spf-text-base, 13.5px); }
         `;
     }
 

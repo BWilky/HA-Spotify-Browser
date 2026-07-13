@@ -1,67 +1,157 @@
-# Spotify Browser Card - Comprehensive Configuration Example
+# Spotify Browser Card - Comprehensive Configuration Example (schema v2)
 # Copy relevant sections to your Lovelace configuration.
+#
+# Every option group follows one shorthand rule:
+#   omitted     -> sensible defaults
+#   true        -> enabled with defaults
+#   false       -> disabled
+#   scalar/list -> the group's primary value (e.g. auto_close: 300, volume: 25)
+#   object      -> your keys merged over the defaults
+# Unknown/renamed keys log a one-time console warning with a hint.
 
 type: custom:spotify-browser-card
 
 # --- Core Settings ---
-# The main Spotify Media Player entity (Required if spotify_accounts not used)
-entity: media_player.spotify_user 
+# The main Spotify Media Player entity (Required if accounts not used)
+entity: media_player.spotify_user
 
-# --- Home On Exit Behavior ---
-# Defines behavior when you close and reopen the browser.
-# Options:
-#   true (Default) -> Always resets to Home screen.
-#   false          -> Remembers last page and position forever (until cache clears).
-#   timeout: N     -> Remembers state for N seconds, then resets to Home.
-homeonexit:
-  timeout: 300 # 5 minutes
+# --- Accounts (Multi-User Support) ---
+# Adds a user switcher menu.
+# A profile avatar is shown top-left on the home screen. With more than one
+# account, tapping it opens a slide-up switcher (the active account is badged).
+# `image` is optional — if omitted, the live Spotify profile picture is used,
+# falling back to a default avatar icon.
+accounts:
+  - name: "Bryce"
+    entity: media_player.spotify_bryce
+    default: true
+    hash: "#bryce" # URL hash to open this account directly
+    image: "/local/spotify/bryce.jpg" # optional avatar override
+  - name: "Alice"
+    entity: media_player.spotify_alice
+    hash: "#alice"
 
+# --- Browser Behavior ---
+browser:
+  # URL hash that opens the browser ('#' added automatically).
+  # Open straight to the mobile Now Playing view by appending `-now-playing` to
+  # any trigger hash (e.g. "#spotify-browser-now-playing") or by firing the
+  # `spotify-browser-open-now-playing` window event. The now-playing surface sits
+  # over Spotify home, so dismissing it lands on home. Falls back to a normal open
+  # if nothing is playing (and on desktop, which has a persistent now-playing rail).
+  hash: spotify-browser
 
-device_playback:
-  # Device Manager (Optional)
-  # Persistent device list, sorting, and defaults using an input_select helper.
-  helper: input_select.spotify_browser_device_manager
+  # Close the browser after N seconds without user interaction while it is open.
+  # A number of seconds, or { timeout: 300 }. 0 disables. Idle time is
+  # wall-clock, so time spent backgrounded counts — mainly useful for wall
+  # tablets and desktops (phones already close on app background).
+  auto_close: 0
 
-  # Default Device for Idle Playback
-  # REMOVED: Managed via Device Manager (input_select) or interactive prompt.
+  # Behavior when you close and reopen the browser:
+  #   true (Default) -> Always resets to Home screen.
+  #   false          -> Remembers last page and position forever (until cache clears).
+  #   N / timeout: N -> Remembers state for N seconds, then resets to Home.
+  home_on_exit: 300 # 5 minutes
 
-  # Volume Configuration
+  # Max number of pages to keep in memory (default 10, LRU eviction).
+  cache_size: 15
+
+  # Verbose console logging.
+  debug: false
+
+# --- Appearance ---
+appearance:
+  # Performance profile (default 'auto'):
+  #   auto - best-effort: weak hardware (low RAM/CPU cores) gets the lite profile
+  #   high - full visuals
+  #   low  - lite profile: forces blur off + trims decorative motion
+  # The lite profile disables backdrop blur, skips the scroll parallax, and
+  # skips the Liked Songs genre-pill lookups. Set 'low' explicitly for a known
+  # slow tablet (auto can't always detect iPads).
+  performance: auto
+
+  # Transitions. Shorthand: `animations: false` turns everything off.
+  animations:
+    page_transition: fade # 'fade', 'slide', 'none'
+    browser_open: fade
+    blur: true # Set to false for opaque background (performance boost)
+
+  # Size and behavior of the popup on desktop screens (>768px).
+  desktop:
+    # Option 1: Fixed Sizing (width/height imply mode: fixed)
+    # width: 1000px
+    # height: 700px
+
+    # Option 2: Fullscreen with Margin
+    fullscreen: true
+    margin: 32px
+    # Individual margins override the global margin:
+    # margin_top: 50px
+    # margin_left: 10%
+    # margin_right: 0
+    # margin_bottom: 50px
+
+# --- Home Screen ---
+home:
+  # Section order. Omit items to hide them. Tokens: pinned, recently_played,
+  # made_for_you, favourite_playlists, followed_artists, favourite_albums
+  sort:
+    - pinned
+    - recently_played
+    - made_for_you
+    - favourite_playlists
+    - followed_artists
+    - favourite_albums
+
+  # Pinned items section + manager. Pins persist via the storage sensor below —
+  # no helper entity needed.
+  pinned: true
+
+  # Made For You section. A plain list is treated as `content`.
+  made_for_you:
+    content:
+      - id: "37i9dQZF1DXcBWIGoYBM5M"
+        title: "Top Hits"
+        type: "playlist"
+    pills: false # genre-pill styling on desktop
+
+# --- Devices & Volume ---
+devices:
+  # Device ID marked with a star in the picker.
+  default: "speaker_kitchen"
+
+  # Icon overrides for the picker (match by name or id; mdi: or image URL).
+  icons:
+    - name: "Kitchen Speaker"
+      icon: mdi:speaker
+
+  # Volume behavior. Shorthand: `volume: 25` just sets the default level.
   volume:
-    # Option 1: Simple Default (Scalar)
-    # default: 15  # Using this implies no time-based rules
-    
-    # Option 2: Advanced (Time-Based Rules)
-    default:
-      fallback: 25 # Used if no rules match
-      rules:
-        - start: '09:00'
-          end: '17:00'
-          level: '35' # Daytime volume
-        - start: '22:00'
-          end: '07:00'
-          level: '15' # Quiet at night
-         
-    # Slider Settings
-    slider:
-      rate_control: true # Throttle volume updates (Default: true)
-      optimistic: true   # Optimistic UI updates (Default: true)
+    fallback: 25 # Used if no rules match
+    rules:
+      - start: '09:00'
+        end: '17:00'
+        level: 35 # Daytime volume
+      - start: '22:00'
+        end: '07:00'
+        level: 15 # Quiet at night
+    rate_control: true # Throttle volume updates (Default: true)
+    optimistic: true   # Optimistic UI updates (Default: true)
 
-
-# --- Queue & Mini Player --- 
-
+# --- Queue & Mini Player ---
 queue:
-  - desktop:
-      # Open the queue sidebar automatically when browser opens?
-      open_init: true
-      
-      # Customize mini-player buttons (true/false)
-      miniplayer:
-        shuffle: true
-        previous: true
-        next: true
-        like: true   # Heart button
-        volume: true # Volume slider
-        device: true # Device picker
+  # Open the queue sidebar automatically when the browser opens on desktop.
+  open_on_desktop: true
+
+  # Mini-player controls row. Default: enabled with all buttons on.
+  # `miniplayer: false` hides the row; an object merges over the defaults.
+  miniplayer:
+    shuffle: true
+    previous: true
+    next: true
+    like: true   # Heart button
+    volume: true # Volume slider
+    device: true # Device picker
 
 # --- Sonos Integration (optional) ---
 # Sonos speakers are "restricted" Spotify Connect devices: their playback and
@@ -72,6 +162,8 @@ queue:
 # media_player entity. Grouped speakers are automatically controlled via the
 # group coordinator. Has no effect on non-Sonos devices.
 # Recommended: SpotifyPlus >= 1.0.95 and its Spotify Web Player token auth.
+# Shorthand: `sonos: true`. Configuring any sonos key implies enabled unless
+# you set `enabled: false`.
 sonos:
   enabled: true
 
@@ -83,6 +175,13 @@ sonos:
   #                 (best with Web Player token auth configured).
   launch_mode: local
 
+  # Trust the mapped Sonos entity's own state FIRST for now-playing/controls,
+  # falling back to SpotifyPlus when the speaker has nothing to show.
+  prefer_sonos: false
+
+  # Log [Sonos] routing decisions to the console.
+  debug: false
+
   # Optional. Sonos speakers are auto-detected by matching the Spotify device
   # name to a Sonos media_player's friendly name. Add entries only to override
   # the auto-detection (wrong match) or to force a device to be treated as Sonos.
@@ -91,44 +190,7 @@ sonos:
       entity: media_player.living_room    # HA Sonos media_player entity
       is_sonos: true                      # force Sonos handling for this device
 
-# --- Cache & Performance ---
-# Max number of pages to keep in memory (default 10)
-# Uses Least-Recently-Used (LRU) eviction policy.
-cache_size: 15
-
-# Performance profile (default 'auto'):
-#   auto - best-effort: weak hardware (low RAM/CPU cores) gets the lite profile
-#   high - full visuals (aliases: full, max)
-#   low  - lite profile: forces blur off + trims decorative motion (alias: lite)
-# The "lite" profile disables backdrop blur, skips the scroll parallax, and
-# skips the Liked Songs genre-pill lookups. Set 'low' explicitly for a known
-# slow tablet (auto can't always detect iPads).
-performance: auto
-
-# --- Animations ---
-# Customize the look and feel of transitions.
-animations:
-  page_transition: fade # 'fade', 'slide', 'none'
-  browser_open: fade
-  blur: true # Set to false for opaque background (performance boost)
-
-# --- Accounts (Multi-User Support) ---
-# Adds a user switcher menu.
-# A profile avatar is shown top-left on the home screen. With more than one
-# account, tapping it opens a slide-up switcher (the active account is badged).
-# `image` is optional — if omitted, the live Spotify profile picture is used,
-# falling back to a default avatar icon.
-spotify_accounts:
-  - name: "Bryce"
-    entity: media_player.spotify_bryce
-    default: true
-    hash: "#bryce" # URL hash to open this account directly
-    image: "/local/spotify/bryce.jpg" # optional avatar override
-  - name: "Alice"
-    entity: media_player.spotify_alice
-    hash: "#alice"
-
-# --- Persistent Storage (Required for pinning) ---
+# --- Persistent Storage (Required for pinning + saved device settings) ---
 # Pinned items and saved device settings persist via a Home Assistant
 # trigger-template sensor (set it up with the YAML below). By default the card
 # uses 'sensor.spotify_browser_data' and the 'spotify_browser_store_data' event.
@@ -136,16 +198,16 @@ spotify_accounts:
 # sensor 'sensor.spotify_browser_data_2') or you renamed the sensor/event.
 # Without this sensor there is no pinning (there is no per-device fallback).
 #
-# write_script (Optional): lets NON-ADMIN / guest users edit pins. Saving fires
+# script (Optional): lets NON-ADMIN / guest users edit pins. Saving fires
 # a HA event, which only admins may do — so by default guests can SEE pins but
 # can't add/remove/reorder them (the pin and edit buttons are hidden). Create a
 # middle-man script that fires the event for them (it can validate the payload
 # first) and point the card at it here, and guests get full pin editing too.
 # Admins always fire the event directly and ignore this. See the script below.
 storage:
-  sensor_entity: sensor.spotify_browser_data
-  event_type: spotify_browser_store_data
-  # write_script: script.spotify_browser_store
+  sensor: sensor.spotify_browser_data
+  event: spotify_browser_store_data
+  # script: spotify_browser_store
 
 # Trigger-template sensor + middle-man script to paste into your HA config.
 #
@@ -177,62 +239,8 @@ storage:
 #         event_data:
 #           data: "{{ data }}"
 
-# --- Home Screen Configuration ---
-homescreen:
-  cache: true
-  expiry: 60 # Minutes before refreshing home data
-
-  # Pinned Items (Sticky)
-  # Requires an input_select entity in Home Assistant to store the pinned items.
-  sticky:
-    helper: input_select.spotify_pinned_items
-
-  # Section Sorting & Visibility
-  # Define the order of sections. Omit items to hide them.
-  # Available options: pinned, recently played, followed_artists, favourite_playlists, favourite_albums, made_for_you
-  sort:
-    - pinned
-    - recently played
-    - made_for_you
-    - favourite_playlists
-    - followed_artists
-    - favourite_albums
-   
-# --- Advanced Features ---
-advanced:
-  # Similar Artists logic
-  similar_artists:
-    provider: "lastfm"
-    limit: 10
-
-# --- External Providers ---
-external_providers:
+# --- External Integrations ---
+integrations:
+  # A Last.fm API key enables "Fans also like" on artist pages.
   lastfm:
     api_key: "YOUR_LASTFM_API_KEY"
-
-# --- Auto Close ---
-auto_close_seconds: 0
-closeondisconnect: true
-custom_hash: "#spotify-browser"
-# Open straight to the mobile Now Playing view by appending `-now-playing` to
-# any trigger hash (e.g. "#spotify-browser-now-playing") or by firing the
-# `spotify-browser-open-now-playing` window event. The now-playing surface sits
-# over Spotify home, so dismissing it lands on home. Falls back to a normal open
-# if nothing is playing (and on desktop, which has a persistent now-playing rail).
-
-# --- Desktop Styling ---
-# Controls the size and behavior of the popup on desktop screens (>768px).
-desktop_style:
-  # Option 1: Fixed Sizing
-  # mode: fixed
-  # width: 1000px
-  # height: 700px
-
-  # Option 2: Fullscreen with Margin
-  fullscreen: true
-  margin: 32px
-  # You can also use individual margins (overrides global margin)
-  # margin_top: 50px
-  # margin_left: 10%
-  # margin_right: 0
-  # margin_bottom: 50px

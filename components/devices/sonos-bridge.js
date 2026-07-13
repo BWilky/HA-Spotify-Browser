@@ -14,13 +14,31 @@ import { spotifyUriFromContentId } from '../../utils.js';
  * and the HA Sonos service calls. It is a no-op unless `config.sonos.enabled`.
  */
 export class SonosBridge {
-    /** @param {object} hass @param {{enabled:boolean, deviceMap:Array}} sonosConfig */
+    /** @param {object} hass @param {{enabled:boolean, prefer_sonos:boolean, device_map:Array}} sonosConfig */
     constructor(hass, sonosConfig = null) {
         this.hass = hass;
-        this.config = sonosConfig || { enabled: false, deviceMap: [] };
+        this.config = sonosConfig || { enabled: false, device_map: [] };
         /** Optional callback for user-visible degradation notices (wired to a toast). */
         this.onDegraded = null;
         this._unmappedNotified = false;
+        // Last Sonos entity known to be the playback target. Local launches never
+        // engage Spotify Connect, so the SpotifyPlus entity stays idle with blank
+        // attributes and attribute-based detection can't see the playback at all —
+        // this memory is what keeps display/control routed to the speaker.
+        this._lastEntity = null;
+        this._launchGraceUntil = 0;
+    }
+
+    /**
+     * Record that the card just launched playback onto a Sonos entity. The grace
+     * window keeps the entity trusted while it transitions (idle → playing) as
+     * its queue loads, before its own state can vouch for it.
+     */
+    noteLaunch(entity) {
+        if (!entity) return;
+        this._lastEntity = entity;
+        this._launchGraceUntil = Date.now() + 30000;
+        this.log(`noteLaunch: ${entity} is the playback target (30s grace)`);
     }
 
     setHass(hass) { this.hass = hass; }
@@ -49,8 +67,29 @@ export class SonosBridge {
         if (this.config?.debug) console.log('%c[Sonos]', 'color:#1ed760;font-weight:bold', ...args);
     }
 
-    /** The configured device_map (array of { spotify, entity, isSonos }). */
-    get _deviceMap() { return this.config?.deviceMap || []; }
+    /** The configured device_map (array of { spotify, entity, is_sonos }). */
+    get _deviceMap() { return this.config?.device_map || []; }
+
+    /**
+     * For sonos.prefer_sonos: the first device_map entity with something to
+     * show — playing/buffering beats paused across all entries; the media_title
+     * guard keeps an idle-but-on speaker (empty queue) from hijacking the
+     * display. Returns { entity, state } or null.
+     */
+    _preferredMappedEntity() {
+        const states = this.hass?.states || {};
+        const entities = this._deviceMap.map(m => m.entity).filter(Boolean);
+        const firstIn = (wanted) => {
+            for (const eid of entities) {
+                const s = states[eid];
+                if (s && wanted.includes(s.state) && s.attributes?.media_title) {
+                    return { entity: eid, state: s.state };
+                }
+            }
+            return null;
+        };
+        return firstIn(['playing', 'buffering']) || firstIn(['paused']);
+    }
 
     /** Find a device_map entry matching a Spotify device name or id (case-insensitive). */
     _mapEntryFor(deviceNameOrId) {
@@ -73,7 +112,7 @@ export class SonosBridge {
         const name = device?.name || attributes?.sp_device_name || attributes?.source;
         const id = device?.id || attributes?.sp_device_id;
         const entry = this._mapEntryFor(name) || this._mapEntryFor(id);
-        if (entry?.isSonos) return true;
+        if (entry?.is_sonos) return true;
 
         // 2. Brand reported on the resolved device object (from get_spotify_connect_devices).
         if (device?.brand && String(device.brand).toLowerCase().includes('sonos')) return true;
@@ -125,17 +164,75 @@ export class SonosBridge {
     }
 
     /**
-     * Resolve the active playback target from the SpotifyPlus entity attributes:
-     * whether the active Spotify Connect device is a Sonos speaker, and which HA
-     * Sonos media_player entity drives it. Returns { isSonos, entity }. Note
-     * isSonos can be true with a null entity (Sonos detected but no HA entity
-     * matched) — callers fall back to the SpotifyPlus entity in that case.
+     * Resolve the active playback target: whether playback is on a Sonos speaker,
+     * and which HA Sonos media_player entity drives it. Primary detection reads
+     * the SpotifyPlus entity attributes; when those are blank (SpotifyPlus idle —
+     * the steady state during local Sonos playback, which Spotify Connect never
+     * sees) it falls back to the remembered launch target, and finally to any
+     * device_map speaker still playing x-sonos-spotify content (dashboard-reload
+     * recovery). Returns { isSonos, entity }. Note isSonos can be true with a
+     * null entity (Sonos detected but no HA entity matched) — callers fall back
+     * to the SpotifyPlus entity in that case.
      */
     activeTarget(attributes = {}) {
-        if (!this.enabled || !this.isSonosTarget(null, attributes)) {
+        if (!this.enabled) return { isSonos: false, entity: null };
+
+        // Explicit preference (sonos.prefer_sonos): the mapped speaker(s) are the
+        // primary player — trust their own state before any Connect detection.
+        // A playing speaker always wins; a merely-paused one yields to a live
+        // active device reported by SpotifyPlus (don't mask real playback
+        // elsewhere with a stale paused speaker).
+        if (this.config?.prefer_sonos) {
+            const hit = this._preferredMappedEntity();
+            if (hit && (hit.state !== 'paused' || !(attributes?.sp_device_name || attributes?.source))) {
+                if (this._lastEntity !== hit.entity) {
+                    this.log(`activeTarget: preferred mapped speaker ${hit.entity} (${hit.state})`);
+                }
+                this._lastEntity = hit.entity;
+                return { isSonos: true, entity: hit.entity };
+            }
+        }
+
+        if (this.isSonosTarget(null, attributes)) {
+            const entity = this.resolveSonosEntity(null, attributes);
+            if (entity) this._lastEntity = entity;
+            return { isSonos: true, entity };
+        }
+
+        // SpotifyPlus is confidently reporting a different (non-Sonos) active
+        // device — drop any remembered Sonos target.
+        if (attributes?.sp_device_name || attributes?.source) {
+            this._lastEntity = null;
             return { isSonos: false, entity: null };
         }
-        return { isSonos: true, entity: this.resolveSonosEntity(null, attributes) };
+
+        // No active device reported (SpotifyPlus idle). Local Sonos playback is
+        // invisible to the Spotify Web API, so this is the steady state while a
+        // locally-launched queue plays — trust the remembered entity as long as
+        // its own state (or the post-launch grace window) vouches for it.
+        if (this._lastEntity) {
+            const state = this.hass?.states?.[this._lastEntity]?.state;
+            const alive = state === 'playing' || state === 'paused' || state === 'buffering';
+            if (alive || Date.now() < this._launchGraceUntil) {
+                return { isSonos: true, entity: this._lastEntity };
+            }
+            this._lastEntity = null;
+        }
+
+        // Boot recovery: after a dashboard reload the memory is gone, but a
+        // mapped speaker still playing Spotify content identifies itself by its
+        // x-sonos-spotify content id. Explicit device_map entries only.
+        for (const entry of this._deviceMap) {
+            const stateObj = entry.entity ? this.hass?.states?.[entry.entity] : null;
+            if (stateObj?.state === 'playing'
+                && String(stateObj.attributes?.media_content_id || '').startsWith('x-sonos-spotify')) {
+                this._lastEntity = entry.entity;
+                this.log(`activeTarget: adopted ${entry.entity} (playing Spotify content, no active Connect device)`);
+                return { isSonos: true, entity: entry.entity };
+            }
+        }
+
+        return { isSonos: false, entity: null };
     }
 
     /**

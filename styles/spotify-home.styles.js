@@ -61,7 +61,7 @@ export const homeStyles = css`
     .recent-pill-img { width: 64px; height: 64px; background-size: cover; background-position: center; flex-shrink: 0; }
     .recent-pill-text {
         flex: 1; min-width: 0;
-        font-size: 13px; font-weight: 700; color: var(--spf-text-main);
+        font-size: var(--spf-text-base, 13.5px); font-weight: 700; color: var(--spf-text-main);
         padding: 0 12px; white-space: normal; line-height: 1.3;
         display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
     }
@@ -75,7 +75,7 @@ export const homeStyles = css`
         .recent-grid-layout { grid-auto-columns: 160px; margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
         .recent-pill { height: 56px; }
         .recent-pill-img { width: 56px; height: 56px; }
-        .recent-pill-text { font-size: 12px; }
+        .recent-pill-text { font-size: var(--spf-text-sm, 12px); }
     }
 
     /* Skeleton styles (.skeleton-pulse, @keyframes pulse, .card-*-sk) live in

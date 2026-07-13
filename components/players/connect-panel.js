@@ -29,7 +29,7 @@ export class SpotifyConnectPanel extends LitElement {
         return css`
             :host { display: contents; }
 
-            .title { font-size: 26px; font-weight: 800; margin: 0 0 18px; flex-shrink: 0; }
+            .title { font-size: var(--spf-text-2xl, 26px); font-weight: 900; margin: 0 0 18px; flex-shrink: 0; }
 
             /* --- Active device card --- */
             .card {
@@ -41,7 +41,7 @@ export class SpotifyConnectPanel extends LitElement {
             .card-top { display: flex; align-items: center; gap: 12px; }
             .card-name {
                 flex: 1; min-width: 0;
-                font-size: 22px; font-weight: 800;
+                font-size: var(--spf-text-xl, 22px); font-weight: 900;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .spk {
@@ -55,7 +55,7 @@ export class SpotifyConnectPanel extends LitElement {
                 display: flex; align-items: center; gap: 8px;
                 margin-top: 6px;
                 color: var(--spf-brand, #1ed760);
-                font-size: 14px; font-weight: 600;
+                font-size: var(--spf-text-base, 13.5px); font-weight: 700;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .card-sub svg { width: 16px; height: 16px; flex-shrink: 0; fill: currentColor; }
@@ -79,6 +79,16 @@ export class SpotifyConnectPanel extends LitElement {
                 background: #fff; border: none; cursor: pointer;
             }
 
+            .vol-row.disabled input[type="range"] { opacity: 0.4; cursor: default; }
+            .vol-row.disabled input[type="range"]::-webkit-slider-thumb { cursor: default; }
+            .vol-row.disabled input[type="range"]::-moz-range-thumb { cursor: default; }
+            .vol-hint {
+                margin-top: 8px;
+                font-size: var(--spf-text-sm, 12px);
+                color: var(--spf-text-sub, #b3b3b3);
+                text-align: center;
+            }
+
             /* --- Device list --- */
             .list {
                 margin-top: 8px;
@@ -100,22 +110,22 @@ export class SpotifyConnectPanel extends LitElement {
             .row-ic svg { width: 100%; height: 100%; fill: currentColor; }
             .row-text { min-width: 0; flex: 1; }
             .row-name {
-                font-size: 16px; font-weight: 600; color: #fff;
+                font-size: var(--spf-text-md, 15px); font-weight: 700; color: #fff;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .row.active .row-name { color: var(--spf-brand, #1ed760); }
             .row-type {
                 display: flex; align-items: center; gap: 6px;
-                font-size: 13px; color: var(--spf-text-sub, #b3b3b3); margin-top: 2px;
+                font-size: var(--spf-text-base, 13.5px); color: var(--spf-text-sub, #b3b3b3); margin-top: 2px;
             }
             .row-type svg { width: 14px; height: 14px; fill: currentColor; }
 
-            .empty { text-align: center; color: var(--spf-text-sub, #b3b3b3); padding: 28px 0; font-size: 14px; }
+            .empty { text-align: center; color: var(--spf-text-sub, #b3b3b3); padding: 28px 0; font-size: var(--spf-text-base, 13.5px); }
 
             .more {
                 display: flex; align-items: center; justify-content: center; gap: 8px;
                 margin-top: 6px; padding: 14px;
-                color: var(--spf-text-sub, #b3b3b3); font-size: 14px; font-weight: 600;
+                color: var(--spf-text-sub, #b3b3b3); font-size: var(--spf-text-base, 13.5px); font-weight: 700;
                 background: none; border: none; cursor: pointer; width: 100%;
                 border-top: 1px solid rgba(255,255,255,0.08);
             }
@@ -168,10 +178,10 @@ export class SpotifyConnectPanel extends LitElement {
         const name = this.state?.activeDevice;
         if (name) {
             const match = (this.devices || []).find(d => d.name === name);
-            return { name, type: match?.type || 'Speaker', id: match?.id };
+            return { name, type: match?.type || 'Speaker', id: match?.id, supportsVolume: match?.supportsVolume };
         }
         const act = (this.devices || []).find(d => d.isActive);
-        return act ? { name: act.name, type: act.type, id: act.id } : null;
+        return act ? { name: act.name, type: act.type, id: act.id, supportsVolume: act.supportsVolume } : null;
     }
 
     _nowPlayingLine() {
@@ -217,6 +227,7 @@ export class SpotifyConnectPanel extends LitElement {
 
     render() {
         const active = this._activeDevice();
+        const volDisabled = active?.supportsVolume === false;
         const vol = Math.round(this.state?.volume ?? 0);
         const nowLine = this._nowPlayingLine();
         // The active device is shown in the card above; don't repeat it in the list.
@@ -237,13 +248,15 @@ export class SpotifyConnectPanel extends LitElement {
                         ${nowLine ? html`
                             <div class="card-sub">${this._barsIcon()}<span>${nowLine}</span></div>
                         ` : ''}
-                        <div class="vol-row">
+                        <div class="vol-row ${volDisabled ? 'disabled' : ''}">
                             ${this._volLow()}
                             <input id="vol-slider" type="range" min="0" max="100" value=${String(vol)}
+                                   ?disabled=${volDisabled}
                                    style="background: linear-gradient(to right, var(--spf-brand, #1ed760) ${vol}%, #4d4d4d ${vol}%);"
                                    @input=${this._onVolInput} @change=${this._onVolCommit}>
                             ${this._volHigh()}
                         </div>
+                        ${volDisabled ? html`<div class="vol-hint">Volume is controlled on the device</div>` : ''}
                     </div>
                 ` : ''}
 

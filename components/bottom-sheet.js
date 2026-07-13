@@ -14,11 +14,19 @@ import { LitElement, html, css } from "../lit.js";
  *   --spf-sheet-z       z-index (default 215000)
  *   --spf-sheet-max-h   max height (default 88%)
  *
+ * `desktopModal` (attribute `desktop-modal`): at >=769px the panel renders as
+ * a centered popup card (fade/scale, no grip, no drag-dismiss) instead of a
+ * bottom sheet — for surfaces that should be sheets on phones but dialogs on
+ * tablet/desktop. Below the breakpoint it behaves like a normal sheet.
+ *
  * Emits `close` on backdrop tap or a drag past the dismiss threshold.
  */
 export class SpotifyBottomSheet extends LitElement {
     static get properties() {
-        return { visible: { type: Boolean, reflect: true } };
+        return {
+            visible: { type: Boolean, reflect: true },
+            desktopModal: { type: Boolean, reflect: true, attribute: 'desktop-modal' },
+        };
     }
 
     static get styles() {
@@ -33,10 +41,19 @@ export class SpotifyBottomSheet extends LitElement {
             .backdrop {
                 position: absolute; inset: 0;
                 background: rgba(0,0,0,0.5);
-                opacity: 0; transition: opacity 0.32s ease;
+                opacity: 0; visibility: hidden;
+                transition: opacity 0.32s ease, visibility 0s linear 0.35s;
             }
-            :host([visible]) .backdrop { opacity: 1; }
+            :host([visible]) .backdrop {
+                opacity: 1; visibility: visible;
+                transition: opacity 0.32s ease;
+            }
 
+            /* Closed panels hide via translateY(100%) below the wrapper — but
+               translated content is still painted, and a programmatic scroll
+               of an overflow:hidden ancestor (e.g. focus() revealing an input)
+               can drag it into view. visibility:hidden (delayed so the
+               slide-out still animates) makes closed sheets unrevealable. */
             .sheet {
                 position: absolute; left: 0; right: 0; bottom: 0;
                 max-height: var(--spf-sheet-max-h, 88%);
@@ -48,10 +65,37 @@ export class SpotifyBottomSheet extends LitElement {
                 color: #fff;
                 box-shadow: 0 -8px 40px rgba(0,0,0,0.5);
                 transform: translateY(100%);
-                transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+                visibility: hidden;
+                transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0.45s;
                 will-change: transform;
             }
-            :host([visible]) .sheet { transform: translateY(0); }
+            :host([visible]) .sheet {
+                transform: translateY(0);
+                visibility: visible;
+                transition: transform 0.42s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+
+            /* ---- Desktop/tablet popup variant (opt-in via desktop-modal) ---- */
+            @media (min-width: 769px) {
+                :host([desktop-modal]) .sheet {
+                    left: 50%; right: auto; bottom: auto; top: 50%;
+                    width: min(480px, 92%);
+                    max-height: min(var(--spf-sheet-max-h, 88%), 85%);
+                    border-radius: 16px;
+                    padding: 8px 20px 20px;
+                    box-shadow: 0 25px 60px rgba(0,0,0,0.8);
+                    border: 1px solid rgba(255,255,255,0.1);
+                    transform: translate(-50%, -48%) scale(0.97);
+                    opacity: 0;
+                    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, visibility 0s linear 0.3s;
+                }
+                :host([desktop-modal][visible]) .sheet {
+                    transform: translate(-50%, -50%) scale(1);
+                    opacity: 1;
+                    transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+                }
+                :host([desktop-modal]) .grip-area { display: none; }
+            }
 
             .grip-area {
                 flex-shrink: 0;
@@ -77,9 +121,16 @@ export class SpotifyBottomSheet extends LitElement {
     constructor() {
         super();
         this.visible = false;
+        this.desktopModal = false;
         this._onDown = this._onDown.bind(this);
         this._onMove = this._onMove.bind(this);
         this._onUp = this._onUp.bind(this);
+    }
+
+    /** True when the >=769px popup variant is active (no drag-dismiss). */
+    get _isModal() {
+        return this.desktopModal && typeof window !== 'undefined'
+            && window.matchMedia('(min-width: 769px)').matches;
     }
 
     disconnectedCallback() {
@@ -94,6 +145,7 @@ export class SpotifyBottomSheet extends LitElement {
     _close() { this.dispatchEvent(new CustomEvent('close', { bubbles: true, composed: true })); }
 
     _onDown(e) {
+        if (this._isModal) return; // popup variant: no drag-dismiss
         this._sheet = this.shadowRoot.querySelector('.sheet');
         this._backdrop = this.shadowRoot.querySelector('.backdrop');
         if (!this._sheet) return;

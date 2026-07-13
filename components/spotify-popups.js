@@ -9,9 +9,7 @@ class SpotifyPopups extends LitElement {
         return {
             devices: { type: Array },
             config: { type: Object },
-            track: { type: Object },
             deviceVisible: { type: Boolean },
-            trackVisible: { type: Boolean },
             canManageDevices: { type: Boolean },
             showRevealButton: { type: Boolean }, // New Prop
 
@@ -30,9 +28,7 @@ class SpotifyPopups extends LitElement {
         super();
         this.devices = [];
         this.config = {};
-        this.track = null;
         this.deviceVisible = false;
-        this.trackVisible = false;
         this.canManageDevices = false;
         this.showRevealButton = false;
         this.blur = true;
@@ -82,7 +78,6 @@ class SpotifyPopups extends LitElement {
                 if (e.target.classList.contains('popup-backdrop')) this.dispatchEvent(new CustomEvent('close-popups'));
             }}>
                 ${this.renderDevicePopup()}
-                ${this.renderTrackPopup()}
                 ${this.renderAlert()}
                 ${this.renderToasts()}
             </div>
@@ -109,41 +104,6 @@ class SpotifyPopups extends LitElement {
                 .showRevealButton=${this.showRevealButton}
                 @close-popups=${() => this.dispatchEvent(new CustomEvent('close-popups'))}
             ></spotify-popup-devices>
-        `;
-        return this._renderBackdrop(true, content);
-    }
-
-    renderTrackPopup() {
-        if (!this.trackVisible || !this.track) return '';
-        const content = html`
-            <div class="popup-content">
-                <div class="track-popup-header">
-                    <div class="track-popup-art" style="background-image: url(${this.track.image})"></div>
-                    <div class="track-popup-info">
-                        <div class="track-popup-title-text">${this.track.name}</div>
-                        <div class="track-popup-artist-text">${this.track.artist}</div>
-                    </div>
-                </div>
-    
-                <button class="track-popup-item" @click=${() => this.dispatchEvent(new CustomEvent('track-action', { detail: 'tm-play' }))}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-                    Play Now
-                </button>
-                
-                <button class="track-popup-item" @click=${() => this.dispatchEvent(new CustomEvent('track-action', { detail: 'tm-queue' }))}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
-                    Add to Queue
-                </button>
-                
-                <button class="track-popup-item" @click=${() => this.dispatchEvent(new CustomEvent('track-action', { detail: 'tm-artist' }))}>
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
-                    Go to Artist
-                </button>
-    
-                <button class="popup-close-btn" @click=${() => this.dispatchEvent(new CustomEvent('close-popups'))}>
-                    Cancel
-                </button>
-            </div>
         `;
         return this._renderBackdrop(true, content);
     }

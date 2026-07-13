@@ -43,7 +43,7 @@ export class SpotifyDevicePickerLarge extends LitElement {
             }
 
             .device-name {
-                font-size: 14px;
+                font-size: var(--spf-text-base, 13.5px);
                 font-weight: 500;
                 color: var(--spf-text-main);
             }
@@ -53,7 +53,7 @@ export class SpotifyDevicePickerLarge extends LitElement {
             }
 
             .device-type {
-                font-size: 11px;
+                font-size: var(--spf-text-xs, 11px);
                 color: var(--spf-text-sub);
                 text-transform: uppercase;
             }
@@ -65,7 +65,7 @@ export class SpotifyDevicePickerLarge extends LitElement {
                 background: transparent;
                 border: 1px solid rgba(255,255,255,0.1);
                 color: var(--spf-text-sub);
-                font-size: 12px;
+                font-size: var(--spf-text-sm, 12px);
                 padding: 8px 16px;
                 border-radius: 16px;
                 cursor: pointer;
@@ -119,11 +119,12 @@ export class SpotifyDevicePickerLarge extends LitElement {
     }
 
     _getDeviceIcon(device) {
-        if (!this.config || !this.config.device_playback || !this.config.device_playback.show) return null;
+        const icons = this.config?.devices?.icons;
+        if (!icons || !icons.length) return null;
 
         // Find matching entry in config by ID or Name
-        const entry = this.config.device_playback.show.find(e =>
-            (typeof e === 'object' && ((e.id && e.id === device.id) || (e.name && e.name === device.name)))
+        const entry = icons.find(e =>
+            (e.id && e.id === device.id) || (e.name && e.name === device.name)
         );
 
         return entry ? entry.icon : null;
@@ -152,7 +153,7 @@ export class SpotifyDevicePickerLarge extends LitElement {
 
                     ${this.devices.map(d => {
                     const icon = this._getDeviceIcon(d);
-                    const isDefault = this.config && ((this.config.device_playback && this.config.device_playback.default === d.id) || (this.config.default_device === d.id));
+                    const isDefault = this.config?.devices?.default === d.id;
                     const isActive = d.isActive;
 
                     return html`

@@ -17,7 +17,7 @@ class SpotifyBrowserCard extends HTMLElement {
         btn.textContent = 'Open Spotify Browser';
         btn.style.cssText = `
             width: 100%; padding: 12px; border: none; border-radius: 12px;
-            background: #1DB954; color: #000; font-weight: 700; font-size: 14px;
+            background: #1DB954; color: #000; font-weight: 700; font-size: var(--spf-text-base, 13.5px);
             cursor: pointer;
         `;
         btn.addEventListener('click', () => window.dispatchEvent(new CustomEvent('spotify-browser-open')));
@@ -106,10 +106,10 @@ class SpotifyExtension {
         const baseHash = nowPlaying ? hash.slice(0, -NP_SUFFIX.length) : hash;
 
         // Generic trigger (default or custom string from config)
-        const isGeneric = baseHash.includes(this.config.custom_hash);
+        const isGeneric = baseHash.includes(this.config.browser.hash);
 
         // Account-specific triggers
-        const accounts = this.config.spotify_accounts || [];
+        const accounts = this.config.accounts;
         const matchedAccount = accounts.find(acc => acc.hash === baseHash);
 
         if (isGeneric || matchedAccount) {

@@ -1,6 +1,24 @@
 import { css } from "../lit.js";
 
+/**
+ * Default artwork placeholder: a muted music note on the card-gray background,
+ * shown wherever Spotify supplies no image (empty playlists, failed loads).
+ * Exported separately for components that don't include the full sharedStyles
+ * (playlist picker, queue panel); also baked into sharedStyles below.
+ */
+export const artFallbackStyles = css`
+    .art-fallback {
+        background-color: var(--spf-bg-card-hover, #282828);
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23535353'%3E%3Cpath d='M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z'/%3E%3C/svg%3E");
+        background-size: 45%;
+        background-repeat: no-repeat;
+        background-position: center;
+    }
+`;
+
 export const sharedStyles = css`
+    ${artFallbackStyles}
+
     :host {
         display: block;
         position: absolute;
@@ -15,6 +33,25 @@ export const sharedStyles = css`
         -webkit-user-select: none;
         -webkit-touch-callout: none;
         -webkit-tap-highlight-color: transparent;
+
+        /* Spotify's typeface. The @font-face set is registered at document
+           level by styles/fonts.js (ensureAppFonts); falls back cleanly when
+           the woff2 files aren't deployed. Inherited by every component. */
+        --spf-font-family: 'Circular Std', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+        font-family: var(--spf-font-family);
+
+        /* Type scale (Spotify-compact, anchored to metrics measured off the
+           iOS app). Custom properties inherit across shadow boundaries, so
+           components that skip sharedStyles still resolve these. Weights:
+           Circular is registered at 400/500/700/900 only — declare those. */
+        --spf-text-xs: 11px;     /* eyebrows, fine print */
+        --spf-text-sm: 12px;     /* metadata, subtitles */
+        --spf-text-base: 13.5px; /* body, list rows, menus */
+        --spf-text-md: 15px;     /* emphasized rows, inputs */
+        --spf-text-lg: 17px;     /* section headers */
+        --spf-text-xl: 22px;     /* page/sheet titles */
+        --spf-text-2xl: 26px;    /* large titles */
+        --spf-text-hero: 34px;   /* biggest non-banner titles */
 
         /* Dynamic Island / notch safe area */
         --spf-safe-top: env(safe-area-inset-top, 0px);
@@ -36,6 +73,12 @@ export const sharedStyles = css`
         --spf-border: rgba(255, 255, 255, 0.1);
         --spf-border-subtle: rgba(255, 255, 255, 0.05);
         --spf-scroll-thumb: rgba(255, 255, 255, 0.2);
+    }
+
+    /* Form controls don't inherit font-family by default — keep them on the
+       app typeface instead of the UA font. */
+    button, input, textarea, select {
+        font-family: inherit;
     }
 
     /* Keep selection/caret behavior for real text fields. */
@@ -289,7 +332,7 @@ export const sharedStyles = css`
             align-items: center;
             justify-content: center;
             color: #b3b3b3;
-            font-size: 11px;
+            font-size: var(--spf-text-xs, 11px);
             font-weight: 500;
             cursor: pointer;
             gap: 4px;
@@ -345,8 +388,8 @@ export const sharedStyles = css`
             gap: 3px;
         }
         .mini-player-title {
-            font-size: 14px;
-            font-weight: 600;
+            font-size: var(--spf-text-base, 13.5px);
+            font-weight: 700;
             color: #ffffff;
             white-space: nowrap;
             overflow: hidden;
@@ -356,7 +399,7 @@ export const sharedStyles = css`
         .mini-player-sep { color: #b3b3b3; }
         .mini-player-artist-inline { color: #b3b3b3; font-weight: 500; }
         .mini-player-artist {
-            font-size: 11px;
+            font-size: var(--spf-text-xs, 11px);
             color: #b3b3b3;
             white-space: nowrap;
             overflow: hidden;
@@ -368,8 +411,8 @@ export const sharedStyles = css`
             align-items: center;
             gap: 5px;
             color: var(--spf-brand, #1ed760);
-            font-size: 12px;
-            font-weight: 600;
+            font-size: var(--spf-text-sm, 12px);
+            font-weight: 700;
             line-height: 1.2;
             min-width: 0;
         }
@@ -462,7 +505,7 @@ export const sharedStyles = css`
     
     .header-center-title {
         position: absolute; left: 50%; transform: translateX(-50%);
-        font-weight: 700; font-size: 18px; color: var(--spf-text-main);
+        font-weight: 700; font-size: var(--spf-text-lg, 17px); color: var(--spf-text-main);
         opacity: 0; transition: opacity 0.2s ease;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         max-width: 40%; pointer-events: none; z-index: 120; 
@@ -507,7 +550,7 @@ export const sharedStyles = css`
 
     .search-input {
         background: transparent !important; border: none; outline: none;
-        color: #000; font-size: 14px; opacity: 0; width: 0; min-width: 0; 
+        color: #000; font-size: var(--spf-text-base, 13.5px); opacity: 0; width: 0; min-width: 0; 
         padding: 0; margin: 0; pointer-events: none; position: relative; z-index: 1; 
         transition: opacity 0.2s, width 0.3s ease; line-height: 40px; 
     }
@@ -558,13 +601,13 @@ export const sharedStyles = css`
            imported into every component's shadow root, so reducing these shared
            text primitives here scales them app-wide. This is the single place to
            tune mobile text sizing. */
-        .media-title { font-size: 13px; }
-        .media-subtitle { font-size: 11px; }
-        .section-title { font-size: 1.05rem; }
-        .list-item-title { font-size: 15px; }
-        .list-item-subtitle { font-size: 13px; }
-        .track-name { font-size: 14px; }
-        .track-artist { font-size: 12px; }
+        .media-title { font-size: var(--spf-text-base, 13.5px); }
+        .media-subtitle { font-size: var(--spf-text-xs, 11px); }
+        .section-title { font-size: var(--spf-text-md, 15px); }
+        .list-item-title { font-size: var(--spf-text-md, 15px); }
+        .list-item-subtitle { font-size: var(--spf-text-base, 13.5px); }
+        .track-name { font-size: var(--spf-text-base, 13.5px); }
+        .track-artist { font-size: var(--spf-text-sm, 12px); }
     }
     .page-hidden { display: none; }
     
@@ -607,7 +650,7 @@ export const sharedStyles = css`
         display: flex; flex-direction: column; gap: 16px;
         position: relative;
     }
-    .popup-title { margin: 0; font-size: 18px; font-weight: 700; text-align: center; color: var(--spf-text-main); }
+    .popup-title { margin: 0; font-size: var(--spf-text-lg, 17px); font-weight: 700; text-align: center; color: var(--spf-text-main); }
     .popup-scroll-content { max-height: 300px; overflow-y: auto; }
     .popup-close-btn { background: transparent; border: none; color: var(--spf-text-main); font-weight: 700; padding: 12px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; align-self: center; }
 
@@ -629,8 +672,8 @@ export const sharedStyles = css`
     
     .device-icon { width: 24px; height: 24px; }
     .device-info { flex: 1; }
-    .device-name { font-weight: 600; font-size: 14px; display:flex; align-items:center; gap:6px; }
-    .device-type { font-size: 12px; opacity: 0.7; text-transform: capitalize; }
+    .device-name { font-weight: 700; font-size: var(--spf-text-base, 13.5px); display:flex; align-items:center; gap:6px; }
+    .device-type { font-size: var(--spf-text-sm, 12px); opacity: 0.7; text-transform: capitalize; }
     .device-active-icon { display: flex; }
 
     /* --- Toast Notification --- */
@@ -643,7 +686,7 @@ export const sharedStyles = css`
         background: var(--spf-bg-card-hover); color: var(--spf-text-main);
         padding: 12px 16px; border-radius: 8px;
         box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        font-size: 14px; text-align: center;
+        font-size: var(--spf-text-base, 13.5px); text-align: center;
         opacity: 0; transform: translateY(20px);
         animation: toastEnter 0.3s forwards;
     }
@@ -658,7 +701,7 @@ export const sharedStyles = css`
         border: 1px solid var(--spf-border);
         color: var(--spf-text-main); padding: 8px 20px; 
         border-radius: 20px; cursor: pointer; 
-        font-size: 12px; font-weight: 700; 
+        font-size: var(--spf-text-sm, 12px); font-weight: 700; 
         text-transform: uppercase; letter-spacing: 1px;
         transition: all 0.2s;
     }
@@ -673,18 +716,18 @@ export const sharedStyles = css`
     }
     .dropdown-menu.visible { display: flex; }
     
-    .menu-item { padding: 12px 16px; cursor: pointer; font-size: 14px; color: var(--spf-text-main); transition: background 0.2s; }
+    .menu-item { padding: 12px 16px; cursor: pointer; font-size: var(--spf-text-base, 13.5px); color: var(--spf-text-main); transition: background 0.2s; }
     @media (hover: hover) { .menu-item:hover { background: var(--spf-hover-white); } }
     .menu-item:active { background: var(--spf-active-white); }
     .menu-item:first-child { border-radius: 8px 8px 0 0; }
     .menu-item:last-child { border-radius: 0 0 8px 8px; }
 
     /* --- Content Components --- */
-    .section-title { font-size: 1.2rem; font-weight: 700; margin-bottom: 16px; margin-top: 32px; }
+    .section-title { font-size: var(--spf-text-lg, 17px); font-weight: 700; margin-bottom: 16px; margin-top: 32px; }
     .section-title:first-child { margin-top: 0; }
     .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; margin-top: 32px; }
     .section-header .section-title { margin: 0; }
-    .see-all-btn { background: none; border: none; color: var(--spf-text-sub); font-weight: 700; cursor: pointer; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; transition: color 0.2s; }
+    .see-all-btn { background: none; border: none; color: var(--spf-text-sub); font-weight: 700; cursor: pointer; font-size: var(--spf-text-sm, 12px); letter-spacing: 1px; text-transform: uppercase; transition: color 0.2s; }
     .see-all-btn:hover { color: var(--spf-text-main); text-decoration: underline; }
 
     .carousel-wrapper { position: relative; }
@@ -769,8 +812,8 @@ export const sharedStyles = css`
         .media-card.artist-card:hover .media-image { box-shadow: 0 0 0 3px var(--spf-hover-white); }
     }
     
-    .media-title { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
-    .media-subtitle { font-size: 12px; color: var(--spf-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .media-title { font-weight: 700; font-size: var(--spf-text-base, 13.5px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
+    .media-subtitle { font-size: var(--spf-text-sm, 12px); color: var(--spf-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
     /* Hero & artist-pill styles live in spotify-context-view.styles.js
        (playlist/artist views are the only consumers and import it).
@@ -798,16 +841,16 @@ export const sharedStyles = css`
     }
     
     .track-row.playing .track-name { color: var(--spf-brand); }
-    .track-num { color: var(--spf-text-sub); font-size: 14px; text-align: center; }
+    .track-num { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); text-align: center; }
     
     .track-art-small {
         width: 40px; height: 40px; background-size: cover; background-position: center;
         border-radius: 4px; background-color: var(--spf-skeleton-bg);
     }
 
-    .track-name { color: var(--spf-text-main); font-size: 15px; }
-    .track-artist { color: var(--spf-text-sub); font-size: 13px; }
-    .track-duration { color: var(--spf-text-sub); font-size: 14px; text-align: right; }
+    .track-name { color: var(--spf-text-main); font-size: var(--spf-text-md, 15px); }
+    .track-artist { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); }
+    .track-duration { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); text-align: right; }
 
     .track-actions-right {
         display: flex;

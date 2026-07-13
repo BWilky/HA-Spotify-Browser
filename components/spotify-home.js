@@ -3,7 +3,7 @@ import { sharedStyles } from '../styles/shared-styles.js';
 import { homeStyles } from '../styles/spotify-home.styles.js';
 import { renderCardTemplate, renderCardSkeletonTemplate } from './media-templates.js';
 import { loadMadeForYouItems, dedupeRecentAlbums } from './controllers/home-content.js';
-import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj } from '../utils.js';
+import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj, playlistSortParams } from '../utils.js';
 import { playingBarsIcon } from './common/icons.js';
 
 // --- Shared snippets (lit templates) ---
@@ -35,7 +35,6 @@ class SpotifyHome extends LitElement {
             _offsets: { type: Object, state: true },
             _totals: { type: Object, state: true },
             _fetching: { type: Object, state: true },
-            _manualData: { type: Array, state: true },
             _sectionData: { type: Object, state: true },
             _expandedSections: { type: Object, state: true },
         };
@@ -332,7 +331,7 @@ class SpotifyHome extends LitElement {
         // Reorder Button for Pinned Section (only when the user can edit)
         const headerAction = (sectionId === 'pinned' && canEdit) ? html`
             <button class="icon-btn reorder-btn" @click=${this._onReorderClick} aria-label="Reorder Items" style="background:none; border:none; color:var(--secondary-text-color, #b3b3b3); cursor:pointer; margin-left: 8px; padding: 4px; display: flex; align-items: center;">
-                 <span style="font-size: 0.8rem; margin-right: 4px; font-weight: bold;">Edit</span>
+                 <span style="font-size: var(--spf-text-sm, 12px); margin-right: 4px; font-weight: bold;">Edit</span>
                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
             </button>
         ` : '';
@@ -355,31 +354,20 @@ class SpotifyHome extends LitElement {
             return html``;
         }
         const isMobile = window.matchMedia('(max-width: 768px)').matches;
-        // Updated path for madeforyou
-        const hasMadeForYou = this.config.homescreen?.madeforyou?.content?.length > 0;
-        const hasManual = this.config.homescreen?.customize?.manual;
+        const hasMadeForYou = this.config.home?.made_for_you?.content?.length > 0;
 
         let order = this._getSectionOrder();
 
-        // Ensure pinned is visible if configured (Legacy behavior only if sort not defined)
-        // If sort IS defined, user controls visibility explicitly.
-        const hasPinned = !!this.pinned && this.pinned.checkAvailability();
-
-        if (!this.config.homescreen?.sort) {
-            if (hasPinned && !order.includes('pinned')) {
-                order = ['pinned', ...order];
-            }
-        }
-
         // Always hide pinned if not available/configured
+        const hasPinned = !!this.pinned && this.pinned.checkAvailability();
         if (!hasPinned) {
             order = order.filter(k => k !== 'pinned');
         }
 
         if (isMobile) {
-            return this.renderHomeMobile(hasMadeForYou, hasManual, order);
+            return this.renderHomeMobile(hasMadeForYou, order);
         }
-        return this.renderHomeDesktop(hasMadeForYou, hasManual, order);
+        return this.renderHomeDesktop(hasMadeForYou, order);
     }
 
     /**
@@ -458,7 +446,7 @@ class SpotifyHome extends LitElement {
         } else if (items.length === 0) {
             // Read-only guests don't see an empty section; editors get a prompt.
             if (!canEdit) return '';
-            content = html`<div style="padding: 8px 0; color: var(--secondary-text-color); font-size: 0.9rem; opacity: 0.7;">Nothing there.</div>`;
+            content = html`<div style="padding: 8px 0; color: var(--secondary-text-color); font-size: var(--spf-text-base, 13.5px); opacity: 0.7;">Nothing there.</div>`;
         } else {
             content = items.map(item => this._recentPillTemplate(item, playingId, this._isContextPlaying(item.uri)));
             rows = Math.min(4, items.length);
@@ -475,9 +463,8 @@ class SpotifyHome extends LitElement {
         `;
     }
 
-    renderHomeDesktop(hasMadeForYou, hasManual, order) {
-        // Updated path for madeforyou pills
-        const usePills = this.config.homescreen?.madeforyou?.pills || false;
+    renderHomeDesktop(hasMadeForYou, order) {
+        const usePills = this.config.home?.made_for_you?.pills || false;
         const sd = this._sectionData || {};
 
         const playingId = this._getPlayingTrackId();
@@ -503,35 +490,9 @@ class SpotifyHome extends LitElement {
     }
 
     _getSectionOrder() {
-        const defaultOrder = ['pinned', 'recent', 'madeforyou', 'favorites', 'artists', 'albums'];
-        const sortConfig = this.config.homescreen?.sort;
-
-        if (Array.isArray(sortConfig) && sortConfig.length > 0) {
-            const map = {
-                'pinned': 'pinned',
-                'recently played': 'recent',
-                'followed_artists': 'artists',
-                'favourite_playlists': 'favorites',
-                'favourite_albums': 'albums',
-                'made_for_you': 'madeforyou'
-            };
-
-            const order = [];
-            for (const key of sortConfig) {
-                // normalize key to lower case just in case
-                const k = key.toLowerCase();
-                const internalKey = map[k] || k; // access map or fallback
-
-                // Only add if it maps to a known section or is a valid internal key
-                const validKeys = ['pinned', 'recent', 'artists', 'favorites', 'albums', 'madeforyou'];
-                if (validKeys.includes(internalKey)) {
-                    order.push(internalKey);
-                }
-            }
-            return order;
-        }
-
-        return this.config.home_order || defaultOrder;
+        // Parser emits home.sort pre-mapped to internal section ids.
+        return this.config.home?.sort ||
+            ['pinned', 'recent', 'madeforyou', 'favorites', 'artists', 'albums'];
     }
 
     _getPlayingTrackId() {
@@ -552,7 +513,7 @@ class SpotifyHome extends LitElement {
         return isContextPlaying(this.hass, entityId, uri);
     }
 
-    renderHomeMobile(hasMadeForYou, hasManual, order) {
+    renderHomeMobile(hasMadeForYou, order) {
         const sd = this._sectionData || {};
         const playingId = this._getPlayingTrackId();
 
@@ -582,7 +543,7 @@ class SpotifyHome extends LitElement {
             } else if (key === 'albums') {
                 return this._carouselSection('Your Albums', 'albums', sd['albums']);
             } else if (key === 'madeforyou') {
-                const usePills = this.config.homescreen?.madeforyou?.pills || false;
+                const usePills = this.config.home?.made_for_you?.pills || false;
                 return hasMadeForYou
                     ? (usePills ? this._pillSection('Made For You', 'madeforyou', sd['madeforyou'], playingId) : this._carouselSection('Made For You', 'madeforyou', sd['madeforyou']))
                     : '';
@@ -612,15 +573,6 @@ class SpotifyHome extends LitElement {
 
         let order = this._getSectionOrder();
 
-        // If 'pinned' is not in custom order but is configured, prepend it.
-        // This ensures the feature is visible if configured, even if home_order is old.
-        // ONLY valid if sort is NOT defined.
-        if (!this.config.homescreen?.sort) {
-            if (hasPinned && !order.includes('pinned')) {
-                order.unshift('pinned');
-            }
-        }
-
         // Filter out pinned if not enabled
         if (!hasPinned) {
             order = order.filter(k => k !== 'pinned');
@@ -629,8 +581,7 @@ class SpotifyHome extends LitElement {
         const fetchList = order.map(key => {
             if (key === 'pinned') return this.fetchSectionData('pinned');
             if (key === 'madeforyou') {
-                // Check new config location
-                const mfy = this.config.homescreen?.madeforyou?.content;
+                const mfy = this.config.home?.made_for_you?.content;
                 if (!mfy || mfy.length === 0) return Promise.resolve();
             }
             return this.fetchSectionData(key);
@@ -677,7 +628,7 @@ class SpotifyHome extends LitElement {
                 type = 'playlist';
             }
             else if (sectionKey === 'favorites') {
-                const res = await this.api.fetchSpotifyPlus('get_playlist_favorites', { limit: limit, offset: offset });
+                const res = await this.api.fetchSpotifyPlus('get_playlist_favorites', { limit: limit, offset: offset, ...playlistSortParams() });
                 data = res?.result; type = 'playlist';
             }
             else if (sectionKey === 'recent') {
