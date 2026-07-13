@@ -30,16 +30,23 @@ export const headerStyles = css`
 
     .header.transparent {
         background: rgba(18, 18, 18, var(--header-alpha, 0));
-        backdrop-filter: blur(calc(var(--header-alpha, 0) * 20px));
-        -webkit-backdrop-filter: blur(calc(var(--header-alpha, 0) * 20px));
         box-shadow: none;
         /* Ensure transition applies here too */
         transition: background-color 0.3s ease, border-bottom 0.3s ease, backdrop-filter 0.3s ease;
     }
+    /* Blur only once the header actually has alpha. A resting blur(0px) is
+       still an ACTIVE backdrop-filter — iOS WebKit then leaves the content
+       region behind the header unpainted (black strip eating the hero
+       gradient AND its text). The .blurred class is toggled by the component
+       when scrollAlpha > 0. */
+    .header.transparent.blurred {
+        backdrop-filter: blur(calc(var(--header-alpha, 0) * 20px));
+        -webkit-backdrop-filter: blur(calc(var(--header-alpha, 0) * 20px));
+    }
     
     .header-center-title {
         position: absolute; left: 50%; transform: translateX(-50%);
-        font-weight: 700; font-size: 18px; color: var(--spf-text-main);
+        font-weight: 700; font-size: var(--spf-text-lg, 17px); color: var(--spf-text-main);
         opacity: 0; transition: opacity 0.2s ease;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         max-width: 40%; pointer-events: none; z-index: 120; 
@@ -107,7 +114,7 @@ export const headerStyles = css`
 
     .search-input {
         background: transparent !important; border: none; outline: none;
-        color: #000; font-size: 14px; opacity: 0; width: 0; min-width: 0; 
+        color: #000; font-size: var(--spf-text-base, 13.5px); opacity: 0; width: 0; min-width: 0; 
         padding: 0; margin: 0; pointer-events: none; position: relative; z-index: 1; 
         transition: opacity 0.2s, width 0.3s ease; line-height: 40px; 
     }

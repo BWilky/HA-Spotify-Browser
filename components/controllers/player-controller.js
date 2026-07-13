@@ -33,6 +33,26 @@ export class PlayerController extends EventTarget {
         this._cachedApiQueue = null; // Store full API response
         this._eosTimer = null;
         this._queueFetchId = 0; // Invalidates in-flight queue refreshes
+        this._transferHoldTrack = null; // Track shown while a device transfer settles
+        this._transferHoldUntil = 0;
+    }
+
+    /**
+     * Keep the current track on screen while a device transfer settles.
+     * During the handoff (slow on restricted Connect devices like Google
+     * Cast) the SpotifyPlus entity briefly drops media_title, which would
+     * blank now-playing next to a still-populated queue. Time-boxed so a
+     * genuinely stopped player isn't masked; cleared as soon as HASS
+     * reports a title again.
+     */
+    beginTransferHold() {
+        if (!this.state.track) return;
+        this._transferHoldTrack = this.state.track;
+        this._transferHoldUntil = Date.now() + 15000;
+    }
+
+    _transferHoldActive() {
+        return !!this._transferHoldTrack && Date.now() < this._transferHoldUntil;
     }
 
     /** Cancel all pending timers. Call when replacing or discarding this controller. */
@@ -71,6 +91,12 @@ export class PlayerController extends EventTarget {
         return this.hass?.states?.[this.playbackEntityId()] || null;
     }
 
+    /** URI of the playing source context (spotify:playlist:.. / spotify:album:..), or null. */
+    sourceContextUri() {
+        const attrs = this.hass?.states?.[this.config?.entity]?.attributes || {};
+        return attrs.sp_context_uri || attrs.media_context_content_id || null;
+    }
+
     /**
      * Whether the active device is a Sonos speaker handled by the HA Sonos
      * integration, and the HA media_player entity to drive it. Returns
@@ -80,6 +106,8 @@ export class PlayerController extends EventTarget {
         if (!this.sonosBridge) return { isSonos: false, entity: null };
         // Always read the SpotifyPlus entity to learn the active Connect device —
         // the Sonos entity's own `source` (e.g. "Line-in") doesn't tell us this.
+        // The bridge itself remembers the target across SpotifyPlus idling out
+        // (local Sonos playback is invisible to the Spotify Web API).
         const attrs = this.hass?.states?.[this.config?.entity]?.attributes || {};
         return this.sonosBridge.activeTarget(attrs);
     }
@@ -139,8 +167,11 @@ export class PlayerController extends EventTarget {
             this.checkTrackFavorites(track.id);
         }
 
-        // 2. Determine Playback Status
-        const isPlaying = this._optimisticTrack ? true : (stateObj.state === 'playing');
+        // 2. Determine Playback Status. While a transfer hold is substituting the
+        // track (no media_title yet), report playing — transfers are issued with
+        // play: true — so the held track doesn't flash a pause state.
+        const holdingTrack = !attrs.media_title && this._transferHoldActive();
+        const isPlaying = (this._optimisticTrack || holdingTrack) ? true : (stateObj.state === 'playing');
 
         // 3. Update State Object
         const newState = {
@@ -246,7 +277,13 @@ export class PlayerController extends EventTarget {
 
     _calculateEffectiveTrack(stateObj) {
         const attrs = stateObj.attributes;
-        if (!attrs.media_title) { this._richCurrent = null; return null; }
+        if (!attrs.media_title) {
+            if (this._transferHoldActive()) return this._transferHoldTrack;
+            this._richCurrent = null;
+            this._transferHoldTrack = null;
+            return null;
+        }
+        this._transferHoldTrack = null; // HASS reports a track again; hold over
 
         // Normalize the URI: on a Sonos entity media_content_id is an
         // x-sonos-spotify:... string, so canonicalize it to spotify:track:<id>

@@ -2,7 +2,7 @@ import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { renderCardTemplate, renderPillTemplate, renderCardSkeletonTemplate, renderPillSkeletonTemplate } from '../media-templates.js';
 import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
-import { playIcon, pauseIcon } from '../common/icons.js';
+import { playIcon, pauseIcon, pinIcon } from '../common/icons.js';
 
 export class SpotifyArtistView extends LitElement {
     static get styles() {
@@ -49,6 +49,22 @@ export class SpotifyArtistView extends LitElement {
                     background: var(--spf-bg); 
                 }
                 .hero-bg, .hero-bg img { width: 100%; height: 100%; object-fit: cover; }
+
+                /* Pin button — same styling as the playlist header: outlined
+                   circle when not pinned, green-filled when pinned. */
+                .hero-pin {
+                    flex-shrink: 0; width: 56px; height: 56px; border-radius: 50%;
+                    border: 2px solid rgba(255,255,255,0.6); background: transparent;
+                    color: rgba(255,255,255,0.85); cursor: pointer; padding: 0;
+                    display: flex; align-items: center; justify-content: center;
+                    transition: all 0.15s ease;
+                }
+                .hero-pin svg { width: 26px; height: 26px; fill: currentColor; }
+                .hero-pin.pinned {
+                    background: var(--spf-brand, #1ed760);
+                    border-color: var(--spf-brand, #1ed760);
+                    color: #000;
+                }
             `
         ];
     }
@@ -506,12 +522,10 @@ export class SpotifyArtistView extends LitElement {
                                 ${this._isFollowing ? 'FOLLOWING' : 'FOLLOW'}
                             </button>
 
-                            <!-- PIN BUTTON -->
-                             ${this._pinnedEntity ? html`
-                                <button class="hero-btn-fav" @click=${this._togglePin} style="margin-left: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: ${this._isPinned ? 'var(--spf-brand)' : 'white'}; transition: all 0.2s ease;">
-                                    <svg height="24" width="24" viewBox="0 0 24 24" fill="${this._isPinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="${this._isPinned ? '0' : '2'}">
-                                        <path d="M16 12V4H17V2H7V4H8V12L6 14V16H11.2V22H12.8V16H18V14L16 12Z"/>
-                                    </svg>
+                            ${this._pinnedEntity ? html`
+                                <button class="hero-pin ${this._isPinned ? 'pinned' : ''}" @click=${this._togglePin}
+                                        aria-label="${this._isPinned ? 'Unpin' : 'Pin'}" title="${this._isPinned ? 'Unpin' : 'Pin'}">
+                                    ${pinIcon}
                                 </button>
                             ` : ''}
                         </div>
@@ -534,7 +548,7 @@ export class SpotifyArtistView extends LitElement {
                         <section class="artist-section">
                             <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                                 <h2 style="margin: 0;">Discography</h2>
-                                <button class="see-all-btn" @click=${() => this.dispatchEvent(new CustomEvent('navigate', { detail: { pageId: `artist-discography:${data.id}`, data: { name: data.name, id: data.id } }, bubbles: true, composed: true }))} style="background: none; border: none; color: #b3b3b3; font-size: 12px; font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase;">SEE ALL</button>
+                                <button class="see-all-btn" @click=${() => this.dispatchEvent(new CustomEvent('navigate', { detail: { pageId: `artist-discography:${data.id}`, data: { name: data.name, id: data.id } }, bubbles: true, composed: true }))} style="background: none; border: none; color: #b3b3b3; font-size: var(--spf-text-sm, 12px); font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase;">SEE ALL</button>
                             </div>
                             <div class="carousel-wrapper">
                                  <div class="carousel-layout">
@@ -599,9 +613,11 @@ export class SpotifyArtistView extends LitElement {
                 const trackData = {
                     name: track.name,
                     artist: track.artists ? track.artists.map(a => a.name).join(', ') : '',
+                    album: track.album?.name || '',
                     uri: track.uri,
                     id: track.id,
                     image,
+                    anchor: e.currentTarget.getBoundingClientRect(),
                 };
 
                 this.dispatchEvent(new CustomEvent('open-track-menu', {

@@ -12,15 +12,19 @@ import './components/players/queue-panel.js';
 import './components/players/account-panel.js';
 import './components/spotify-home.js';
 import './components/spotify-search.js';
-import './components/spotify-context-view.js';
+import { SpotifyContextView } from './components/spotify-context-view.js';
 import './components/views/spotify-library.js';
 import './components/spotify-popups.js';
 import './components/spotify-reorder-dialog.js';
+import './components/popups/spotify-playlist-picker.js';
+import './components/popups/spotify-playlist-create-sheet.js';
+import './components/popups/spotify-context-menu.js';
 import { PinnedItemsManager } from './components/controllers/pinned-items-manager.js';
 import { DeviceManager } from './components/devices/device-manager.js';
 import { SonosBridge } from './components/devices/sonos-bridge.js';
 import { StorageManager } from './components/controllers/storage-manager.js';
 import { PlayerController } from './components/controllers/player-controller.js';
+import { ensureAppFonts } from './styles/fonts.js';
 
 import './components/devices/index.js'; // Registers Custom Elements
 
@@ -40,8 +44,14 @@ class SpotifyBrowserApp extends LitElement {
             _devicePopupVisible: { type: Boolean },
             _accountSheetVisible: { type: Boolean, state: true },
             _currentProfileImg: { type: String, state: true },
-            _trackPopupVisible: { type: Boolean },
-            _trackPopupData: { type: Object },
+            _ctxMenuVisible: { type: Boolean, state: true },
+            _ctxMenuHeader: { type: Object, state: true },
+            _ctxMenuItems: { type: Array, state: true },
+            _ctxMenuAnchor: { type: Object, state: true },
+            _playlistPickerVisible: { type: Boolean, state: true },
+            _playlistPickerTrack: { type: Object, state: true },
+            _playlistDialogVisible: { type: Boolean, state: true },
+            _playlistDialogProps: { type: Object, state: true },
             _devices: { type: Array },
             _currentSearchQuery: { type: String },
             _isDesktop: { type: Boolean, state: true },
@@ -73,6 +83,8 @@ class SpotifyBrowserApp extends LitElement {
         this.api = null;
         this.playerController = null; // Initialize later with API
         this._lastCloseTime = 0;
+        this._lastActivityTime = 0;  // wall-clock stamp of last trusted user input (auto_close)
+        this._idleCheckTimer = null; // auto_close watchdog interval
         this._currentPageId = 'home';
         this._currentPageData = null;
         this._searchVisible = false;
@@ -81,8 +93,17 @@ class SpotifyBrowserApp extends LitElement {
         this._devicePopupVisible = false;
         this._accountSheetVisible = false;
         this._currentProfileImg = '';
-        this._trackPopupVisible = false;
-        this._trackPopupData = null;
+        this._ctxMenuVisible = false;
+        this._ctxMenuHeader = null;   // {image, name, subtitle} for the context menu header
+        this._ctxMenuItems = null;    // [{id, label, icon, danger?}]
+        this._ctxMenuAnchor = null;   // trigger's viewport rect (desktop popover anchor)
+        this._menuTrack = null;       // track payload for the standard track-menu actions
+        this._menuContext = null;     // {surface, playlistId, canEditItems, ...} for the open menu
+        this._menuOnAction = null;    // callback for menus owned by a view (playlist header)
+        this._playlistPickerVisible = false;
+        this._playlistPickerTrack = null;
+        this._playlistDialogVisible = false;
+        this._playlistDialogProps = null;
         this._devices = [];
         this._reorderVisible = false;
         this._pinnedItems = [];
@@ -130,36 +151,15 @@ class SpotifyBrowserApp extends LitElement {
                 if (oldState !== newState) return true;
             }
 
-            // 2. Check Pinned Items Entity Change (if configured)
-            if (this.config && this.config.homescreen) {
-                let pinnedEntity = null;
-                if (this.config.homescreen.pinned_items_entity) {
-                    pinnedEntity = this.config.homescreen.pinned_items_entity;
-                } else if (this.config.homescreen.sticky && this.config.homescreen.sticky.helper) {
-                    pinnedEntity = this.config.homescreen.sticky.helper;
-                }
-
-                if (pinnedEntity) {
-                    const oldPin = oldHass.states[pinnedEntity];
-                    const newPin = newHass.states[pinnedEntity];
-                    if (oldPin !== newPin) return true;
-                }
+            // 2. Check the storage sensor — the actual backend for pinned
+            // items and per-device settings, so pin/device edits from another
+            // browser re-render here.
+            const storageSensor = this.config?.storage?.sensor;
+            if (storageSensor && oldHass.states[storageSensor] !== newHass.states[storageSensor]) {
+                return true;
             }
 
-            // 3. Check Spotify Accounts Entity (if configured)
-            // (Often used for account switching)
-            if (this.config.spotify_accounts && this.config.spotify_accounts.accounts_sensor) {
-                const sensor = this.config.spotify_accounts.accounts_sensor;
-                if (oldHass.states[sensor] !== newHass.states[sensor]) return true;
-            }
-
-            // 4. Check Device Manager Entity
-            if (this.config.device_manager) {
-                const dmEntity = this.config.device_manager;
-                if (oldHass.states[dmEntity] !== newHass.states[dmEntity]) return true;
-            }
-
-            // 5. Check for Connect Devices Scan (if using a scan interval or sensor)
+            // 3. Check for Connect Devices Scan (if using a scan interval or sensor)
             // If the user uses a specific sensor for devices list, check it here as well.
 
             // IF ONLY HASS CHANGED AND NO RELEVANT ENTITIES CHANGED, BLOCK UPDATE
@@ -172,6 +172,9 @@ class SpotifyBrowserApp extends LitElement {
     }
 
     firstUpdated(changedProperties) {
+        // Register Circular Std at document level (@font-face is ignored in shadow roots).
+        ensureAppFonts();
+
         // Initialize Router
         const container = this.shadowRoot.querySelector('.page-container');
         this.router = new Router(this, container, this.config);
@@ -208,6 +211,41 @@ class SpotifyBrowserApp extends LitElement {
         this._onViewportResize = () => this._updateAppHeight();
         window.visualViewport?.addEventListener('resize', this._onViewportResize);
         window.addEventListener('resize', this._onViewportResize);
+
+        // Foreground/background lifecycle: rescan on return (desktop keeps the
+        // popup open across tab switches), close the mobile sheet on background.
+        this._windowBlurredAt = 0;
+        this._onAppVisibility = () => {
+            if (document.hidden) this._handleAppBackgrounded();
+            else this._handleAppForegrounded();
+        };
+        this._onPageHide = () => this._handleAppBackgrounded();
+        this._onWindowBlur = () => { this._windowBlurredAt = Date.now(); };
+        this._onWindowFocus = () => {
+            // focus fires spuriously (iframe cards, browser chrome round-trips);
+            // only treat it as a "return" after a real absence (>5s blurred), and
+            // let visibilitychange own the hidden -> visible case.
+            if (document.hidden) return;
+            if (!this._windowBlurredAt || Date.now() - this._windowBlurredAt < 5000) return;
+            this._windowBlurredAt = 0;
+            this._handleAppForegrounded();
+        };
+        document.addEventListener('visibilitychange', this._onAppVisibility);
+        window.addEventListener('pagehide', this._onPageHide);
+        window.addEventListener('blur', this._onWindowBlur);
+        window.addEventListener('focus', this._onWindowFocus);
+
+        // Idle auto-close: stamp the last user interaction. Plain field write —
+        // never triggers a re-render. Capture beats a component's
+        // stopPropagation; passive keeps scrolling smooth; isTrusted rejects
+        // programmatic dispatches. pointermove is deliberately excluded
+        // (desktop hover noise; pointerdown/wheel/touchmove cover real use).
+        this._onUserActivity = (e) => {
+            if (e.isTrusted) this._lastActivityTime = Date.now();
+        };
+        for (const type of ['pointerdown', 'keydown', 'wheel', 'touchmove']) {
+            this.addEventListener(type, this._onUserActivity, { capture: true, passive: true });
+        }
 
         this.router.addEventListener('route-changed', (e) => {
             const { pageId, data, isHeroPage, direction } = e.detail;
@@ -270,6 +308,16 @@ class SpotifyBrowserApp extends LitElement {
                 this._mediaQuery.removeListener(this._onMediaQueryChange);
             }
         }
+        if (this._onAppVisibility) document.removeEventListener('visibilitychange', this._onAppVisibility);
+        if (this._onPageHide) window.removeEventListener('pagehide', this._onPageHide);
+        if (this._onWindowBlur) window.removeEventListener('blur', this._onWindowBlur);
+        if (this._onWindowFocus) window.removeEventListener('focus', this._onWindowFocus);
+        if (this._onUserActivity) {
+            for (const type of ['pointerdown', 'keydown', 'wheel', 'touchmove']) {
+                this.removeEventListener(type, this._onUserActivity, { capture: true });
+            }
+        }
+        this._stopIdleWatch();
         this._restoreViewport();
     }
 
@@ -363,12 +411,12 @@ class SpotifyBrowserApp extends LitElement {
         }
 
         if (changedProperties.has('config') && this.config) {
-            setDebug(this.config.debug === true);
+            setDebug(this.config.browser.debug === true);
             if (this.router) this.router.updateDependencies({ config: this.config });
 
             // Queue Init Logic
-            if (!this._queueInitDone && this.config.queue_settings && this._isDesktop) {
-                if (this.config.queue_settings.openInit) {
+            if (!this._queueInitDone && this._isDesktop) {
+                if (this.config.queue.open_on_desktop) {
                     this._queueVisible = true;
                 }
                 this._queueInitDone = true;
@@ -403,7 +451,7 @@ class SpotifyBrowserApp extends LitElement {
 
                 // OPENING: reset to home per the parsed home_on_exit config
                 // ({ enabled, timeout } — timeout keeps the last page for N seconds)
-                const hoe = this.config.home_on_exit || { enabled: true, timeout: 0 };
+                const hoe = this.config.browser.home_on_exit;
                 let shouldReset = hoe.enabled !== false;
 
                 if (shouldReset && hoe.timeout > 0 && this._lastCloseTime) {
@@ -420,14 +468,22 @@ class SpotifyBrowserApp extends LitElement {
                     this.router.navigateTo(this._currentPageId, this._currentPageData, 'none');
                 }
 
+                // Fresh data on every (re)open: scan once the socket/grace allows,
+                // then re-read queue/recents (the queue can change while the track doesn't).
+                this._refreshAfterReturn();
+
+                // Idle auto-close: fresh activity baseline (a stale stamp from
+                // the last session must not instantly re-close us), then start
+                // the watchdog.
+                this._lastActivityTime = Date.now();
+                this._startIdleWatch();
+
             } else {
                 // CLOSING
                 this._entered = false; // reset so the next open replays the enter transition
                 this._lastCloseTime = Date.now();
-                this._searchVisible = false; // Auto-close search on exit too
-                this._nowPlayingVisible = false; // dismiss the now-playing surface
-                this._pendingNowPlaying = false;
-                clearTimeout(this._pendingNowPlayingTimer);
+                this._closeAllPopups(); // ANY close dismisses every popup/sheet
+                this._stopIdleWatch();
                 this._restoreViewport(); // hand the keyboard/viewport behavior back to HA
                 this.style.removeProperty('--spf-app-height');
                 this.shadowRoot?.querySelector('.browser-wrapper')?.classList.remove('kb-open');
@@ -489,8 +545,8 @@ class SpotifyBrowserApp extends LitElement {
 
         // Dynamic Desktop Styles
         let desktopWrapperStyle = '';
-        if (this._isDesktop && this.config.desktop_style) {
-            const ds = this.config.desktop_style;
+        if (this._isDesktop) {
+            const ds = this.config.appearance.desktop;
             if (ds.fullscreen || ds.mode === 'fullscreen') {
                 const mt = ds.margin_top || '0px';
                 const mb = ds.margin_bottom || '0px';
@@ -531,12 +587,16 @@ class SpotifyBrowserApp extends LitElement {
 
         return html`
             <div class="backdrop ${this._entered ? 'open' : ''}" @click=${() => this._animateClose()}></div>
-            <div class="browser-wrapper ${this._entered ? 'open' : ''} ${this._queueVisible ? 'queue-open' : ''} anim-${this.config.animations?.browser_open || 'fade'} ${!this.config.animations?.blur ? 'no-blur' : ''}"
+            <div class="browser-wrapper ${this._entered ? 'open' : ''} ${this._queueVisible ? 'queue-open' : ''} anim-${this.config.appearance.animations.browser_open} ${!this.config.appearance.animations.blur ? 'no-blur' : ''}"
                 style="${desktopWrapperStyle}"
                 @show-toast=${this._handleShowToast}
                 @show-alert=${this._handleShowAlert}
                 @open-reorder=${this._handleOpenReorder}
                 @pinned-changed=${this._handlePinnedChanged}
+                @open-track-menu=${this._handleOpenTrackMenu}
+                @open-context-menu=${this._handleOpenContextMenu}
+                @open-playlist-dialog=${this._handleOpenPlaylistDialog}
+                @playlist-changed=${this._handlePlaylistChanged}
             >
                 ${!this._isDesktop && (this._currentPageId === 'search' || this._currentPageId === 'library') ? '' : html`
                 <spotify-header
@@ -552,7 +612,7 @@ class SpotifyBrowserApp extends LitElement {
                     .searchQuery=${this._currentSearchQuery || ''}
                     .avatarVisible=${this._currentPageId === 'home'}
                     .avatarUrl=${this._resolveAvatar()}
-                    .avatarSwitchable=${(this.config.spotify_accounts || []).length > 1}
+                    .avatarSwitchable=${this.config.accounts.length > 1}
                     @avatar-click=${this._handleAvatarClick}
                     @back-click=${() => this.router.goBack()}
                     @logo-click=${() => { this.router.resetToHome(); this._menuVisible = false; }}
@@ -591,7 +651,7 @@ class SpotifyBrowserApp extends LitElement {
                 <spotify-reorder-dialog
                     .visible=${this._reorderVisible}
                     .items=${this._pinnedItems || []}
-                    .allowBlur=${this.config?.settings?.performance?.blur !== false}
+                    .allowBlur=${this.config.appearance.animations.blur}
                     @close=${() => this._reorderVisible = false}
                     @reorder=${this._handleReorderSave}
                     @delete-item=${this._handleReorderDelete}
@@ -616,31 +676,50 @@ class SpotifyBrowserApp extends LitElement {
                 <spotify-popups
                     id="popups"
                     .devices=${this._devices}
-                    .track=${this._trackPopupData}
                     .config=${this.config}
                     .deviceVisible=${this._devicePopupVisible}
-                    .trackVisible=${this._trackPopupVisible}
                     .canManageDevices=${!!this.deviceManager}
                     .showRevealButton=${this._showRevealButton}
-                    .blur=${this.config.animations?.blur !== false}
-                    @close-popups=${() => {
-                this._devicePopupVisible = false;
-                this._trackPopupVisible = false;
-            }}
+                    .blur=${this.config.appearance.animations.blur}
+                    @close-popups=${() => { this._devicePopupVisible = false; }}
                     @device-selected=${this._handleDeviceSelected}
                     @reveal-all-devices=${this._handleRevealAllDevices}
                     @toggle-hidden-devices=${this._handleToggleHiddenDevices}
                     @refresh-devices=${this._handleRefreshDevices}
-                    @track-action=${this._handleTrackAction}
                     @open-manager=${() => {
                 this._devicePopupVisible = false;
                 this._deviceManagerVisible = true;
             }}
                 ></spotify-popups>
 
+                <spotify-context-menu
+                    .visible=${this._ctxMenuVisible}
+                    .header=${this._ctxMenuHeader}
+                    .items=${this._ctxMenuItems || []}
+                    .anchor=${this._ctxMenuAnchor}
+                    @action=${this._handleMenuAction}
+                    @close=${() => { this._ctxMenuVisible = false; }}
+                ></spotify-context-menu>
+
+                <spotify-playlist-picker
+                    .visible=${this._playlistPickerVisible}
+                    .api=${this.api}
+                    .track=${this._playlistPickerTrack}
+                    @close=${() => { this._playlistPickerVisible = false; }}
+                    @open-playlist-dialog=${(e) => { e.stopPropagation(); this._playlistPickerVisible = false; this._handleOpenPlaylistDialog(e); }}
+                ></spotify-playlist-picker>
+
+                <spotify-playlist-create-sheet
+                    .visible=${this._playlistDialogVisible}
+                    .api=${this.api}
+                    .dialogProps=${this._playlistDialogProps}
+                    @close=${() => { this._playlistDialogVisible = false; }}
+                    @playlist-created=${this._handlePlaylistCreated}
+                ></spotify-playlist-create-sheet>
+
                 <spotify-account-panel
                     .visible=${this._accountSheetVisible}
-                    .accounts=${this.config.spotify_accounts || []}
+                    .accounts=${this.config.accounts}
                     .activeEntity=${this.config.entity}
                     .currentImage=${this._currentProfileImg}
                     @close=${() => { this._accountSheetVisible = false; }}
@@ -787,27 +866,26 @@ class SpotifyBrowserApp extends LitElement {
         if (!this.hass) return;
 
         if (!this.storageManager) {
-            this.storageManager = new StorageManager(this.hass, {
-                sensor_entity: this.config?.storage?.sensor_entity || 'sensor.spotify_browser_data',
-                event_type: this.config?.storage?.event_type || 'spotify_browser_store_data',
-                write_script: this.config?.storage?.write_script || null
-            });
+            // Parser guarantees storage defaults, so pass the group directly.
+            this.storageManager = new StorageManager(this.hass, this.config?.storage);
             this._validateStorage();
         }
 
-        if (!this.pinnedManager && this.config && (this.config.homescreen?.sticky || this.config.homescreen?.pinned_items_entity)) {
+        if (!this.pinnedManager && this.config?.home?.pinned) {
             try {
-                const pinnedConfig = this.config.homescreen?.sticky || { helper: this.config.homescreen?.pinned_items_entity };
-                this.pinnedManager = new PinnedItemsManager(this.hass, pinnedConfig, this.storageManager);
+                this.pinnedManager = new PinnedItemsManager(this.hass, this.config.home, this.storageManager);
                 if (this.router) this.router.updateDependencies({ pinned: this.pinnedManager });
             } catch (e) {
                 console.error("[SpotifyBrowser] Failed to initialize PinnedItemsManager", e);
             }
         }
 
-        if (!this.deviceManager && this.config && this.config.device_playback) {
+        if (!this.deviceManager && this.config) {
             try {
-                this.deviceManager = new DeviceManager(this.hass, this.config.device_playback, this.storageManager);
+                this.deviceManager = new DeviceManager(this.hass, this.config.devices, this.storageManager);
+                // _initApi() may already have run (updated() calls it first) —
+                // wire the manager into the API from whichever side exists last.
+                if (this.api) this.api.setDeviceManager(this.deviceManager);
             } catch (e) {
                 console.error("[SpotifyBrowser] Failed to initialize DeviceManager", e);
             }
@@ -853,7 +931,7 @@ class SpotifyBrowserApp extends LitElement {
             this.hass,
             this.config.entity,
             this._handleDeviceResolution.bind(this),
-            this.config.volume,
+            this.config.devices.volume,
             // Notification Callback
             (msg) => {
                 const popups = this.shadowRoot.getElementById('popups');
@@ -882,6 +960,7 @@ class SpotifyBrowserApp extends LitElement {
             if (popups) popups.showToast(msg, 6000);
         };
         this.api.setSonosBridge(this.sonosBridge);
+        if (this.deviceManager) this.api.setDeviceManager(this.deviceManager);
 
         // Initialize Player Controller
         this.playerController = new PlayerController(this.api);
@@ -895,7 +974,28 @@ class SpotifyBrowserApp extends LitElement {
         // Initial Sync
         if (this.hass) this.playerController.updateHass(this.hass);
 
+        this._turnOnOffPlayers();
+
         this.requestUpdate();
+    }
+
+    /**
+     * Turn on any configured SpotifyPlus players that are off. An off player
+     * stops polling Spotify, so the card's data goes stale and playback
+     * launches fail. Runs once per page load (called from _initApi, whose
+     * body executes only once). Covers every configured account, not just the
+     * active one. Skips 'unavailable' entities — turn_on can't help those.
+     */
+    _turnOnOffPlayers() {
+        const entityIds = new Set(
+            [this.config.entity, ...this.config.accounts.map(a => a.entity)]
+                .filter(Boolean)
+        );
+        const offIds = [...entityIds].filter(id => this.hass.states[id]?.state === 'off');
+        if (!offIds.length) return;
+
+        this.hass.callService('media_player', 'turn_on', { entity_id: offIds })
+            .catch(e => console.warn('[SpotifyBrowser] Failed to turn on player(s):', offIds, e));
     }
 
     /** Attributes of the configured player entity (empty object if unavailable). */
@@ -985,6 +1085,7 @@ class SpotifyBrowserApp extends LitElement {
 
             const popups = this.shadowRoot.getElementById('popups');
             if (popups) popups.showToast(`Transferring playback to ${e.detail.name}`);
+            this.playerController?.beginTransferHold();
             // expectResponse=false because player_transfer_playback doesn't support return_response=true
             this.api.fetchSpotifyPlus('player_transfer_playback', { device_id: e.detail.id, play: true }, false)
                 .then(res => {
@@ -1016,6 +1117,8 @@ class SpotifyBrowserApp extends LitElement {
         this.config = { ...this.config, entity };
         if (this.api) this.api.destroy();
         this.api = null;
+        // Device ids aren't meaningful across accounts — drop cached capabilities.
+        if (this.deviceManager) this.deviceManager.clearVolumeCapabilities();
         if (this.playerController) {
             this.playerController.removeEventListener('state-changed', this._onPlayerStateChange);
             this.playerController.destroy();
@@ -1030,6 +1133,9 @@ class SpotifyBrowserApp extends LitElement {
             this.router.clearCache();
             this.router.navigateTo('home');
         }
+        // The context-view state cache is keyed by pageId only (account-blind);
+        // stale entries would resurface the previous account's playlists.
+        SpotifyContextView.clearAll();
     }
 
     _handleAccountSelected(e) {
@@ -1039,13 +1145,13 @@ class SpotifyBrowserApp extends LitElement {
 
     /** Avatar for the active account: configured image first, else the live profile pic. */
     _resolveAvatar() {
-        const accounts = this.config?.spotify_accounts || [];
+        const accounts = this.config?.accounts || [];
         const acc = accounts.find(a => a.entity === this.config?.entity);
         return acc?.image || this._currentProfileImg || '';
     }
 
     _handleAvatarClick() {
-        if ((this.config.spotify_accounts || []).length > 1) {
+        if (this.config.accounts.length > 1) {
             this._accountSheetVisible = true;
         }
     }
@@ -1067,21 +1173,135 @@ class SpotifyBrowserApp extends LitElement {
         } catch (_) { /* default icon */ }
     }
 
-    _handleTrackAction(e) {
+    _handleMenuAction(e) {
         const action = e.detail;
-        const track = this._trackPopupData;
+        const track = this._menuTrack;
+        const context = this._menuContext;
+        const onAction = this._menuOnAction;
+        this._ctxMenuVisible = false;
+
+        // Menus opened by a view (playlist header ...) route back to their owner.
+        if (onAction) {
+            onAction(action);
+            return;
+        }
+
         switch (action) {
-            case 'tm-play':
-                this.api.playMedia(track.uri, 'track');
-                break;
             case 'tm-queue':
                 this.api.addToQueue(track.uri);
                 break;
             case 'tm-artist':
+                // Navigation target renders in the page behind the player
+                // overlays — drop them so the artist page is actually visible.
+                this._nowPlayingVisible = false;
+                this._mobileQueueVisible = false;
                 this._navigateToTrackArtist(track);
                 break;
+            case 'tm-add-playlist':
+                this._playlistPickerTrack = track;
+                this._playlistPickerVisible = true;
+                break;
+            case 'tm-remove-from-playlist':
+                this._removeTrackFromPlaylist(track, context);
+                break;
+            case 'tm-goto-queue':
+                if (this._isDesktop) this._queueVisible = true;
+                else this._openMobileQueue();
+                break;
+            case 'tm-goto-context': {
+                // sourceUri: spotify:playlist:<id> or spotify:album:<id>
+                const parts = (context?.sourceUri || '').split(':');
+                const kind = parts[parts.length - 2], id = parts[parts.length - 1];
+                if ((kind === 'playlist' || kind === 'album') && id) {
+                    this._nowPlayingVisible = false;
+                    this._mobileQueueVisible = false;
+                    this.router.navigateTo(`${kind}:${id}`);
+                }
+                break;
+            }
         }
-        this._trackPopupVisible = false;
+    }
+
+    /**
+     * Quick "Remove from this Playlist" from a track's row menu. Spotify's
+     * remove-by-URI drops EVERY copy of a duplicated track, so when the row's
+     * context reports more than one occurrence we confirm first.
+     */
+    async _removeTrackFromPlaylist(track, context) {
+        const playlistId = context?.playlistId;
+        if (!playlistId || !track?.uri || !this.api) return;
+        const popups = this.shadowRoot.getElementById('popups');
+
+        const doRemove = async () => {
+            const res = await this.api.removePlaylistItems(playlistId, [track.uri], context?.snapshotId);
+            if (res.success) {
+                if (popups) popups.showToast(`Removed "${track.name}" from playlist`);
+                this._handlePlaylistChanged({ detail: { playlistId, action: 'items' } });
+            } else if (popups) {
+                popups.showToast("Couldn't remove track from playlist");
+            }
+        };
+
+        if ((context.uriCount || 1) > 1) {
+            if (popups) popups.showAlert(
+                'Remove all copies?',
+                `"${track.name}" appears ${context.uriCount} times in this playlist. Spotify removes every copy at once.`,
+                doRemove,
+                'Remove All'
+            );
+            return;
+        }
+        doRemove();
+    }
+
+    /**
+     * A playlist was mutated somewhere in the app. Bust the context-view cache
+     * for that page, resync whatever is showing it, and refresh the browse
+     * lists that surface playlist names/artwork/counts.
+     */
+    async _handlePlaylistChanged(e) {
+        const { playlistId, action, patch } = e.detail || {};
+        if (!playlistId) return;
+        const pageId = `playlist:${playlistId}`;
+        SpotifyContextView.invalidate(pageId);
+
+        if (action === 'delete') {
+            if (this.router?.currentPageId === pageId) {
+                if (this.router.history.length > 0) this.router.goBack();
+                else this.router.resetToHome();
+            }
+            this.router?.dropPage(pageId);
+            // A deleted playlist must not linger as a home shortcut.
+            try {
+                await this.pinnedManager?.remove(playlistId);
+                this._handlePinnedChanged();
+            } catch (_) { /* not pinned */ }
+        } else {
+            // Both edit (name/description) and edit-mode saves can carry an
+            // exact patch — apply it in place; anything else refetches.
+            const view = this.router?.pageCache.get(pageId);
+            if (view?.refresh) view.refresh(patch || null);
+        }
+
+        const lib = this.router?.pageCache.get('library');
+        if (lib?.refresh) lib.refresh();
+        if (action === 'create' || action === 'delete') this._refreshHomePinned();
+    }
+
+    /** Open the create/edit playlist dialog. detail: {mode, playlist?, pendingTrackUri?} */
+    _handleOpenPlaylistDialog(e) {
+        this._playlistDialogProps = e.detail || { mode: 'create' };
+        this._playlistDialogVisible = true;
+    }
+
+    /** A playlist was created via the details dialog: refresh lists + open it. */
+    _handlePlaylistCreated(e) {
+        const playlist = e.detail?.playlist;
+        this._playlistDialogVisible = false;
+        if (playlist?.id) {
+            this._handlePlaylistChanged({ detail: { playlistId: playlist.id, action: 'create' } });
+            this.router?.navigateTo(`playlist:${playlist.id}`, { title: playlist.name });
+        }
     }
 
     /**
@@ -1111,8 +1331,60 @@ class SpotifyBrowserApp extends LitElement {
     }
 
     _handleOpenTrackMenu(e) {
-        this._trackPopupData = e.detail;
-        this._trackPopupVisible = true;
+        const detail = e.detail || {};
+        fireHaptic('light');
+        this._menuTrack = detail;
+        this._menuContext = detail.context || null;
+        this._menuOnAction = null;
+        this._ctxMenuHeader = {
+            image: detail.image,
+            name: detail.name,
+            subtitle: [detail.artist, detail.album].filter(Boolean).join(' • ')
+        };
+        this._ctxMenuItems = this._composeTrackMenuItems(detail.context);
+        this._ctxMenuAnchor = detail.anchor || null;
+        this._ctxMenuVisible = true;
+    }
+
+    /** Track-menu items, shaped by where the row lives (detail.context). */
+    _composeTrackMenuItems(context) {
+        const items = [
+            { id: 'tm-queue', label: 'Add to Queue', icon: 'queue' },
+            { id: 'tm-add-playlist', label: 'Add to Playlist', icon: 'playlist-add' },
+            { id: 'tm-artist', label: 'Go to Artist', icon: 'artist' },
+        ];
+        if (context?.surface === 'playlist' && context.canEditItems) {
+            items.push({ id: 'tm-remove-from-playlist', label: 'Remove from this Playlist', icon: 'minus-circle', danger: true });
+        }
+        // Playing-surface extras: jump to the queue / the source context.
+        if (context?.surface === 'nowplaying') {
+            items.push({ id: 'tm-goto-queue', label: 'Go to Queue', icon: 'queue-list' });
+        }
+        if (context?.surface === 'nowplaying' || context?.surface === 'queue') {
+            const src = context.sourceUri || '';
+            if (src.includes(':playlist:')) items.push({ id: 'tm-goto-context', label: 'Go to Playlist', icon: 'playlist' });
+            else if (src.includes(':album:')) items.push({ id: 'tm-goto-context', label: 'Go to Album', icon: 'album' });
+        }
+        return items;
+    }
+
+    /**
+     * Action menu owned by a view (playlist header, library rows ...). The
+     * opener supplies the header, the items and an onAction callback that
+     * receives the chosen item id — the app root only hosts the overlay.
+     * detail: { header: {image, name, subtitle}, items: [...], onAction(id), anchor? }
+     */
+    _handleOpenContextMenu(e) {
+        const { header, items, onAction, anchor } = e.detail || {};
+        if (!header || !items || !items.length) return;
+        fireHaptic('light');
+        this._menuTrack = null;
+        this._menuContext = null;
+        this._menuOnAction = onAction || null;
+        this._ctxMenuHeader = { image: header.image, name: header.name, subtitle: header.subtitle || header.artist };
+        this._ctxMenuItems = items;
+        this._ctxMenuAnchor = anchor || null;
+        this._ctxMenuVisible = true;
     }
 
     _handleShowToast(e) {
@@ -1357,6 +1629,7 @@ class SpotifyBrowserApp extends LitElement {
         this._connectPanelVisible = false;
         const popups = this.shadowRoot.getElementById('popups');
         if (popups) popups.showToast(`Transferring playback to ${device.name}`);
+        this.playerController?.beginTransferHold();
         // player_transfer_playback doesn't support return_response=true
         const res = await this.api?.fetchSpotifyPlus('player_transfer_playback', { device_id: device.id, play: true }, false);
         if (!res && popups) popups.showToast(`Transfer to ${device.name} failed`);
@@ -1417,6 +1690,48 @@ class SpotifyBrowserApp extends LitElement {
         }
     }
 
+    /**
+     * Dismiss every popup/sheet/overlay surface. Called from the CLOSING branch
+     * of updated() so ANY close path (close button, drag-dismiss, backdrop tap,
+     * background auto-close, idle auto-close) reopens with a clean slate.
+     * home_on_exit governs only the router page, never these surfaces.
+     */
+    _closeAllPopups() {
+        this._searchVisible = false;
+        this._menuVisible = false;
+        this._devicePopupVisible = false;
+        this._ctxMenuVisible = false;
+        this._ctxMenuHeader = null;
+        this._ctxMenuItems = null;
+        this._ctxMenuAnchor = null;
+        this._menuTrack = null;
+        this._menuContext = null;
+        this._menuOnAction = null;
+        this._playlistPickerVisible = false;
+        this._playlistPickerTrack = null;
+        this._playlistDialogVisible = false;
+        this._playlistDialogProps = null;
+        this._accountSheetVisible = false;
+        this._reorderVisible = false;
+        this._deviceManagerVisible = false;
+        this._nowPlayingVisible = false;
+        this._connectPanelVisible = false;
+        this._connectLoading = false;
+        this._mobileQueueVisible = false;
+        this._pendingNowPlaying = false;
+        clearTimeout(this._pendingNowPlayingTimer);
+        // Desktop queue sidebar is layout state, not a modal: restore it to its
+        // configured initial state (the _queueInitDone once-guard would let a
+        // plain `false` permanently defeat open_init after the first close).
+        this._queueVisible = !!(this._isDesktop && this.config?.queue?.open_on_desktop);
+        // A device-picker promise may be awaiting a selection — release it so
+        // the api call it gates doesn't hang across the close.
+        if (this._pendingDeviceResolution) {
+            this._pendingDeviceResolution(null);
+            this._pendingDeviceResolution = null;
+        }
+    }
+
     /* Slide the panel down then close (mobile iOS-panel dismiss). */
     _animateClose() {
         if (this._isDesktop) { this._isOpen = false; return; }
@@ -1438,6 +1753,75 @@ class SpotifyBrowserApp extends LitElement {
         };
         w.addEventListener('transitionend', finish, { once: true });
         setTimeout(finish, 420);
+    }
+
+    /** Close the mobile sheet when the tab/app goes to background. */
+    _handleAppBackgrounded() {
+        if (this._isDesktop || !this._isOpen) return;
+        // Direct close, NOT _animateClose(): transitions/timers are throttled
+        // while hidden, and the user shouldn't see a re-animated dismiss on
+        // return anyway. updated()'s close branch dismisses all popups/sheets
+        // (via _closeAllPopups) and stamps _lastCloseTime, so home_on_exit.timeout
+        // applies as if the user closed it manually.
+        this._isOpen = false;
+    }
+
+    /** Start the idle auto-close watchdog (each tick no-ops when disabled). */
+    _startIdleWatch() {
+        this._stopIdleWatch();
+        // Wall-clock comparison inside a short tick, NOT one long setTimeout:
+        // the iOS webview freezes timers while backgrounded and desktop
+        // browsers throttle hidden tabs; _handleAppForegrounded catches any
+        // overshoot on resume.
+        this._idleCheckTimer = setInterval(() => this._checkIdleClose(), 5000);
+    }
+
+    _stopIdleWatch() {
+        if (this._idleCheckTimer) {
+            clearInterval(this._idleCheckTimer);
+            this._idleCheckTimer = null;
+        }
+    }
+
+    /**
+     * Close the overlay if the user has been idle past auto_close.timeout.
+     * Returns true if it closed. Reuses the normal close paths so
+     * _lastCloseTime is stamped and home_on_exit applies as if the user
+     * closed it manually.
+     */
+    _checkIdleClose() {
+        const ac = this.config?.auto_close;
+        if (!this._isOpen || !ac?.enabled || !(ac.timeout > 0)) return false;
+        if ((Date.now() - this._lastActivityTime) / 1000 < ac.timeout) return false;
+        if (document.hidden) {
+            this._isOpen = false;   // hidden: skip animation (timers throttled)
+        } else {
+            this._animateClose();   // visible: animated mobile dismiss / direct desktop close
+        }
+        return true;
+    }
+
+    /** Rescan when the tab/window regains attention while open. */
+    _handleAppForegrounded() {
+        if (!this._isOpen) return; // the reopen hook covers the closed case
+        // Desktop keeps the overlay open while hidden and the watchdog gets
+        // throttled there — apply an overdue idle close first, and skip the
+        // refresh when it fires.
+        if (this._checkIdleClose()) return;
+        // Deferred a macrotask so api.js's own visibilitychange handler — which
+        // refreshes the reconnect grace window (_resumedAt) — has run first,
+        // regardless of listener registration order.
+        setTimeout(() => this._refreshAfterReturn(), 0);
+    }
+
+    /** Bring now-playing, queue and recents up to date (reopen + refocus). */
+    async _refreshAfterReturn() {
+        if (!this.api) return;
+        await this.api.scanWhenReady();
+        // Explicit re-reads: queue/recents live outside hass.states, and the
+        // scan only auto-refreshes them when the track actually changed.
+        this.playerController?.refreshQueue();
+        this.playerController?.refreshRecent();
     }
 
     _handleMiniPlayerPlayPause(e) {

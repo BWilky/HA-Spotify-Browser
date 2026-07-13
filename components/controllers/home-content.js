@@ -1,5 +1,5 @@
 /**
- * Builds the "Made For You" item list from the homescreen.madeforyou config.
+ * Builds the "Made For You" item list from the home.made_for_you config.
  * Shared by the home screen carousel and the "See All" section view.
  *
  * Config entries may be:
@@ -26,7 +26,7 @@ export function dedupeRecentAlbums(historyItems = []) {
 }
 
 export async function loadMadeForYouItems(api, config) {
-    const configList = config?.homescreen?.madeforyou?.content;
+    const configList = config?.home?.made_for_you?.content;
     if (!api || !Array.isArray(configList) || configList.length === 0) return [];
 
     const items = [];

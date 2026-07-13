@@ -1,4 +1,4 @@
-import { parseDeviceItems, normalizeDevice, deviceBrand } from '../../utils.js';
+import { parseDeviceItems, parseWebApiDevices, normalizeDevice, deviceBrand, debugLog } from '../../utils.js';
 
 export class DeviceManager {
     constructor(hass, config, storageManager) {
@@ -147,9 +147,48 @@ export class DeviceManager {
      * options: { refresh: boolean, showHidden: boolean }
      */
     async fetchMergedDevices(api, attributes = {}, options = {}) {
-        const response = await api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: !!options.refresh });
+        const [response] = await Promise.all([
+            api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: !!options.refresh }),
+            this._refreshVolumeCapabilities(api)
+        ]);
         const rawDevices = parseDeviceItems(response);
         return await this.getMergedDevices(rawDevices, attributes, options);
+    }
+
+    /**
+     * Best-effort refresh of the id -> supports_volume map from the Web API
+     * device list — the Connect-device model has no such field. Non-fatal on
+     * failure: devices stay unknown and every caller treats unknown as
+     * volume-capable.
+     */
+    async _refreshVolumeCapabilities(api) {
+        try {
+            const response = await api.fetchSpotifyPlus('get_player_devices', {}, true, false);
+            const list = parseWebApiDevices(response);
+            if (!list.length) return;
+            if (!this._volumeCapability) this._volumeCapability = new Map();
+            list.forEach(d => {
+                const id = d.id || d.Id;
+                if (id) this._volumeCapability.set(id, d.supports_volume !== false);
+            });
+        } catch (e) {
+            debugLog('[DeviceManager] Volume capability refresh failed (non-fatal):', e);
+        }
+    }
+
+    /**
+     * Cached volume capability for a device id: true/false, or null when the
+     * device hasn't appeared in a get_player_devices response yet. Callers
+     * must treat null as supported.
+     */
+    getVolumeCapability(deviceId) {
+        if (!deviceId || !this._volumeCapability || !this._volumeCapability.has(deviceId)) return null;
+        return this._volumeCapability.get(deviceId);
+    }
+
+    /** Device ids aren't meaningful across accounts — drop the cache on switch. */
+    clearVolumeCapabilities() {
+        this._volumeCapability = null;
     }
 
     async getMergedDevices(apiDevices = [], attributes = {}, options = {}) {
@@ -206,7 +245,8 @@ export class DeviceManager {
                 isOnline: !!live,
                 is_default: saved.is_default,
                 is_backup: saved.is_backup,
-                visible: saved.visible !== false
+                visible: saved.visible !== false,
+                supportsVolume: this.getVolumeCapability(saved.id)
             });
         });
 
@@ -221,7 +261,8 @@ export class DeviceManager {
                     ...norm,
                     isActive: isActive,
                     isOnline: true,
-                    visible: true
+                    visible: true,
+                    supportsVolume: this.getVolumeCapability(norm.id)
                 });
             }
         });
@@ -249,7 +290,8 @@ export class DeviceManager {
                     type: 'Speaker',
                     isActive: true,
                     isSaved: false,
-                    isOnline: true
+                    isOnline: true,
+                    supportsVolume: this.getVolumeCapability(activeDeviceId)
                 });
             }
         }

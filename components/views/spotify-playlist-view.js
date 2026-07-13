@@ -3,7 +3,8 @@ import { sharedStyles } from '../../styles/shared-styles.js';
 import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
 import { fireHaptic } from '../../utils.js';
 import { renderTrackRowTemplate } from '../media-templates.js';
-import { heartToggleIcon, playIcon, pauseIcon } from '../common/icons.js';
+import { heartToggleIcon, playIcon, pauseIcon, menuIcon, reorderLinesIcon, minusCircleIcon } from '../common/icons.js';
+import { ListDragController } from '../controllers/list-drag-controller.js';
 
 export class SpotifyPlaylistView extends LitElement {
     static get properties() {
@@ -29,7 +30,12 @@ export class SpotifyPlaylistView extends LitElement {
             _optimisticPlayingTrackId: { type: String, state: true }, // row to highlight immediately on click
             _trackLikes: { type: Object, state: true }, // map of trackId -> boolean (liked)
             _genrePills: { type: Array, state: true }, // Liked Songs filter pills: [{ label, genre }]
-            _activeGenre: { type: String, state: true } // currently selected pill genre, or null
+            _activeGenre: { type: String, state: true }, // currently selected pill genre, or null
+            _editMode: { type: Boolean, state: true },      // Spotify-style playlist edit mode
+            _workingItems: { type: Array, state: true },    // edit-mode list: [{key, item}]
+            _editName: { type: String, state: true },       // edit-mode name field
+            _editDescription: { type: String, state: true },// edit-mode description field
+            _saving: { type: Boolean, state: true }         // edit-mode save in flight
         };
     }
 
@@ -86,18 +92,18 @@ export class SpotifyPlaylistView extends LitElement {
                 .ha-right { display: flex; align-items: center; gap: 16px; margin-left: auto; }
 
                 /* ================= LIKED SONGS NATIVE STYLING ================= */
-                .liked-gradient {
-                    position: absolute;
-                    top: 0; left: 0; right: 0; bottom: 0;
-                    background: linear-gradient(180deg, #4733b0 0%, #3a2f7a 45%, var(--spf-bg) 100%);
-                    transform: translateZ(0); /* own layer: avoids initial paint gap behind the header */
-                }
                 /* Liked Songs has no album art (mirrors the native app), so the
                    hero is just the title + count + controls over the gradient.
-                   Shrink the banner accordingly on desktop. */
+                   Shrink the banner accordingly on desktop. The gradient is
+                   painted on the banner itself — a composited child div (the old
+                   .liked-gradient) left an unpainted strip behind the floating
+                   header. 300px keeps the bottom-anchored text clear of the
+                   header's 64px zone now that the hero truly starts at the top. */
                 .liked-hero .hero-banner {
-                    height: 240px !important; min-height: 240px !important; max-height: 240px !important;
+                    height: 300px !important; min-height: 300px !important; max-height: 300px !important;
+                    background: linear-gradient(180deg, #4733b0 0%, #3a2f7a 45%, var(--spf-bg) 100%);
                 }
+                .liked-hero .hero-bg { background: transparent; }
                 /* Over-scroll guard: a block of the gradient's top colour sitting
                    just above the content, so the rubber-band bounce reveals purple
                    instead of the black page background behind the scroller. */
@@ -115,6 +121,113 @@ export class SpotifyPlaylistView extends LitElement {
                     cursor: pointer; transition: color 0.2s;
                 }
                 .hero-btn-icon:hover { color: white; }
+                .hero-btn-menu svg { fill: currentColor; width: 26px; height: 26px; }
+
+                /* ================= PLAYLIST EDIT MODE ================= */
+                .edit-bar {
+                    position: sticky; top: 0; z-index: 20;
+                    display: flex; align-items: center; justify-content: space-between;
+                    gap: 12px;
+                    padding: calc(var(--spf-safe-top, 0px) + 12px) 16px 12px;
+                    background: var(--spf-bg);
+                    border-bottom: 1px solid var(--spf-border-subtle, rgba(255,255,255,0.08));
+                }
+                .edit-bar-title { font-size: var(--spf-text-md, 15px); font-weight: 700; color: var(--spf-text-main); }
+                .edit-bar-btn {
+                    background: transparent; border: none; color: var(--spf-text-sub);
+                    font-size: var(--spf-text-md, 15px); font-weight: 700; cursor: pointer; padding: 8px;
+                }
+                .edit-bar-btn.save { color: var(--spf-brand, #1DB954); font-weight: 700; }
+                .edit-bar-btn:disabled { opacity: 0.5; cursor: default; }
+
+                .edit-fields {
+                    display: flex; flex-direction: column; gap: 14px;
+                    padding: 18px 16px 8px;
+                }
+                .edit-name-input {
+                    background: transparent;
+                    border: none;
+                    border-bottom: 1px solid rgba(255,255,255,0.25);
+                    color: var(--spf-text-main);
+                    font-size: var(--spf-text-xl, 22px); font-weight: 900; font-family: inherit;
+                    padding: 2px 2px 10px;
+                    outline: none;
+                    caret-color: var(--spf-brand, #1ed760);
+                }
+                .edit-name-input:focus { border-bottom-color: rgba(255,255,255,0.55); }
+                .edit-desc-input {
+                    background: transparent;
+                    border: none;
+                    border-bottom: 1px solid rgba(255,255,255,0.15);
+                    color: var(--spf-text-sub);
+                    font-size: var(--spf-text-base, 13.5px); font-family: inherit;
+                    padding: 2px 2px 8px;
+                    outline: none; resize: none;
+                    caret-color: var(--spf-brand, #1ed760);
+                }
+                .edit-desc-input:focus { border-bottom-color: rgba(255,255,255,0.45); color: var(--spf-text-main); }
+                .edit-name-input::placeholder, .edit-desc-input::placeholder { color: rgba(255,255,255,0.3); }
+
+                .edit-list { padding: 8px 8px 120px; }
+                .edit-row {
+                    display: flex; align-items: center; gap: 14px;
+                    padding: 9px 8px;
+                    position: relative;
+                    user-select: none;
+                    background: var(--spf-bg);
+                    z-index: 1;
+                }
+                .edit-row.dragging {
+                    z-index: 100;
+                    background: #282828 !important;
+                    transform: scale(1.02);
+                    box-shadow: 0 15px 40px rgba(0,0,0,0.7);
+                    border-radius: 8px;
+                    border-bottom: none;
+                    cursor: grabbing;
+                }
+                .edit-row.ghost { opacity: 0.35; }
+                .edit-row.drop-before::before {
+                    content: ''; position: absolute; top: -1px; left: 0; right: 0;
+                    height: 3px; background: var(--spf-brand, #1DB954); z-index: 10;
+                }
+                .edit-row.drop-after::after {
+                    content: ''; position: absolute; bottom: -1px; left: 0; right: 0;
+                    height: 3px; background: var(--spf-brand, #1DB954); z-index: 10;
+                }
+                .edit-remove {
+                    background: transparent; border: none;
+                    color: var(--spf-text-sub);
+                    cursor: pointer; display: flex; padding: 4px; flex-shrink: 0;
+                }
+                .edit-remove:hover { color: var(--spf-text-main); }
+                .edit-remove svg { width: 26px; height: 26px; fill: currentColor; }
+                .edit-art {
+                    width: 56px; height: 56px; border-radius: 4px; flex-shrink: 0;
+                    background-size: cover; background-position: center; background-color: #333;
+                    position: relative;
+                    display: flex; align-items: center; justify-content: center;
+                }
+                .edit-art-play {
+                    display: flex; color: #fff;
+                    filter: drop-shadow(0 1px 3px rgba(0,0,0,0.7));
+                }
+                .edit-text { flex: 1; min-width: 0; }
+                .edit-name {
+                    font-size: var(--spf-text-md, 15px); font-weight: 700; color: var(--spf-text-main);
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                }
+                .edit-artist {
+                    font-size: var(--spf-text-base, 13.5px); color: var(--spf-text-sub); margin-top: 3px;
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+                }
+                .edit-handle {
+                    color: var(--spf-text-sub); cursor: grab; touch-action: none;
+                    padding: 10px 4px; display: flex; flex-shrink: 0;
+                }
+                .edit-handle:hover { color: var(--spf-text-main); }
+                .edit-handle svg { fill: currentColor; }
+                .edit-empty { text-align: center; color: var(--spf-text-sub); padding: 40px 16px; }
 
                 /* Album save button — mirrors the now-playing like button: an
                    outlined circle with a checkmark that fills green when saved. */
@@ -159,11 +272,11 @@ export class SpotifyPlaylistView extends LitElement {
                     background-color: var(--spf-bg-card-hover, #282828);
                 }
                 .hero-artist-name {
-                    color: var(--spf-text-main); font-size: 14px; font-weight: 700;
+                    color: var(--spf-text-main); font-size: var(--spf-text-base, 13.5px); font-weight: 700;
                 }
                 .hero-artist:hover .hero-artist-name { text-decoration: underline; }
                 .hero-release {
-                    color: var(--spf-text-sub); font-size: 13px; margin-bottom: 4px;
+                    color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); margin-bottom: 4px;
                 }
 
                 .genre-pills {
@@ -173,7 +286,7 @@ export class SpotifyPlaylistView extends LitElement {
                 .genre-pills::-webkit-scrollbar { display: none; }
                 .genre-pill {
                     flex: 0 0 auto; border: none; cursor: pointer; white-space: nowrap;
-                    padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 500;
+                    padding: 8px 16px; border-radius: 999px; font-size: var(--spf-text-base, 13.5px); font-weight: 500;
                     background: var(--spf-bg-card, #232323); color: white; transition: background 0.15s, color 0.15s;
                 }
                 .genre-pill:hover { background: #3a3a3a; }
@@ -223,8 +336,8 @@ export class SpotifyPlaylistView extends LitElement {
                     }
 
                     .hero-title {
-                        font-size: 1.5rem !important;
-                        font-weight: 800 !important;
+                        font-size: var(--spf-text-xl, 22px) !important;
+                        font-weight: 900 !important;
                         line-height: 1.15 !important;
                         margin: 0 0 8px 0 !important;
                     }
@@ -236,7 +349,7 @@ export class SpotifyPlaylistView extends LitElement {
                     .main-scroll-container:not(.liked-hero) .hero-subtitle { display: none !important; }
 
                     .liked-hero .hero-subtitle {
-                        font-size: 14px !important;
+                        font-size: var(--spf-text-base, 13.5px) !important;
                         color: var(--spf-text-sub) !important;
                     }
 
@@ -257,7 +370,7 @@ export class SpotifyPlaylistView extends LitElement {
 
                     .hero-desc {
                         display: block !important;
-                        font-size: 15px !important;
+                        font-size: var(--spf-text-md, 15px) !important;
                         line-height: 1.4 !important;
                         color: var(--spf-text-main) !important;
                         margin-bottom: 14px !important;
@@ -267,7 +380,7 @@ export class SpotifyPlaylistView extends LitElement {
                         display: flex !important;
                         align-items: center !important;
                         gap: 8px !important;
-                        font-size: 14px !important;
+                        font-size: var(--spf-text-base, 13.5px) !important;
                         color: var(--spf-text-main) !important;
                         margin-bottom: 6px !important;
                     }
@@ -276,7 +389,7 @@ export class SpotifyPlaylistView extends LitElement {
 
                     .hero-meta {
                         display: block !important;
-                        font-size: 13px !important;
+                        font-size: var(--spf-text-base, 13.5px) !important;
                         color: var(--spf-text-sub) !important;
                     }
 
@@ -361,6 +474,17 @@ export class SpotifyPlaylistView extends LitElement {
         this._genrePills = [];
         this._activeGenre = null;
         this._trackGenres = {}; // trackId -> string[] of genres (not reactive; drives pills)
+        this._editMode = false;
+        this._workingItems = null;
+        this._origItems = null;   // edit-mode snapshot of the pre-edit list
+        this._saving = false;
+        this._drag = new ListDragController(this, {
+            itemSelector: '.edit-row',
+            onDrop: (from, to, pos) => {
+                fireHaptic('light');
+                this._workingItems = ListDragController.applyMove(this._workingItems, from, to, pos);
+            }
+        });
     }
 
     connectedCallback() {
@@ -396,6 +520,13 @@ export class SpotifyPlaylistView extends LitElement {
 
     updated(changedProperties) {
         if (changedProperties.has('data')) {
+            // The router reuses this element across pages — never carry an
+            // open edit session over to a different playlist.
+            if (this._editMode && this.data?.id !== this._editPlaylistId) {
+                this._editMode = false;
+                this._workingItems = null;
+                this._origItems = null;
+            }
             this._checkFollowStatus();
             this._checkPinStatus();
             this._checkTrackLikes();
@@ -403,6 +534,13 @@ export class SpotifyPlaylistView extends LitElement {
             if (this.data?.type === 'album') {
                 this._checkAlbumLike();
                 this._fetchArtistInfo();
+            }
+            // One-shot: navigated here via "Edit Playlist" (library row menu).
+            // Waits for the full track list — reorder math needs it.
+            if (this.data?.autoEdit && !this._editMode
+                && this.data.canEditItems && this.data.tracksComplete) {
+                this.data.autoEdit = false;
+                this._enterEditMode();
             }
         }
 
@@ -426,11 +564,17 @@ export class SpotifyPlaylistView extends LitElement {
     async _checkFollowStatus() {
         if (!this.data || this.data.type !== 'playlist' || !this.api) return;
 
-        // Fetch User if needed
+        // Your own playlist is always "in your library" — the heart is hidden
+        // and delete lives in the header menu instead.
+        if (this.data.isOwner) {
+            this._isFollowing = false;
+            return;
+        }
+
+        // Fetch User if needed (entity attribute first — no network)
         if (!this._currentUserId) {
             try {
-                const user = await this.api.getCurrentUserProfile();
-                if (user?.id) this._currentUserId = user.id;
+                this._currentUserId = await this.api.getCurrentUserId();
             } catch (e) { }
         }
 
@@ -538,7 +682,7 @@ export class SpotifyPlaylistView extends LitElement {
     _applyScroll(target) {
         if (!target) return;
         const scrollTop = target.scrollTop;
-        const lite = this.config?.performance?.lite;
+        const lite = this.config?.appearance?.performance?.lite;
 
         // Decorative parallax (stretchy art + hero fade/scale). Skipped on the
         // low-power profile — it's the heaviest per-frame work here.
@@ -615,6 +759,7 @@ export class SpotifyPlaylistView extends LitElement {
 
     render() {
         if (!this.data) return html``;
+        if (this._editMode) return this._renderEditMode();
         const data = this.data;
         let subtitle = data.description || (data.owner ? `By ${data.owner.display_name}` : '');
 
@@ -660,19 +805,19 @@ export class SpotifyPlaylistView extends LitElement {
                     <div class="hero-banner" style="margin-top: 0; display: block !important; position: relative !important; top: 0; left: 0; z-index: 0;">
                         <div class="hero-bg">
                             ${isLiked
-                ? html`<div class="liked-gradient"></div>`
+                ? ''
                 : html`<img src="${data.images?.[0]?.url}"
                                  style="width: 100%; height: 100%; object-fit: cover; filter: blur(20px) brightness(0.6); transform: scale(1.1); opacity: 0.5;">`}
                         </div>
                         <div class="hero-content">
                         ${!isLiked ? html`
-                        <div class="hero-art ${!data.images?.[0]?.url ? 'skeleton-pulse' : ''}" style="${!data.images?.[0]?.url ? 'background-color: #282828;' : ''}">
+                        <div class="hero-art ${!data.images?.[0]?.url ? (data.isLoading ? 'skeleton-pulse' : 'art-fallback') : ''}">
                             ${data.images?.[0]?.url ? html`
                                 <img src="${data.images[0].url}"
                                      class="hero-art-img"
                                      style="opacity: 0; transition: opacity 0.5s ease;"
                                      onload="this.style.opacity = 1; this.parentElement.classList.remove('skeleton-pulse');"
-                                     onerror="this.style.display='none'; this.parentElement.classList.add('skeleton-pulse');"
+                                     onerror="this.style.display='none'; this.parentElement.classList.remove('skeleton-pulse'); this.parentElement.classList.add('art-fallback');"
                                 >
                             ` : ''}
                         </div>` : ''}
@@ -718,12 +863,17 @@ export class SpotifyPlaylistView extends LitElement {
                                             </button>
                                         ` : ''}
                                         ${playBtnTpl}
-                                        ${data.type === 'playlist' ? html`
+                                        ${data.type === 'playlist' && !data.isOwner ? html`
                                             <button class="hero-btn-fav" @click=${this._toggleFollowPlaylist} style="margin-left: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: ${this._isFollowing ? '#1DB954' : 'white'}; transition: all 0.2s ease;">
                                                 ${heartToggleIcon(this._isFollowing, 28)}
                                             </button>
                                         ` : ''}
                                         ${pinBtnTpl}
+                                        ${data.type === 'playlist' ? html`
+                                            <button class="hero-btn-icon hero-btn-menu" title="More options" aria-label="More options" @click=${this._openHeaderMenu}>
+                                                ${menuIcon}
+                                            </button>
+                                        ` : ''}
                                     </div>
                                 `}
                             </div>
@@ -792,8 +942,35 @@ export class SpotifyPlaylistView extends LitElement {
 
     _handleTrackMenu(e, trackData) {
         e.stopPropagation();
+        let detail = { ...trackData, anchor: e.currentTarget.getBoundingClientRect() };
+        // Inside a playlist, the menu gains playlist-scoped actions (remove
+        // from this playlist). uriCount lets the app warn before a remove that
+        // would take out every copy of a duplicated track.
+        if (this.data?.type === 'playlist') {
+            const uri = trackData?.uri;
+            const uriCount = (this.data.tracks?.items || [])
+                .filter(it => (it?.track || it)?.uri === uri).length;
+            detail = {
+                ...detail,
+                context: {
+                    surface: 'playlist',
+                    playlistId: this.data.id,
+                    canEditItems: !!this.data.canEditItems,
+                    snapshotId: this.data.snapshotId || null,
+                    uriCount
+                }
+            };
+        }
         this.dispatchEvent(new CustomEvent('open-track-menu', {
-            detail: trackData,
+            detail,
+            bubbles: true,
+            composed: true
+        }));
+    }
+
+    _toast(message) {
+        this.dispatchEvent(new CustomEvent('show-toast', {
+            detail: { message },
             bubbles: true,
             composed: true
         }));
@@ -820,7 +997,7 @@ export class SpotifyPlaylistView extends LitElement {
      */
     async _enrichGenres() {
         // Low-power profile: skip the background artist lookups + pill rebuilds.
-        if (this.config?.performance?.lite) return;
+        if (this.config?.appearance?.performance?.lite) return;
         if (this._enrichingGenres) return;
         const items = this.data?.tracks?.items;
         if (!this.api || !items?.length) return;
@@ -1020,7 +1197,7 @@ export class SpotifyPlaylistView extends LitElement {
     }
 
     async _toggleFollowPlaylist(e) {
-        e.stopPropagation();
+        e?.stopPropagation();
         const playlistId = this.data?.id;
         if (!playlistId || !this.api) return;
 
@@ -1048,6 +1225,363 @@ export class SpotifyPlaylistView extends LitElement {
                 composed: true
             }));
         }
+    }
+
+    /* --- PLAYLIST MANAGEMENT (header menu + edit mode) --- */
+
+    /** Playlist header "..." menu; items depend on ownership. */
+    _openHeaderMenu(e) {
+        e?.stopPropagation();
+        const data = this.data;
+        if (!data) return;
+        const isOwner = !!data.isOwner;
+        const items = [];
+        if (isOwner) {
+            items.push({ id: 'pm-edit', label: 'Edit Playlist', icon: 'pencil' });
+            items.push(data.public !== false
+                ? { id: 'pm-toggle-public', label: 'Make Private', icon: 'lock' }
+                : { id: 'pm-toggle-public', label: 'Make Public', icon: 'lock' });
+            items.push(data.collaborative
+                ? { id: 'pm-toggle-collab', label: 'Remove Collaborative', icon: 'people' }
+                : { id: 'pm-toggle-collab', label: 'Make Collaborative', icon: 'people' });
+        } else {
+            items.push(this._isFollowing
+                ? { id: 'pm-unfollow', label: 'Remove from Your Library', icon: 'heart-filled' }
+                : { id: 'pm-follow', label: 'Add to Your Library', icon: 'heart' });
+        }
+        if (this._pinnedEntity) {
+            items.push({ id: 'pm-pin', label: this._isPinned ? 'Unpin from Home' : 'Pin to Home', icon: 'pin' });
+        }
+        if (isOwner) {
+            items.push({ id: 'pm-delete', label: 'Delete Playlist', icon: 'trash', danger: true });
+        }
+        this.dispatchEvent(new CustomEvent('open-context-menu', {
+            detail: {
+                header: {
+                    image: data.images?.[0]?.url || '',
+                    name: data.name,
+                    subtitle: data.owner?.display_name || 'Playlist'
+                },
+                items,
+                anchor: e?.currentTarget?.getBoundingClientRect?.() || null,
+                onAction: (id) => this._handleHeaderMenuAction(id)
+            },
+            bubbles: true,
+            composed: true
+        }));
+    }
+
+    _handleHeaderMenuAction(action) {
+        switch (action) {
+            case 'pm-edit':
+                this._enterEditMode();
+                break;
+            case 'pm-toggle-public':
+                this._togglePlaylistFlag('public');
+                break;
+            case 'pm-toggle-collab':
+                this._togglePlaylistFlag('collaborative');
+                break;
+            case 'pm-pin':
+                this._togglePin();
+                break;
+            case 'pm-follow':
+            case 'pm-unfollow':
+                this._toggleFollowPlaylist();
+                break;
+            case 'pm-delete':
+                this._confirmDelete();
+                break;
+        }
+    }
+
+    /**
+     * Flip public/collaborative from the header menu (Spotify's "Make private"
+     * style). playlist_change requires ALL FOUR fields, so current name and
+     * description ride along; Spotify forces collaborative playlists private,
+     * mirrored here on both sides of the toggle.
+     */
+    async _togglePlaylistFlag(flag) {
+        const data = this.data;
+        if (!data?.id || !this.api) return;
+        let isPublic = data.public !== false;
+        let collaborative = !!data.collaborative;
+        if (flag === 'public') {
+            isPublic = !isPublic;
+            if (isPublic) collaborative = false; // collaborative must stay private
+        } else {
+            collaborative = !collaborative;
+            if (collaborative) isPublic = false;
+        }
+        const res = await this.api.changePlaylistDetails(data.id, {
+            name: data.name,
+            description: data.description || '',
+            isPublic,
+            collaborative
+        });
+        if (!res.success) {
+            this._toast("Couldn't update playlist settings");
+            return;
+        }
+        const finalPublic = collaborative ? false : isPublic;
+        this._toast(flag === 'public'
+            ? (finalPublic ? 'Playlist is now public' : 'Playlist is now private')
+            : (collaborative ? 'Playlist is now collaborative' : 'Collaborative turned off'));
+        this.dispatchEvent(new CustomEvent('playlist-changed', {
+            detail: {
+                playlistId: data.id,
+                action: 'edit',
+                patch: { public: finalPublic, collaborative }
+            },
+            bubbles: true,
+            composed: true
+        }));
+    }
+
+    _confirmDelete() {
+        this.dispatchEvent(new CustomEvent('show-alert', {
+            detail: {
+                title: 'Delete playlist?',
+                message: `"${this.data.name}" will be removed from Your Library.`,
+                confirmText: 'Delete',
+                onConfirm: async () => {
+                    const res = await this.api.unfollowPlaylist(this.data.id);
+                    if (res.success) {
+                        this._toast('Playlist deleted');
+                        this.dispatchEvent(new CustomEvent('playlist-changed', {
+                            detail: { playlistId: this.data.id, action: 'delete' },
+                            bubbles: true,
+                            composed: true
+                        }));
+                    } else {
+                        this._toast("Couldn't delete playlist");
+                    }
+                }
+            },
+            bubbles: true,
+            composed: true
+        }));
+    }
+
+    /* --- EDIT MODE --- */
+
+    _enterEditMode() {
+        if (!this.data?.canEditItems) return;
+        // Reorder positions are absolute — the full track list must be in.
+        if (this.data.tracksComplete === false) {
+            this._toast('Tracks are still loading — try again in a moment.');
+            return;
+        }
+        // Keys include the original index so duplicate tracks stay distinct.
+        this._origItems = (this.data.tracks?.items || [])
+            .map((item, i) => ({ key: `${(item?.track || item)?.uri || 'na'}:${i}`, item }));
+        this._workingItems = [...this._origItems];
+        this._editName = this.data.name || '';
+        this._editDescription = this.data.description || '';
+        this._editPlaylistId = this.data.id;
+        this._editMode = true;
+    }
+
+    _cancelEditMode() {
+        if (this._saving) return;
+        this._editMode = false;
+        this._workingItems = null;
+        this._origItems = null;
+    }
+
+    _removeWorkingItem(index) {
+        fireHaptic('light');
+        const next = [...this._workingItems];
+        next.splice(index, 1);
+        this._workingItems = next;
+    }
+
+    /**
+     * Batch-save the edit session. Primary path preserves added_at/added_by:
+     * one chunked remove for fully-removed URIs, then a left-to-right sequence
+     * of single-range reorders (upward-only moves, so the 0-based -> 1-based
+     * conversion is exactly +1/+1), threading the snapshot id through every
+     * call. Removing SOME copies of a duplicated URI is impossible via remove
+     * (Spotify drops every copy), so that case uses playlist_items_replace —
+     * atomic and duplicate-precise but capped at 100 tracks and it resets
+     * added_at. Any mid-sequence failure abandons ship and refetches.
+     */
+    async _saveEdits() {
+        if (this._saving || !this.api || !this.data?.id) return;
+        const orig = this._origItems || [];
+        const fin = this._workingItems || [];
+
+        const newName = (this._editName || '').trim();
+        if (!newName) {
+            this._toast('Playlist name can\'t be empty');
+            return;
+        }
+        const newDescription = (this._editDescription || '').trim();
+        const detailsChanged = newName !== (this.data.name || '')
+            || newDescription !== (this.data.description || '').trim();
+        const tracksChanged = !(fin.length === orig.length && fin.every((e, i) => e.key === orig[i].key));
+
+        // Nothing changed — just leave edit mode.
+        if (!detailsChanged && !tracksChanged) {
+            this._cancelEditMode();
+            return;
+        }
+
+        const uriOf = (entry) => (entry.item?.track || entry.item)?.uri;
+        const finalKeys = new Set(fin.map(e => e.key));
+        const countByUri = (list) => {
+            const m = new Map();
+            for (const e of list) {
+                const u = uriOf(e);
+                m.set(u, (m.get(u) || 0) + 1);
+            }
+            return m;
+        };
+        const origCounts = countByUri(orig);
+        const finCounts = countByUri(fin);
+        const fullyRemoved = [];
+        let hasPartialDuplicateRemoval = false;
+        for (const [uri, count] of origCounts) {
+            const left = finCounts.get(uri) || 0;
+            if (left === 0) fullyRemoved.push(uri);
+            else if (left < count) hasPartialDuplicateRemoval = true;
+        }
+
+        if (hasPartialDuplicateRemoval && fin.length > 100) {
+            this._toast("Spotify can't remove a single copy of a duplicated song in playlists over 100 tracks — remove all copies instead.");
+            return;
+        }
+
+        this._saving = true;
+        try {
+            let snapshotId = this.data.snapshotId || null;
+
+            if (detailsChanged) {
+                const res = await this.api.changePlaylistDetails(this.data.id, {
+                    name: newName,
+                    description: newDescription,
+                    isPublic: this.data.public !== false,
+                    collaborative: !!this.data.collaborative
+                });
+                if (!res.success) throw res.error || new Error('details change failed');
+            }
+
+            if (hasPartialDuplicateRemoval) {
+                const res = await this.api.replacePlaylistItems(this.data.id, fin.map(uriOf));
+                if (!res.success) throw res.error || new Error('replace failed');
+                snapshotId = res.snapshotId || snapshotId;
+            } else {
+                if (fullyRemoved.length) {
+                    const res = await this.api.removePlaylistItems(this.data.id, fullyRemoved, snapshotId);
+                    if (!res.success) throw res.error || new Error('remove failed');
+                    snapshotId = res.snapshotId || snapshotId;
+                }
+                const working = orig.filter(e => finalKeys.has(e.key)).map(e => e.key);
+                const target = fin.map(e => e.key);
+                for (let i = 0; i < target.length; i++) {
+                    if (working[i] === target[i]) continue;
+                    const j = working.indexOf(target[i], i);
+                    if (j < 0) throw new Error('reorder diff diverged');
+                    const res = await this.api.reorderPlaylistItems(this.data.id, j + 1, i + 1, 1, snapshotId);
+                    if (!res.success) throw res.error || new Error('reorder failed');
+                    snapshotId = res.snapshotId || snapshotId;
+                    working.splice(j, 1);
+                    working.splice(i, 0, target[i]);
+                }
+            }
+
+            // The final state is fully known — patch it straight into the view
+            // and the caches instead of refetching.
+            const items = fin.map(e => e.item);
+            const patch = {
+                name: newName,
+                description: newDescription,
+                tracks: { ...this.data.tracks, items, total: items.length },
+                snapshotId,
+                tracksComplete: true
+            };
+            this._editMode = false;
+            this._workingItems = null;
+            this._origItems = null;
+            this._toast('Playlist updated');
+            this.dispatchEvent(new CustomEvent('playlist-changed', {
+                detail: { playlistId: this.data.id, action: 'items', patch },
+                bubbles: true,
+                composed: true
+            }));
+        } catch (e) {
+            console.error('[PlaylistView] Save edits failed:', e);
+            this._editMode = false;
+            this._workingItems = null;
+            this._origItems = null;
+            this._toast("Couldn't save all changes — reloading playlist");
+            this.dispatchEvent(new CustomEvent('playlist-changed', {
+                detail: { playlistId: this.data.id, action: 'items' },
+                bubbles: true,
+                composed: true
+            }));
+        } finally {
+            this._saving = false;
+        }
+    }
+
+    _renderEditMode() {
+        const items = this._workingItems || [];
+        return html`
+            <div class="main-scroll-container edit-mode">
+                <div class="edit-bar">
+                    <button class="edit-bar-btn" @click=${this._cancelEditMode} ?disabled=${this._saving}>Cancel</button>
+                    <div class="edit-bar-title">Edit playlist</div>
+                    <button class="edit-bar-btn save" @click=${this._saveEdits} ?disabled=${this._saving}>
+                        ${this._saving ? 'Saving…' : 'Save'}
+                    </button>
+                </div>
+                <div class="edit-fields">
+                    <input class="edit-name-input" type="text" maxlength="100"
+                        placeholder="Playlist name"
+                        .value=${this._editName || ''}
+                        ?disabled=${this._saving}
+                        @input=${(e) => { this._editName = e.target.value; }} />
+                    <textarea class="edit-desc-input" maxlength="300" rows="2"
+                        placeholder="Add a description"
+                        .value=${this._editDescription || ''}
+                        ?disabled=${this._saving}
+                        @input=${(e) => { this._editDescription = e.target.value; }}></textarea>
+                </div>
+                <div class="track-list edit-list"
+                     @pointermove=${(e) => this._drag.move(e)}
+                     @pointerup=${(e) => this._drag.end(e)}
+                     @pointercancel=${(e) => this._drag.end(e)}>
+                    ${repeat(items, (entry) => entry.key, (entry, index) => this._renderEditRow(entry, index))}
+                    ${items.length === 0 ? html`<div class="edit-empty">All tracks removed — Save to clear the playlist.</div>` : ''}
+                </div>
+            </div>
+        `;
+    }
+
+    _renderEditRow(entry, index) {
+        const track = entry.item?.track || entry.item;
+        const images = track?.album?.images;
+        const artUrl = (images && (images[0]?.url || images[images.length - 1]?.url)) || '';
+        return html`
+            <div class="edit-row ${this._drag.rowClass(index)}">
+                <button class="edit-remove" title="Remove" ?disabled=${this._saving}
+                    @click=${() => this._removeWorkingItem(index)}>
+                    ${minusCircleIcon}
+                </button>
+                <div class="edit-art ${artUrl ? '' : 'art-fallback'}" style="${artUrl ? `background-image:url('${artUrl}')` : ''}">
+                    ${artUrl ? html`<div class="edit-art-play">${playIcon(22)}</div>` : ''}
+                </div>
+                <div class="edit-text">
+                    <div class="edit-name">${track?.name}</div>
+                    <div class="edit-artist">${(track?.artists || []).map(a => a.name).join(', ')}</div>
+                </div>
+                <div class="edit-handle"
+                    @pointerdown=${(e) => this._drag.start(e, index, this.shadowRoot.querySelector('.edit-list'))}>
+                    ${reorderLinesIcon}
+                </div>
+            </div>
+        `;
     }
 
     /* --- ALBUM HERO LOGIC --- */

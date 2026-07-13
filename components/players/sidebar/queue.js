@@ -53,8 +53,30 @@ export class SpotifySidebarTrackList extends LitElement {
         const track = item.track || item;
         return renderQueueRow(track, {
             onClick: () => this._playTrack(track),
-            playedAt: item.played_at ? `${msToTime(new Date(item.played_at).getTime())} ago` : ''
+            playedAt: item.played_at ? `${msToTime(new Date(item.played_at).getTime())} ago` : '',
+            trailing: html`
+                <button class="row-menu-btn" @click=${(e) => this._trackMenu(e, track)} aria-label="More options">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
+                </button>
+            `
         });
+    }
+
+    _trackMenu(e, track) {
+        e.stopPropagation();
+        this.dispatchEvent(new CustomEvent('open-track-menu', {
+            detail: {
+                name: track?.name,
+                artist: track?.artists?.map(a => a.name).join(', ') || '',
+                album: track?.album?.name || '',
+                uri: track?.uri,
+                id: track?.id,
+                image: track?.album?.images?.[0]?.url,
+                anchor: e.currentTarget.getBoundingClientRect(),
+                context: { surface: 'queue', sourceUri: this.playerController?.sourceContextUri() || null }
+            },
+            bubbles: true, composed: true
+        }));
     }
 
     renderEmpty() {

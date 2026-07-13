@@ -17,11 +17,11 @@ import { html } from "../../lit.js";
 const VARIANTS = {
     panel: {
         row: 'row', active: 'now', art: 'art', info: 'meta',
-        title: 'name', artist: 'sub', artFallback: ''
+        title: 'name', artist: 'sub'
     },
     sidebar: {
         row: 'queue-item', active: '', art: 'queue-art', info: 'queue-info',
-        title: 'queue-title', artist: 'queue-artist', artFallback: 'background-color: #333'
+        title: 'queue-title', artist: 'queue-artist'
     },
 };
 
@@ -38,7 +38,7 @@ export function renderQueueRow(track, {
     const artist = track?.artists?.map(a => a.name).join(', ') || 'Unknown Artist';
     return html`
         <div class="${active ? `${v.row} ${v.active}` : v.row}" @click=${onClick}>
-            <div class="${v.art}" style="${art ? `background-image: url('${art}')` : v.artFallback}"></div>
+            <div class="${v.art} ${art ? '' : 'art-fallback'}" style="${art ? `background-image: url('${art}')` : ''}"></div>
             <div class="${v.info}">
                 <div class="${v.title}">${titleIcon || ''}${track?.name || 'Unknown Track'}</div>
                 <div class="${v.artist}">${artist}</div>

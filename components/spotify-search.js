@@ -51,11 +51,11 @@ class SpotifySearch extends LitElement {
             .m-bar svg { flex: 0 0 auto; }
             .m-bar input {
                 flex: 1; min-width: 0; border: none; outline: none;
-                background: transparent; color: #fff; font-size: 16px;
+                background: transparent; color: #fff; font-size: var(--spf-text-md, 15px);
             }
             .m-bar input::placeholder { color: var(--spf-text-sub); }
             .m-clear { background: none; border: none; color: var(--spf-text-sub); cursor: pointer; padding: 4px; display: flex; }
-            .m-cancel { background: none; border: none; color: #fff; font-size: 16px; cursor: pointer; white-space: nowrap; padding: 0; }
+            .m-cancel { background: none; border: none; color: #fff; font-size: var(--spf-text-md, 15px); cursor: pointer; white-space: nowrap; padding: 0; }
 
             /* ---- Filter pills ---- */
             .pills {
@@ -66,13 +66,13 @@ class SpotifySearch extends LitElement {
             .pills::-webkit-scrollbar { display: none; }
             .pill {
                 flex: 0 0 auto; border: none; cursor: pointer; white-space: nowrap;
-                padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 600;
+                padding: 8px 16px; border-radius: 999px; font-size: var(--spf-text-base, 13.5px); font-weight: 700;
                 background: #232323; color: #fff;
             }
             .pill.active { background: #fff; color: #000; }
 
             .body { padding-bottom: 120px; }
-            .section-h { font-size: 22px; font-weight: 700; color: #fff; padding: 18px 16px 8px; }
+            .section-h { font-size: var(--spf-text-xl, 22px); font-weight: 700; color: #fff; padding: 18px 16px 8px; }
             .empty { padding: 48px 24px; text-align: center; color: var(--spf-text-sub); }
 
             /* ---- Top result (artist) ---- */
@@ -84,16 +84,16 @@ class SpotifySearch extends LitElement {
             }
             .top-meta { flex: 1; min-width: 0; }
             .top-name {
-                font-size: 22px; font-weight: 800; color: #fff;
+                font-size: var(--spf-text-xl, 22px); font-weight: 900; color: #fff;
                 display: flex; align-items: center; gap: 6px;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .verified { color: #4cb3ff; flex: 0 0 auto; }
-            .top-sub { color: var(--spf-text-sub); font-size: 14px; margin-top: 2px; }
+            .top-sub { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); margin-top: 2px; }
             .follow-btn {
                 flex: 0 0 auto; background: transparent; color: #fff;
                 border: 1px solid rgba(255,255,255,0.4); border-radius: 999px;
-                padding: 7px 18px; font-size: 14px; font-weight: 600; cursor: pointer;
+                padding: 7px 18px; font-size: var(--spf-text-base, 13.5px); font-weight: 700; cursor: pointer;
             }
             .play-btn {
                 flex: 0 0 auto; width: 48px; height: 48px; border-radius: 50%;
@@ -115,9 +115,9 @@ class SpotifySearch extends LitElement {
             }
             .art.circle { border-radius: 50%; }
             .info { min-width: 0; }
-            .name { color: #fff; font-size: 16px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .sub { color: var(--spf-text-sub); font-size: 13px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .type-badge { display: none; color: var(--spf-text-sub); font-size: 13px; padding: 4px 10px; background: var(--spf-bg-card-hover); border-radius: 4px; white-space: nowrap; }
+            .name { color: #fff; font-size: var(--spf-text-md, 15px); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .sub { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .type-badge { display: none; color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); padding: 4px 10px; background: var(--spf-bg-card-hover); border-radius: 4px; white-space: nowrap; }
             .row-btn { background: none; border: none; color: var(--spf-text-sub); cursor: pointer; padding: 8px; display: flex; }
             @media (hover: hover) { .row-btn:hover { color: #fff; } }
 
@@ -150,7 +150,7 @@ class SpotifySearch extends LitElement {
                 }
                 .top-result:hover { background: var(--spf-bg-card-hover, #2a2a2a); }
                 .top-avatar { width: 80px; height: 80px; }
-                .top-name { font-size: 26px; }
+                .top-name { font-size: var(--spf-text-2xl, 26px); }
                 .top-result:hover .play-btn { display: flex; }
 
                 /* Rows gain a type badge column + show the add affordance */
@@ -419,9 +419,11 @@ class SpotifySearch extends LitElement {
             detail: {
                 name: item.name,
                 artist: item.artists?.map(a => a.name).join(', ') || '',
+                album: item.album?.name || '',
                 uri: item.uri,
                 id: item.id,
                 image: getItemImage(item, 'track'),
+                anchor: e.currentTarget.getBoundingClientRect(),
             }, bubbles: true, composed: true
         }));
     }

@@ -1,4 +1,4 @@
-import { debugLog } from './utils.js';
+import { debugLog, playlistSortParams } from './utils.js';
 
 export class SpotifyApi {
     // Only these (user-initiated playback) services should surface a validation
@@ -17,6 +17,7 @@ export class SpotifyApi {
         this.entityId = entityId;
         this.deviceResolver = deviceResolver; // Function that returns Promise<deviceId or null>
         this.sonosBridge = null; // Optional SonosBridge; set via setSonosBridge()
+        this.deviceManager = null; // Optional DeviceManager; set via setDeviceManager()
         this.defaultVolumeConfig = defaultVolumeConfig;
         this.onNotification = onNotification;
         this.onError = onError;
@@ -43,6 +44,10 @@ export class SpotifyApi {
         // so the grace window restarts every reconnect.
         this._socketReady = this.hass?.connection?.connected === true;
         this._connection = null;
+        this._transferScanTimers = [];
+        this._lastScanAt = 0;
+        this._readyScanTimer = null;
+        this._readyScanPromise = null;
         this._onSocketReady = () => { this._socketReady = true; this._resumedAt = Date.now(); };
         this._onSocketDisconnected = () => { this._socketReady = false; };
         this._bindConnection();
@@ -120,6 +125,11 @@ export class SpotifyApi {
         this.sonosBridge = bridge;
     }
 
+    /** Attach the shared DeviceManager (volume-capability lookups for setVolume/playMedia). */
+    setDeviceManager(deviceManager) {
+        this.deviceManager = deviceManager;
+    }
+
     /** Detach listeners. Call when replacing or discarding this instance. */
     destroy() {
         if (this._onVisibility && typeof document !== 'undefined') {
@@ -131,6 +141,11 @@ export class SpotifyApi {
             this._connection.removeEventListener('disconnected', this._onSocketDisconnected);
         }
         this._connection = null;
+        this._transferScanTimers.forEach(clearTimeout);
+        this._transferScanTimers = [];
+        clearTimeout(this._readyScanTimer);
+        this._readyScanTimer = null;
+        this._readyScanPromise = null;
     }
 
     /**
@@ -275,6 +290,11 @@ export class SpotifyApi {
 
             const response = await this.hass.callWS(payload);
 
+            // Transfers get no rescan from SpotifyPlus on their own, and restricted
+            // Connect devices (Google Cast) are slow to appear in the Web API — so
+            // force a scan now plus delayed retries to catch the handoff landing.
+            if (service === 'player_transfer_playback') this._scheduleTransferScans();
+
             if (!expectResponse) return true;
 
             if (response && response.response) return response.response;
@@ -306,28 +326,76 @@ export class SpotifyApi {
         return this._socketReady && this.hass?.connection?.connected !== false;
     }
 
+    /**
+     * Whether triggerScan can fire right now (visible, socket up, grace elapsed).
+     * Don't fire while the app is backgrounded or the socket is reconnecting:
+     * HA's callService surfaces a "connection lost" toast (+ haptic) on failure,
+     * and scans otherwise fire the moment we return to the foreground before
+     * the WebSocket has re-established. The grace period covers the window
+     * where the socket reports connected before it can actually service calls.
+     */
+    get _canScanNow() {
+        if (typeof document !== 'undefined' && document.hidden) return false;
+        if (!this._connectionUp) return false;
+        if (Date.now() - this._resumedAt < 4000) return false;
+        return true;
+    }
+
     async triggerScan() {
-        if (!this.hass) return;
-        // Don't fire while the app is backgrounded or the socket is reconnecting:
-        // HA's callService surfaces a "connection lost" toast (+ haptic) on failure,
-        // and the scan timer otherwise fires the moment we return to the foreground
-        // before the WebSocket has re-established.
-        if (typeof document !== 'undefined' && document.hidden) return;
-        if (!this._connectionUp) return;
-        // Grace period after returning to the foreground: the socket may report
-        // connected before it can actually service calls, which would fail and
-        // make HA surface a "connection lost" toast + haptic.
-        if (Date.now() - this._resumedAt < 4000) return;
+        if (!this.hass || !this._canScanNow) return;
         try {
             // Force HA to scan Spotify immediately
             await this.hass.callService('spotifyplus', 'trigger_scan_interval', {
                 entity_id: this.entityId
             });
+            this._lastScanAt = Date.now();
             // Wait 40ms for propagation as requested
             await new Promise(r => setTimeout(r, 40));
         } catch (e) {
             console.warn("[SpotifyAPI] Trigger Scan Failed:", e);
         }
+    }
+
+    /**
+     * Fire triggerScan as soon as its guards allow (socket up, grace window
+     * elapsed, page visible), retrying every second for up to timeoutMs.
+     * Single-flight, and deduped against any scan fired within dedupeMs by
+     * any caller. Resolves true once a scan was fired, false otherwise.
+     */
+    scanWhenReady({ timeoutMs = 15000, dedupeMs = 4000 } = {}) {
+        if (Date.now() - this._lastScanAt < dedupeMs) return Promise.resolve(false);
+        if (this._readyScanPromise) return this._readyScanPromise;
+        this._readyScanPromise = new Promise((resolve) => {
+            const deadline = Date.now() + timeoutMs;
+            const finish = (ok) => {
+                clearTimeout(this._readyScanTimer);
+                this._readyScanTimer = null;
+                this._readyScanPromise = null;
+                resolve(ok);
+            };
+            const attempt = async () => {
+                if (!this.hass) return finish(false);
+                if (this._canScanNow) { await this.triggerScan(); return finish(true); }
+                if (Date.now() >= deadline) return finish(false);
+                this._readyScanTimer = setTimeout(attempt, 1000);
+            };
+            attempt();
+        });
+        return this._readyScanPromise;
+    }
+
+    /**
+     * Scan immediately, then again at 2s and 6s. A single scan right after a
+     * transfer usually polls Spotify before the target device reports as
+     * active (Cast handoffs take seconds), leaving the entity idle until the
+     * integration's own interval. triggerScan's guards make the delayed
+     * firings safe when backgrounded or disconnected.
+     */
+    _scheduleTransferScans() {
+        this._transferScanTimers.forEach(clearTimeout);
+        this.triggerScan();
+        this._transferScanTimers = [2000, 6000].map(ms =>
+            setTimeout(() => this.triggerScan(), ms));
     }
 
     async playMedia(uri, type, specificDevice = null, extraOptions = {}) {
@@ -365,14 +433,6 @@ export class SpotifyApi {
                 } else {
                     console.warn("[SpotifyBrowser] Player idle & no device resolver. Playback may fail.");
                 }
-
-                // Apply Default Volume if configured (even if we resolved a device dynamically)
-                // We might want to make this optional or tied to the device in future
-                const vol = this._resolveDefaultVolume();
-                if (vol !== null) {
-                    debugLog("Applying Default Volume:", vol);
-                    this.setVolume(vol / 100);
-                }
             } else {
                 deviceToUse = null; // Active -> Use current
             }
@@ -386,8 +446,35 @@ export class SpotifyApi {
             resolvedDeviceObj,
             isActive ? (stateObj?.attributes || {}) : {}
         );
+        let sonosEntity = null;
+        if (isSonosTarget) {
+            sonosEntity = this.sonosBridge.resolveSonosEntity(
+                resolvedDeviceObj, isActive ? (stateObj?.attributes || {}) : {});
+            // Remember the target before any volume/transport call below: a local
+            // launch never engages Spotify Connect, so this memory is the only
+            // thing that routes subsequent commands (and now-playing) to the
+            // speaker instead of the idle SpotifyPlus entity.
+            if (sonosEntity) this.sonosBridge.noteLaunch(sonosEntity);
+        }
         if (isSonosTarget && ['playlist', 'album', 'artist', 'show'].includes(type)) {
             this.sonosBridge.log(`playMedia: Sonos target → ${extraOptions.offset_position != null ? `offset_position=${extraOptions.offset_position}` : 'offset_uri (no index)'}`);
+        }
+
+        // Apply Default Volume if configured (even if we resolved a device
+        // dynamically). Runs after Sonos detection so the volume_set routes to
+        // the Sonos speaker on a Sonos launch, not the idle SpotifyPlus entity
+        // (which rejects it with "no active Spotify player device").
+        if (!specificDevice && !isActive) {
+            const vol = this._resolveDefaultVolume();
+            if (vol !== null) {
+                const launchDeviceId = resolvedDeviceObj?.id || (typeof deviceToUse === 'string' ? deviceToUse : null);
+                if (!sonosEntity && this.deviceManager?.getVolumeCapability(launchDeviceId) === false) {
+                    debugLog(`[SpotifyAPI] Skipping default volume — ${launchDeviceId} does not support remote volume`);
+                } else {
+                    debugLog("Applying Default Volume:", vol);
+                    this.setVolume(vol / 100);
+                }
+            }
         }
 
         const executePlay = async (deviceIdToTry) => {
@@ -402,8 +489,6 @@ export class SpotifyApi {
                     // drive the HA Sonos entity directly. Falls through to the
                     // SpotifyPlus (cloud / elevated-token) path on any failure.
                     if (isSonosTarget && this._sonosLaunchLocal()) {
-                        const sonosEntity = this.sonosBridge.resolveSonosEntity(
-                            resolvedDeviceObj, isActive ? (stateObj?.attributes || {}) : {});
                         const played = await this._playSonosLocal(sonosEntity, uri, offset_position, offset_uri);
                         if (played) return { success: true };
                     }
@@ -453,7 +538,6 @@ export class SpotifyApi {
                         // Active-device single-track play: drive the Sonos entity
                         // locally when the active device is Sonos, else SpotifyPlus.
                         if (isSonosTarget && this._sonosLaunchLocal()) {
-                            const sonosEntity = this.sonosBridge.resolveSonosEntity(null, stateObj?.attributes || {});
                             if (sonosEntity && await this.sonosBridge.playTrack(sonosEntity, contentId)) {
                                 this.triggerScan();
                                 return { success: true };
@@ -606,6 +690,179 @@ export class SpotifyApi {
         }
     }
 
+    /**
+     * Create a playlist for the current account. Spotify requires collaborative
+     * playlists to be private, so `collaborative: true` forces `public: false`.
+     * Returns { success, playlist } — playlist is the full object from Spotify
+     * (note: its snapshot id field is camelCase `snapshotId`).
+     */
+    async createPlaylist({ name, description = '', isPublic = true, collaborative = false }) {
+        if (!this.hass || !name) return { success: false, error: new Error('Playlist name is required') };
+        try {
+            const res = await this.fetchSpotifyPlus('playlist_create', {
+                name,
+                description,
+                public: collaborative ? false : isPublic,
+                collaborative
+            }, true, true, true);
+            return { success: true, playlist: res?.result || null };
+        } catch (e) {
+            console.error("Create Playlist failed:", e);
+            return { success: false, error: e };
+        }
+    }
+
+    /**
+     * Edit an owned playlist's details. The SpotifyPlus service requires ALL
+     * FOUR fields on every call — callers must pass the playlist's current
+     * values for anything they aren't changing, or those fields get clobbered.
+     */
+    async changePlaylistDetails(playlistId, { name, description = '', isPublic = true, collaborative = false }) {
+        if (!this.hass || !playlistId || !name) return { success: false, error: new Error('Playlist id and name are required') };
+        try {
+            await this.hass.callService('spotifyplus', 'playlist_change', {
+                entity_id: this.entityId,
+                playlist_id: playlistId,
+                name,
+                description,
+                public: collaborative ? false : isPublic,
+                collaborative
+            });
+            return { success: true };
+        } catch (e) {
+            console.error("Change Playlist Details failed:", e);
+            return { success: false, error: e };
+        }
+    }
+
+    /**
+     * Append (or insert at `position`, 0-based) tracks to a playlist. Chunks
+     * into batches of 100 (Spotify's per-call ceiling). Empty `uris` is an
+     * error: the underlying service would silently target the currently
+     * playing track. Returns { success, snapshotId }.
+     */
+    async addPlaylistItems(playlistId, uris, position = undefined) {
+        const list = Array.isArray(uris) ? uris.filter(Boolean) : (uris ? [uris] : []);
+        if (!this.hass || !playlistId || list.length === 0) {
+            return { success: false, error: new Error('Playlist id and track URIs are required') };
+        }
+        try {
+            let snapshotId = null;
+            for (let i = 0; i < list.length; i += 100) {
+                const params = { playlist_id: playlistId, uris: list.slice(i, i + 100).join(',') };
+                if (Number.isInteger(position)) params.position = position + i;
+                const res = await this.fetchSpotifyPlus('playlist_items_add', params, true, true, true);
+                if (typeof res?.result === 'string') snapshotId = res.result;
+            }
+            return { success: true, snapshotId };
+        } catch (e) {
+            console.error("Add Playlist Items failed:", e);
+            return { success: false, error: e };
+        }
+    }
+
+    /**
+     * Remove tracks by URI. Spotify removes EVERY occurrence of a duplicated
+     * URI — there is no position targeting in the SpotifyPlus wrapper. Chunks
+     * into batches of 100, threading the returned snapshot id between chunks.
+     */
+    async removePlaylistItems(playlistId, uris, snapshotId = undefined) {
+        const list = Array.isArray(uris) ? uris.filter(Boolean) : (uris ? [uris] : []);
+        if (!this.hass || !playlistId || list.length === 0) {
+            return { success: false, error: new Error('Playlist id and track URIs are required') };
+        }
+        try {
+            let currentSnapshot = snapshotId || null;
+            for (let i = 0; i < list.length; i += 100) {
+                const params = { playlist_id: playlistId, uris: list.slice(i, i + 100).join(',') };
+                if (currentSnapshot) params.snapshot_id = currentSnapshot;
+                const res = await this.fetchSpotifyPlus('playlist_items_remove', params, true, true, true);
+                if (typeof res?.result === 'string') currentSnapshot = res.result;
+            }
+            return { success: true, snapshotId: currentSnapshot };
+        } catch (e) {
+            console.error("Remove Playlist Items failed:", e);
+            return { success: false, error: e };
+        }
+    }
+
+    /**
+     * Move a contiguous range of tracks. NOTE: rangeStart and insertBefore are
+     * 1-OFFSET (matching the SpotifyPlus service and on-screen track numbers),
+     * NOT 0-based array indexes — callers convert with `index + 1`.
+     */
+    async reorderPlaylistItems(playlistId, rangeStart, insertBefore, rangeLength = 1, snapshotId = undefined) {
+        if (!this.hass || !playlistId) return { success: false };
+        try {
+            const params = {
+                playlist_id: playlistId,
+                range_start: rangeStart,
+                insert_before: insertBefore,
+                range_length: rangeLength
+            };
+            if (snapshotId) params.snapshot_id = snapshotId;
+            const res = await this.fetchSpotifyPlus('playlist_items_reorder', params, true, true, true);
+            return { success: true, snapshotId: typeof res?.result === 'string' ? res.result : null };
+        } catch (e) {
+            console.error("Reorder Playlist Items failed:", e);
+            return { success: false, error: e };
+        }
+    }
+
+    /**
+     * Overwrite the playlist's entire contents (max 100 tracks — Spotify does
+     * not page this call). Resets every track's added_at/added_by, so it's the
+     * fallback for duplicate-precise removal, not the default save path. Empty
+     * `uris` is an error: the raw service would CLEAR the playlist.
+     */
+    async replacePlaylistItems(playlistId, uris) {
+        const list = Array.isArray(uris) ? uris.filter(Boolean) : (uris ? [uris] : []);
+        if (!this.hass || !playlistId || list.length === 0) {
+            return { success: false, error: new Error('Playlist id and track URIs are required') };
+        }
+        if (list.length > 100) {
+            return { success: false, error: new Error('playlist_items_replace is limited to 100 tracks') };
+        }
+        try {
+            const res = await this.fetchSpotifyPlus('playlist_items_replace', {
+                playlist_id: playlistId,
+                uris: list.join(',')
+            }, true, true, true);
+            return { success: true, snapshotId: typeof res?.result === 'string' ? res.result : null };
+        } catch (e) {
+            console.error("Replace Playlist Items failed:", e);
+            return { success: false, error: e };
+        }
+    }
+
+    /**
+     * One page of a playlist's tracks. When a `fields` filter is set, Spotify
+     * caps the reported `total` at <=50 — page on `next`/short-page instead of
+     * trusting `total` in that case.
+     */
+    async getPlaylistItemsPage(playlistId, offset = 0, limit = 50, fields = undefined) {
+        if (!this.hass || !playlistId) return null;
+        const params = { playlist_id: playlistId, offset, limit };
+        if (fields) params.fields = fields;
+        const res = await this.fetchSpotifyPlus('get_playlist_items', params);
+        return res?.result || null;
+    }
+
+    /**
+     * The current user's OWN playlists (owned, not merely followed) — the set
+     * that "Add to playlist" may target. Ordered per the device's playlist
+     * sort preference (Recents by default).
+     */
+    async getCurrentUserOwnedPlaylists() {
+        if (!this.hass) return [];
+        const res = await this.fetchSpotifyPlus('get_playlist_favorites', { limit_total: 200, ...playlistSortParams() });
+        const items = res?.result?.items || [];
+        const userId = res?.user_profile?.id || await this.getCurrentUserId();
+        if (userId && !this._currentUserId) this._currentUserId = userId;
+        if (!userId) return [];
+        return items.filter(p => p?.owner?.id === userId);
+    }
+
     // --- ARTIST FOLLOW MANAGEMENT ---
 
     async followArtist(ids) {
@@ -657,21 +914,6 @@ export class SpotifyApi {
         } catch (e) {
             console.error("Check Artists Following failed:", e);
             return null;
-        }
-    }
-
-    async transferPlayback(deviceId) {
-        if (!this.hass || !deviceId) return { success: false, error: { message: "No device ID" } };
-        try {
-            await this.hass.callService('spotifyplus', 'player_transfer_playback', {
-                entity_id: this.entityId,
-                device_id: deviceId,
-                play: true
-            });
-            return { success: true };
-        } catch (e) {
-            console.error("Transfer failed:", e);
-            return { success: false, error: e };
         }
     }
 
@@ -727,7 +969,7 @@ export class SpotifyApi {
         if (!this.hass) return null;
         // options: limit, offset
         // Using 'get_playlist_favorites' as confirmed in old code and Wiki
-        return await this.fetchSpotifyPlus('get_playlist_favorites', options);
+        return await this.fetchSpotifyPlus('get_playlist_favorites', { ...playlistSortParams(), ...options });
     }
 
     // Per-artist genre lookup, cached on the instance. Returns string[] of
@@ -850,14 +1092,30 @@ export class SpotifyApi {
 
     async setVolume(volumeLevel) {
         if (!this.hass) return { success: false };
+        const entityId = this._controlEntity({ perSpeaker: true });
+
+        // Sonos volume goes to the local HA Sonos entity (always capable) —
+        // only guard the SpotifyPlus path, where restricted Connect devices
+        // like phones reject remote volume (Device.supports_volume === false).
+        if (entityId === this.entityId) {
+            const deviceId = this._activeAttributes().sp_device_id;
+            if (this.deviceManager?.getVolumeCapability(deviceId) === false) {
+                debugLog(`[SpotifyAPI] setVolume: ${deviceId} does not support remote volume — skipping`);
+                return { success: false, skipped: true };
+            }
+        }
+
         try {
             await this.hass.callService('media_player', 'volume_set', {
-                entity_id: this._controlEntity({ perSpeaker: true }),
+                entity_id: entityId,
                 volume_level: volumeLevel
             });
             return { success: true };
         } catch (e) {
             console.error("Failed to set volume:", e);
+            this._notify((e?.message || '').includes('Cannot control device volume')
+                ? "This device doesn't support remote volume control."
+                : "Couldn't change the volume.");
             return { success: false, error: e };
         }
     }

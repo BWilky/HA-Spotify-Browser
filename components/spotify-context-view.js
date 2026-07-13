@@ -3,7 +3,7 @@ import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { contextViewStyles } from '../styles/spotify-context-view.styles.js';
 import { loadMadeForYouItems, dedupeRecentAlbums } from './controllers/home-content.js';
-import { getPlayingTrackId, getCurrentTrackId, isContextPlaying } from '../utils.js';
+import { getPlayingTrackId, getCurrentTrackId, isContextPlaying, playlistSortParams } from '../utils.js';
 
 // Import new sub-views
 import './views/spotify-context-list.js';
@@ -11,7 +11,7 @@ import './views/spotify-playlist-view.js';
 import './views/spotify-artist-view.js';
 import './views/spotify-section-view.js';
 
-class SpotifyContextView extends LitElement {
+export class SpotifyContextView extends LitElement {
     static get properties() {
         return {
             hass: { type: Object },
@@ -100,26 +100,6 @@ class SpotifyContextView extends LitElement {
         }
     }
 
-    _handleTrackMenuClick(e) {
-        const button = e.target.closest('.track-action-btn[data-action="menu"]');
-        if (button) {
-            e.stopPropagation();
-            const rawData = button.dataset.trackData;
-            if (rawData) {
-                try {
-                    const data = JSON.parse(rawData);
-                    this.dispatchEvent(new CustomEvent('open-track-menu', {
-                        detail: data,
-                        bubbles: true,
-                        composed: true
-                    }));
-                } catch (err) {
-                    console.error("[SpotifyBrowser] JSON Parse Error:", err);
-                }
-            }
-        }
-    }
-
     async _handleLoadMore() {
         if (!this._contextData || this._contextData.isLoading || !this._contextData.hasMore) return;
 
@@ -203,6 +183,83 @@ class SpotifyContextView extends LitElement {
         }
     }
 
+    /** Drop one page's cached state (call after any mutation of that page). */
+    static invalidate(pageId) {
+        this.stateCache.delete(pageId);
+    }
+
+    /** Drop everything — required on account switch (keys are account-blind). */
+    static clearAll() {
+        this.stateCache.clear();
+    }
+
+    /**
+     * Re-sync the current page after a mutation. With a `patch` (cheap edits
+     * like name/description) the data is updated in place; without one the
+     * cache entry is dropped and the page refetched.
+     */
+    async refresh(patch = null) {
+        if (!this.pageId) return;
+        if (patch && this._contextData) {
+            this._contextData = { ...this._contextData, ...patch };
+            SpotifyContextView.cacheSet(this.pageId, this._contextData);
+            this.requestUpdate();
+            return;
+        }
+        SpotifyContextView.invalidate(this.pageId);
+        this._playlistPagerToken = null;
+        this._contextData = null;
+        await this.loadPageData();
+    }
+
+    /**
+     * Background-page the rest of a playlist's tracks (get_playlist only
+     * inlines the first <=100). Appends page-by-page so the list grows while
+     * you look at it; `tracksComplete` flips true at the end and gates edit
+     * mode (reorder math needs the full list). A token guards against
+     * overlapping pagers when the user navigates away and back.
+     */
+    async _loadRemainingPlaylistTracks(pageId) {
+        const token = Symbol('playlist-pager');
+        this._playlistPagerToken = token;
+
+        const playlistId = this._contextData?.id;
+        if (!playlistId || !this._contextData?.tracks?.items) return;
+
+        const total = this._contextData.tracks.total || 0;
+        let offset = this._contextData.tracks.items.length;
+
+        while (offset < total) {
+            const page = await this.api.getPlaylistItemsPage(playlistId, offset, 50);
+            // Superseded by navigation, refresh() or a newer pager? Stop cold.
+            if (this._playlistPagerToken !== token || this.pageId !== pageId) return;
+            const current = this._contextData;
+            if (!current?.tracks?.items || current.id !== playlistId) return;
+
+            const items = page?.items || [];
+            if (items.length === 0) break; // defensive: never spin on a bad page
+
+            const tracks = { ...current.tracks, items: [...current.tracks.items, ...items] };
+            offset = tracks.items.length;
+            this._contextData = {
+                ...current,
+                tracks,
+                tracksComplete: offset >= (tracks.total || total)
+            };
+            SpotifyContextView.cacheSet(pageId, this._contextData);
+            this.requestUpdate();
+        }
+
+        // Total can overstate (deleted/unavailable items); don't leave the
+        // flag stuck false when Spotify stops returning pages.
+        if (this._playlistPagerToken === token && this.pageId === pageId
+            && this._contextData?.id === playlistId && !this._contextData.tracksComplete) {
+            this._contextData = { ...this._contextData, tracksComplete: true };
+            SpotifyContextView.cacheSet(pageId, this._contextData);
+            this.requestUpdate();
+        }
+    }
+
     async loadPageData() {
         if (!this.pageId) return;
 
@@ -214,15 +271,27 @@ class SpotifyContextView extends LitElement {
             [type, id] = this.pageId.split(':');
         }
 
+        // One-shot edit intent from the navigate payload (library row "Edit
+        // Playlist"). Consumed here so a later revisit doesn't re-trigger it;
+        // the flag rides on _contextData until the playlist view acts on it.
+        const autoEdit = type === 'playlist' && !!this.data?.autoEdit;
+        if (autoEdit) this.data.autoEdit = false;
+
         // 0. Prevent re-fetching if data is already loaded for this instance
         if (this._contextData && this._contextData.id === id && this._contextData.type === type && !this._contextData.isLoading) {
+            if (autoEdit) { this._contextData = { ...this._contextData, autoEdit: true }; this.requestUpdate(); }
             return;
         }
 
         // 1. Check Static Cache first (persistence across navigations)
         if (SpotifyContextView.stateCache.has(this.pageId)) {
             this._contextData = SpotifyContextView.stateCache.get(this.pageId);
+            if (autoEdit) this._contextData = { ...this._contextData, autoEdit: true };
             this.requestUpdate();
+            // A playlist cached mid-page-in (user navigated away) resumes here.
+            if (this._contextData?.type === 'playlist' && this._contextData.tracksComplete === false) {
+                this._loadRemainingPlaylistTracks(this.pageId);
+            }
             return;
         }
 
@@ -237,30 +306,52 @@ class SpotifyContextView extends LitElement {
             if (type === 'section') {
                 await this._loadSectionData(id, 0);
             } else if (type === 'playlist') {
-                const response = await this.api.fetchSpotifyPlus('get_playlist', {
-                    playlist_id: id,
-                    fields: "description,id,name,images,owner,type,uri,followers.total,tracks(items(track(id,name,uri,duration_ms,artists(name),album(images,name))))"
-                });
+                // No `fields` filter: the full object carries owner.id,
+                // snapshotId, public/collaborative and a trustworthy
+                // tracks.total — all needed for edit support. Only the first
+                // page (<=100 tracks) comes inline; the rest pages in below.
+                const response = await this.api.fetchSpotifyPlus('get_playlist', { playlist_id: id });
                 if (response?.result) {
-                    this._contextData = { ...this._contextData, ...response.result, type: 'playlist', isLoading: false };
+                    const result = response.result;
 
-                    // Fetch Current User & Follow Status
+                    // Current account id: the response carries it for free.
                     if (!this._currentUserId) {
-                        try {
-                            const user = await this.api.getCurrentUserProfile();
-                            if (user?.id) this._currentUserId = user.id;
-                        } catch (e) { }
+                        this._currentUserId = response.user_profile?.id
+                            || (await this.api.getCurrentUserId())
+                            || null;
                     }
-                    if (this._currentUserId && this._contextData.id) {
+                    const isOwner = !!this._currentUserId && result.owner?.id === this._currentUserId;
+                    const totalTracks = result.tracks?.total ?? (result.tracks?.items?.length || 0);
+
+                    this._contextData = {
+                        ...this._contextData,
+                        ...result,
+                        type: 'playlist',
+                        isLoading: false,
+                        isOwner,
+                        canEditItems: isOwner,
+                        snapshotId: result.snapshotId || result.snapshot_id || null,
+                        tracksComplete: (result.tracks?.items?.length || 0) >= totalTracks,
+                        ...(autoEdit ? { autoEdit: true } : {})
+                    };
+
+                    // Follow state only matters for playlists we don't own
+                    // (drives the heart button and collaborative edit rights).
+                    if (!isOwner && this._currentUserId && this._contextData.id) {
                         try {
                             const follows = await this.api.checkUserFollowsPlaylist(this._contextData.id, this._currentUserId);
                             if (follows && Array.isArray(follows) && follows.length > 0) this._isFollowing = follows[0];
                         } catch (e) { }
+                        this._contextData.canEditItems = !!this._contextData.collaborative && this._isFollowing;
                     }
 
                     // Update cache
                     SpotifyContextView.cacheSet(this.pageId, this._contextData);
                     this.requestUpdate();
+
+                    if (!this._contextData.tracksComplete) {
+                        this._loadRemainingPlaylistTracks(this.pageId);
+                    }
                 }
             } else if (type === 'artist') {
                 // Artist pages load progressively: each promise updates state + cache as it resolves.
@@ -470,7 +561,7 @@ class SpotifyContextView extends LitElement {
                 }
             } else if (sectionId === 'favorites') {
                 title = 'Your Favorite Playlists';
-                const res = await this.api.fetchSpotifyPlus('get_playlist_favorites', { limit, offset });
+                const res = await this.api.fetchSpotifyPlus('get_playlist_favorites', { limit, offset, ...playlistSortParams() });
                 if (res?.result?.items) {
                     newItems = res.result.items;
                     total = res.result.total;
@@ -589,7 +680,7 @@ class SpotifyContextView extends LitElement {
     // renderTableRow moved to spotify-section-view.js
     async _fetchLastFmSimilarArtists(artistName) {
         // Access Last.fm key from config
-        const apiKey = this.config?.external_providers?.lastfm?.api_key;
+        const apiKey = this.config?.integrations?.lastfm?.api_key;
         if (!apiKey || !artistName) return [];
 
         try {

@@ -4,7 +4,7 @@ import { DataTriggerTemplate } from './storage/data_triggertemplate.js';
  * Persistence facade. Data lives in a Home Assistant trigger-template sensor
  * (shared across users/devices). There is no localStorage fallback: reads work
  * for anyone who can see the sensor, writes require admin (fires the event) or a
- * non-admin with a working `write_script` middle-man (see DataTriggerTemplate).
+ * non-admin with a working `storage.script` middle-man (see DataTriggerTemplate).
  */
 export class StorageManager {
     constructor(hass, config) {
@@ -20,7 +20,7 @@ export class StorageManager {
 
     /** Entity holding persisted data. */
     get sensorEntity() {
-        return this.config.sensor_entity || null;
+        return this.config.sensor || null;
     }
 
     /**

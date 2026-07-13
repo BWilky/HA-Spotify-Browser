@@ -71,7 +71,7 @@ export class SpotifyDevicePickerSmall extends LitElement {
             .device-name {
                 flex: 1; 
                 color: #fff; 
-                font-size: 14px;
+                font-size: var(--spf-text-base, 13.5px);
                 font-weight: 500;
             }
             .device-row.active .device-name {
@@ -97,7 +97,7 @@ export class SpotifyDevicePickerSmall extends LitElement {
             }
             .more-devices-row .device-name {
                 color: inherit; /* Inherit hover color */
-                font-size: 13px;
+                font-size: var(--spf-text-base, 13.5px);
             }
             .more-devices-row svg { fill: currentColor; }
         `;

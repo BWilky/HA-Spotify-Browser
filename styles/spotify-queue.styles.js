@@ -109,7 +109,7 @@ export const queueStyles = css`
     }
 
     .queue-title { 
-        font-size: 14px; 
+        font-size: var(--spf-text-base, 13.5px); 
         font-weight: 700; 
         color: var(--spf-text-main); 
         white-space: nowrap; 
@@ -120,7 +120,7 @@ export const queueStyles = css`
     .queue-title.active { color: var(--spf-brand); }
 
     .queue-artist {
-        font-size: 12px;
+        font-size: var(--spf-text-sm, 12px);
         color: var(--spf-text-sub);
         white-space: nowrap; 
         overflow: hidden; 
@@ -132,7 +132,7 @@ export const queueStyles = css`
         display: flex;
         align-items: center;
         gap: 4px;
-        font-size: 11px; 
+        font-size: var(--spf-text-xs, 11px); 
         font-weight: 500;
         color: var(--spf-brand); /* Green */
         opacity: 0.9;
@@ -302,17 +302,27 @@ export const queueStyles = css`
     .queue-row-play-btn:hover { color: var(--spf-text-main); transform: scale(1.1); }
     .queue-row-play-btn svg { width: 24px; height: 24px; }
 
+    /* Per-row "..." menu button (queue / recent rows) */
+    .row-menu-btn {
+        flex-shrink: 0; width: 36px; height: 36px;
+        background: transparent; border: none; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--spf-text-sub);
+    }
+    .row-menu-btn:hover { color: var(--spf-text-main); }
+    .row-menu-btn svg { fill: currentColor; }
+
     .queue-empty-state {
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         height: 200px; text-align: center; opacity: 0.5;
     }
 
-    .empty-text { margin-top: 16px; font-weight: 700; font-size: 16px; }
-    .empty-sub { font-size: 13px; }
+    .empty-text { margin-top: 16px; font-weight: 700; font-size: var(--spf-text-md, 15px); }
+    .empty-sub { font-size: var(--spf-text-base, 13.5px); }
     
     .queue-section-label { 
         padding: 12px 16px 4px; 
-        font-size: 12px; 
+        font-size: var(--spf-text-sm, 12px); 
         font-weight: 700; 
         color: var(--spf-text-sub); 
         text-transform: uppercase; 

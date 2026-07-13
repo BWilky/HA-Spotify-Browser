@@ -78,7 +78,7 @@ export class SpotifyNowPlayingMobile extends LitElement {
                 flex-shrink: 0; height: 40px;
             }
             .np-header .np-context {
-                font-size: 13px; font-weight: 700; letter-spacing: 0.4px;
+                font-size: var(--spf-text-base, 13.5px); font-weight: 700; letter-spacing: 0.4px;
                 text-transform: uppercase; opacity: 0.95;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
                 max-width: 60%; text-align: center;
@@ -124,11 +124,11 @@ export class SpotifyNowPlayingMobile extends LitElement {
             }
             .np-info-text { flex: 1; min-width: 0; }
             .np-title {
-                font-size: 22px; font-weight: 800; line-height: 1.2;
+                font-size: var(--spf-text-xl, 22px); font-weight: 900; line-height: 1.2;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .np-artist {
-                font-size: 16px; color: rgba(255,255,255,0.7); margin-top: 2px;
+                font-size: var(--spf-text-md, 15px); color: rgba(255,255,255,0.7); margin-top: 2px;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
             .np-like {
@@ -157,7 +157,7 @@ export class SpotifyNowPlayingMobile extends LitElement {
             }
             .np-times {
                 display: flex; justify-content: space-between;
-                font-size: 11px; color: rgba(255,255,255,0.65); margin-top: 6px;
+                font-size: var(--spf-text-xs, 11px); color: rgba(255,255,255,0.65); margin-top: 6px;
                 font-variant-numeric: tabular-nums;
             }
 
@@ -198,7 +198,7 @@ export class SpotifyNowPlayingMobile extends LitElement {
             .np-device.connected { color: var(--spf-brand, #1ed760); }
             .np-device svg { width: 20px; height: 20px; fill: currentColor; flex-shrink: 0; }
             .np-device-name {
-                font-size: 13px; font-weight: 600;
+                font-size: var(--spf-text-base, 13.5px); font-weight: 700;
                 white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
             }
         `;
@@ -512,9 +512,11 @@ export class SpotifyNowPlayingMobile extends LitElement {
             detail: {
                 name: track.name,
                 artist: track.artists?.map(a => a.name).join(', ') || '',
+                album: track.album?.name || '',
                 uri: track.uri,
                 id: track.id,
-                image: track.album?.images?.[0]?.url
+                image: track.album?.images?.[0]?.url,
+                context: { surface: 'nowplaying', sourceUri: this.playerController?.sourceContextUri() || null }
             },
             bubbles: true, composed: true
         }));
@@ -529,10 +531,10 @@ export class SpotifyNowPlayingMobile extends LitElement {
         const isShuffle = !!this.state?.isShuffle;
         const isLiked = !!this.state?.isLiked;
         const repeat = this._repeatState();
-        const stateObj = this.hass?.states[this.config?.entity];
-        const deviceName = stateObj?.attributes?.source || 'This device';
+        const stateObj = this.playerController?.playbackStateObj?.() || this.hass?.states[this.config?.entity];
+        const deviceName = this.state?.activeDevice || 'This device';
         // "Connected" (green) when playing on a non-local device
-        const isRemote = !!stateObj?.attributes?.source;
+        const isRemote = !!this.state?.activeDevice;
         const context = stateObj?.attributes?.media_playlist || 'Now Playing';
         // Neighbour artwork for the swipe carousel (already in memory + preloaded).
         const prevArt = this.playerController?.peekPrev?.()?.album?.images?.[0]?.url || '';

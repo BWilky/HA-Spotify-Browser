@@ -15,10 +15,13 @@ export const libraryStyles = css`
     .l-top {
         position: sticky; top: 0; z-index: 5;
         display: flex; align-items: center; gap: 12px;
+        /* Explicit row height: 12 + 40 + 8 = 60px total, exactly the pills'
+           sticky offset below — otherwise a seam opens between the two bars. */
+        height: 40px;
         padding: calc(var(--spf-safe-top, 0px) + 12px) 16px 8px;
         background: var(--spf-bg);
     }
-    .l-title { flex: 1; min-width: 0; font-size: 24px; font-weight: 800; color: #fff; }
+    .l-title { flex: 1; min-width: 0; font-size: var(--spf-text-xl, 22px); font-weight: 900; color: #fff; }
     .l-icon-btn {
         flex: 0 0 auto; background: none; border: none; color: #fff; cursor: pointer;
         padding: 6px; display: flex; align-items: center; justify-content: center;
@@ -34,24 +37,25 @@ export const libraryStyles = css`
     .pills::-webkit-scrollbar { display: none; }
     .pill {
         flex: 0 0 auto; border: none; cursor: pointer; white-space: nowrap;
-        padding: 8px 16px; border-radius: 999px; font-size: 14px; font-weight: 600;
+        padding: 8px 16px; border-radius: 999px; font-size: var(--spf-text-base, 13.5px); font-weight: 700;
         background: #232323; color: #fff;
     }
     .pill.active { background: #fff; color: #000; }
 
     .body { padding-bottom: 120px; }
-    .section-h {
-        display: flex; align-items: center; gap: 8px;
-        font-size: 14px; font-weight: 600; color: var(--spf-text-sub); padding: 16px 16px 4px;
-    }
-    .section-h svg { flex: 0 0 auto; }
     .empty { padding: 48px 24px; text-align: center; color: var(--spf-text-sub); }
 
     /* ---- Rows ---- */
     .row {
-        display: grid; grid-template-columns: 56px 1fr;
+        display: grid; grid-template-columns: 56px 1fr auto;
         align-items: center; gap: 14px; padding: 8px 16px; cursor: pointer; min-height: 64px;
     }
+    .row-menu-btn {
+        background: none; border: none; cursor: pointer; color: var(--spf-text-sub);
+        width: 40px; height: 40px; padding: 0;
+        display: flex; align-items: center; justify-content: center;
+    }
+    @media (hover: hover) { .row-menu-btn:hover { color: #fff; } }
     @media (hover: hover) { .row:hover { background: var(--spf-hover-white); } }
     .art {
         width: 56px; height: 56px; border-radius: 4px;
@@ -65,11 +69,11 @@ export const libraryStyles = css`
     }
     .art.liked svg { width: 26px; height: 26px; fill: #fff; }
     .info { min-width: 0; }
-    .name { color: #fff; font-size: 16px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .name { color: #fff; font-size: var(--spf-text-md, 15px); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .name.playing { color: var(--spf-brand); }
     .sub {
         display: flex; align-items: center; gap: 5px;
-        color: var(--spf-text-sub); font-size: 13px; margin-top: 2px;
+        color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); margin-top: 2px;
         white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .sub .pin { color: var(--spf-brand); flex: 0 0 auto; }
@@ -87,12 +91,26 @@ export const libraryStyles = css`
         .pills { top: calc(var(--spf-safe-top, 0px) + 60px); padding: 6px 16px 12px; }
     }
 
+    /* "+ New" playlist pill: desktop-only — mobile has the l-top icon button. */
+    .pill-create { display: none; }
+
+    /* Sort toggle pill — right end of the pills row, same size as the tab pills. */
+    .pill-sort {
+        margin-left: auto;
+        display: inline-flex; align-items: center; gap: 6px;
+    }
+    .pill-sort svg { color: var(--spf-text-sub); }
+    @media (hover: hover) { .pill-sort:hover { color: var(--spf-brand); } }
+
+    .scroll-sentinel { height: 1px; }
+
     /* ================= DESKTOP ================= */
     @media (min-width: 769px) {
         .l-top { display: none; }
+        .pill-create { display: inline-flex; }
         /* Constrain the single-column list to a comfortable centered width so the
            rows don't stretch the full width of the modal with empty space. */
-        .body, .pills, .row, .skel, .section-h, .empty {
+        .body, .pills, .row, .skel, .empty {
             max-width: 760px; margin-left: auto; margin-right: auto;
         }
         .pills { top: 0; justify-content: flex-start; padding: 16px 16px 12px; }

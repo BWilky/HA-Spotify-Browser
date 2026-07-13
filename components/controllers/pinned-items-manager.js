@@ -80,7 +80,7 @@ export class PinnedItemsManager {
 
     /**
      * Whether the current user can EDIT pins (pin/unpin, reorder). Requires write
-     * access: an admin, or a guest with a working `write_script` middle-man.
+     * access: an admin, or a guest with a working `storage.script` middle-man.
      * Guests without one see pins read-only (no pin button, no edit button).
      */
     canEdit() {
@@ -89,7 +89,7 @@ export class PinnedItemsManager {
     }
 
     get sensorEntity() {
-        return this.storageManager?.config?.sensor_entity || 'sensor.spotify_browser_data';
+        return this.storageManager?.config?.sensor || 'sensor.spotify_browser_data';
     }
 
     /**

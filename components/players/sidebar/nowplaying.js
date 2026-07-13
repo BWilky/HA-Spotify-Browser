@@ -79,7 +79,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
             }
 
             .queue-title { 
-                font-size: 14px; 
+                font-size: var(--spf-text-base, 13.5px); 
                 font-weight: 700; 
                 color: #fff; 
                 white-space: nowrap; 
@@ -90,7 +90,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
             .queue-title.active { color: var(--spf-brand, #1ed760); }
             
             .queue-artist {
-                font-size: 12px;
+                font-size: var(--spf-text-sm, 12px);
                 color: #b3b3b3;
                 white-space: nowrap; 
                 overflow: hidden; 
@@ -102,7 +102,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 display: flex;
                 align-items: center;
                 gap: 4px;
-                font-size: 11px; 
+                font-size: var(--spf-text-xs, 11px); 
                 font-weight: 500;
                 color: var(--spf-brand, #1ed760);
                 opacity: 0.9;
@@ -190,11 +190,11 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 backdrop-filter: blur(12px);
                 -webkit-backdrop-filter: blur(12px);
                 display: flex;
-                align-items: center;
+                flex-direction: column;
                 opacity: 0;
                 transform: translateY(10px) scale(0.95);
                 pointer-events: none;
-                transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+                transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.2s ease;
             }
 
             .floating-volume-container.visible {
@@ -203,10 +203,31 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 pointer-events: auto;
             }
 
+            /* Grow to fit the capability hint below the slider row */
+            .floating-volume-container.disabled {
+                height: 62px;
+            }
+
+            .volume-row {
+                position: relative;
+                display: flex;
+                align-items: center;
+                height: 44px;
+                flex-shrink: 0;
+            }
+
             .volume-wrapper {
                 flex: 1;
                 position: relative;
                 overflow: hidden;
+            }
+
+            .volume-hint {
+                font-size: var(--spf-text-xs, 11px);
+                color: rgba(255,255,255,0.6);
+                text-align: center;
+                padding: 0 12px 6px;
+                line-height: 1.2;
             }
 
             .floating-icon {
@@ -333,6 +354,9 @@ export class SpotifySidebarNowPlaying extends LitElement {
 
         if (this._volumeVisible) {
             this._resetVolumeTimeout();
+            // Keep the shared volume-capability cache fresh; non-blocking and
+            // only on this user-initiated open — no per-tick work.
+            if (this.deviceManager) this._fetchDevices();
         } else {
             if (this._volumeTimeout) clearTimeout(this._volumeTimeout);
         }
@@ -414,6 +438,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
         this._devices = this._devices.map(d => ({ ...d, isActive: d.id === device.id }));
         this.requestUpdate();
 
+        this.playerController?.beginTransferHold();
         await this.api.fetchSpotifyPlus('player_transfer_playback', { device_id: device.id, play: true }, false);
 
         // Close the overlay shortly after transfer
@@ -429,10 +454,10 @@ export class SpotifySidebarNowPlaying extends LitElement {
         const vol = e.detail.value / 100;
 
         // Check for rate control (default enabled)
-        const rateControlFn = this.config?.volume?.slider?.rate_control !== false;
+        const rateControlFn = this.config?.devices?.volume?.rate_control !== false;
 
         // Check for optimistic update (default enabled)
-        const optimistic = this.config?.volume?.slider?.optimistic !== false;
+        const optimistic = this.config?.devices?.volume?.optimistic !== false;
 
         if (optimistic) {
             this._localVolume = e.detail.value;
@@ -519,8 +544,10 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 </div>`;
         }
 
-        const components = this.config?.queue_settings?.components || {};
-        const stateObj = this.hass?.states[this.config?.entity];
+        const miniplayer = this.config?.queue?.miniplayer || { enabled: true };
+        // Read from the entity actually driving playback (the Sonos entity when
+        // casting to Sonos), not always SpotifyPlus, so device name/volume stay correct.
+        const stateObj = this.playerController?.playbackStateObj?.() || this.hass?.states[this.config?.entity];
 
         // Determine Playing State variables for rendering
         // ...
@@ -548,7 +575,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
                     </button>
                 </div>
                 
-                ${this.renderControls(components)}
+                ${this.renderControls(miniplayer)}
                 ${this.renderFloatingVolume(stateObj)}
                 ${this.renderFloatingDevices()}
                 
@@ -559,32 +586,31 @@ export class SpotifySidebarNowPlaying extends LitElement {
         `;
     }
 
-    renderControls(components) {
+    renderControls(miniplayer) {
+        // queue.miniplayer: enabled gates the whole row; each button has its
+        // own flag (parser fills all six with defaults).
+        if (miniplayer.enabled === false) return '';
         return html`
             <div class="queue-mini-controls">
-                <!-- Shuffle -->
-                <button class="mini-btn ${this.isShuffle ? 'is-favorite' : ''}" @click=${() => this.playerController ? this.playerController.toggleShuffle() : this.dispatchEvent(new CustomEvent('shuffle-toggle', { bubbles: true, composed: true }))}>
+                ${miniplayer.shuffle !== false ? html`<button class="mini-btn ${this.isShuffle ? 'is-favorite' : ''}" @click=${() => this.playerController ? this.playerController.toggleShuffle() : this.dispatchEvent(new CustomEvent('shuffle-toggle', { bubbles: true, composed: true }))}>
                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
-                </button>
+                </button>` : ''}
 
-                <!-- Device (Added) -->
-                <button class="mini-btn ${this._devicesVisible ? 'is-favorite' : ''}" @click=${() => this.toggleDeviceOverlay()}>
-                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v9.28a4.39 4.39 0 0 0-1.5-.28 4.5 4.5 0 1 0 4.5 4.5V6h4V3h-7z" fill="none"/><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 6h-8v-1h8v1zm0-3h-8V4h8v1z" fill="none"/><path d="M7 24h2v-2H7v2zm-4 0h2v-2H3v2zm8 0h2v-2h-2v2zM2 9h2v2H2V9zm0 4h2v2H2v-2zm0 4h2v2H2v-2z" fill="none"/><path d="M19 1H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 16H5V3h14v14zM7 10h10v2H7zm0-4h10v2H7z"/></svg> 
-                </button>
+                ${miniplayer.device !== false ? html`<button class="mini-btn ${this._devicesVisible ? 'is-favorite' : ''}" @click=${() => this.toggleDeviceOverlay()}>
+                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v9.28a4.39 4.39 0 0 0-1.5-.28 4.5 4.5 0 1 0 4.5 4.5V6h4V3h-7z" fill="none"/><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 6h-8v-1h8v1zm0-3h-8V4h8v1z" fill="none"/><path d="M7 24h2v-2H7v2zm-4 0h2v-2H3v2zm8 0h2v-2h-2v2zM2 9h2v2H2V9zm0 4h2v2H2v-2zm0 4h2v2H2v-2z" fill="none"/><path d="M19 1H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 16H5V3h14v14zM7 10h10v2H7zm0-4h10v2H7z"/></svg>
+                </button>` : ''}
 
-                ${components.previous ? html`<button class="mini-btn" @click=${() => this.playerController ? this.playerController.prev() : this.api.fetchSpotifyPlus('player_media_previous_track')}><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>` : ''}
-                
-                ${components.next ? html`<button class="mini-btn" @click=${() => this.playerController ? this.playerController.next() : this.api.fetchSpotifyPlus('player_media_next_track')}><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>` : ''}
+                ${miniplayer.previous !== false ? html`<button class="mini-btn" @click=${() => this.playerController ? this.playerController.prev() : this.api.fetchSpotifyPlus('player_media_previous_track')}><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>` : ''}
 
-                <!-- Like -->
-                <button class="mini-btn ${this.isLiked ? 'is-favorite' : ''}" @click=${() => this.playerController ? this.playerController.toggleLike() : this.dispatchEvent(new CustomEvent('like-toggle', { bubbles: true, composed: true }))}>
+                ${miniplayer.next !== false ? html`<button class="mini-btn" @click=${() => this.playerController ? this.playerController.next() : this.api.fetchSpotifyPlus('player_media_next_track')}><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>` : ''}
+
+                ${miniplayer.like !== false ? html`<button class="mini-btn ${this.isLiked ? 'is-favorite' : ''}" @click=${() => this.playerController ? this.playerController.toggleLike() : this.dispatchEvent(new CustomEvent('like-toggle', { bubbles: true, composed: true }))}>
                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="${this.isLiked ? 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z' : 'M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z'}"/></svg>
-                </button>
+                </button>` : ''}
 
-                <!-- Volume Toggle -->
-                <button class="mini-btn ${this._volumeVisible ? 'is-favorite' : ''}" @click=${() => this.toggleVolumeOverlay()}>
+                ${miniplayer.volume !== false ? html`<button class="mini-btn ${this._volumeVisible ? 'is-favorite' : ''}" @click=${() => this.toggleVolumeOverlay()}>
                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-                </button>
+                </button>` : ''}
             </div>
         `;
     }
@@ -593,26 +619,35 @@ export class SpotifySidebarNowPlaying extends LitElement {
         let volume = (stateObj?.attributes?.volume_level || 0) * 100;
 
         // Optimistic Override
-        const optimistic = this.config?.volume?.slider?.optimistic !== false;
+        const optimistic = this.config?.devices?.volume?.optimistic !== false;
         if (optimistic && this._ignoreUpdatesUntil && Date.now() < this._ignoreUpdatesUntil && this._localVolume !== null) {
             volume = this._localVolume;
         }
 
+        // The Sonos entity has no sp_device_id attribute, so a Sonos target
+        // resolves to null here — unknown means volume-capable.
+        const deviceId = stateObj?.attributes?.sp_device_id || null;
+        const volDisabled = this.deviceManager?.getVolumeCapability(deviceId) === false;
+
         return html`
-            <div class="floating-volume-container ${this._volumeVisible ? 'visible' : ''}">
-                <div class="volume-wrapper" style="margin: 3px; width: calc(100% - 6px); height: calc(100% - 6px);">
-                    <spotify-slider
-                        .value=${volume}
-                        .min=${0}
-                        .max=${100}
-                        @input=${this.onVolumeChange}
-                    ></spotify-slider>
+            <div class="floating-volume-container ${this._volumeVisible ? 'visible' : ''} ${volDisabled ? 'disabled' : ''}">
+                <div class="volume-row">
+                    <div class="volume-wrapper" style="margin: 3px; width: calc(100% - 6px); height: calc(100% - 6px);">
+                        <spotify-slider
+                            .value=${volume}
+                            .min=${0}
+                            .max=${100}
+                            .disabled=${volDisabled}
+                            @input=${this.onVolumeChange}
+                        ></spotify-slider>
+                    </div>
+
+                    <!-- Icon Overlay (Click through) -->
+                    <div class="floating-icon">
+                         <svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                    </div>
                 </div>
-                
-                <!-- Icon Overlay (Click through) -->
-                <div class="floating-icon">
-                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
-                </div>
+                ${volDisabled ? html`<div class="volume-hint">Volume is controlled on the device</div>` : ''}
             </div>
         `;
     }

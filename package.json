@@ -1,0 +1,12 @@
+{
+  "name": "spotify-browser-v3",
+  "private": true,
+  "scripts": {
+    "build": "esbuild index.js --bundle --outfile=dist/spotify-browser.js --sourcemap",
+    "watch": "esbuild index.js --bundle --outfile=dist/spotify-browser.js --sourcemap --watch=forever",
+    "build:prod": "esbuild index.js --bundle --minify --outfile=spotify-browser.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1"
+  }
+}
