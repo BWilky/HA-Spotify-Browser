@@ -256,7 +256,7 @@ CircularStd-Bold.woff2      # weight 700
 CircularStd-Black.woff2     # weight 900
 ```
 
-The card picks them up automatically. Missing files fall back silently.
+The card picks them up automatically. Missing files fall back silently. https://www.reddit.com/r/PremiumFonts/comments/12mbatx/circular_std_font_family/
 
 ## Full example
 
