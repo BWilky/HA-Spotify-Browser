@@ -139,13 +139,12 @@ export class SpotifyContextView extends LitElement {
                 newItems = res?.result?.items || [];
                 total = res?.result?.total || total;
             } else if (type === 'artist-discography') {
-                const res = await this.api.fetchSpotifyPlus('get_artist_albums', {
+                const paged = await this.api.fetchPaginated('get_artist_albums', {
                     artist_id: this._contextData.id,
-                    limit: limit,
                     offset: offset
-                });
-                newItems = res?.result?.items || [];
-                total = res?.result?.total || total;
+                }, limit);
+                newItems = paged.items;
+                total = paged.total || total;
             }
 
             if (newItems.length > 0) {
@@ -356,16 +355,15 @@ export class SpotifyContextView extends LitElement {
             } else if (type === 'artist') {
                 // Artist pages load progressively: each promise updates state + cache as it resolves.
                 const artistPromise = this.api.fetchSpotifyPlus('get_artist', { artist_id: id });
-                const albumsPromise = this.api.fetchSpotifyPlus('get_artist_albums', { artist_id: id, limit: 12 });
+                const albumsPromise = this.api.fetchPaginated('get_artist_albums', { artist_id: id }, 12);
                 const topTracksPromise = (async () => {
                     try {
                         const artistRes = await artistPromise;
                         if (!artistRes?.result?.name) return [];
-                        const searchResult = await this.api.fetchSpotifyPlus('search_tracks', {
-                            criteria: `artist:"${artistRes.result.name}"`,
-                            limit: 12
-                        });
-                        return searchResult?.result?.items || [];
+                        const { items } = await this.api.fetchPaginated('search_tracks', {
+                            criteria: `artist:"${artistRes.result.name}"`
+                        }, 12);
+                        return items;
                     } catch (e) { return []; }
                 })();
                 const similarArtistsPromise = (async () => {
@@ -381,9 +379,9 @@ export class SpotifyContextView extends LitElement {
                     this.requestUpdate();
                 }
 
-                albumsPromise.then(res => {
-                    if (res?.result?.items) {
-                        this._contextData = { ...this._contextData, albums: res.result.items };
+                albumsPromise.then(({ items }) => {
+                    if (items.length) {
+                        this._contextData = { ...this._contextData, albums: items };
                         SpotifyContextView.cacheSet(this.pageId, this._contextData);
                         this.requestUpdate();
                     }
@@ -452,11 +450,7 @@ export class SpotifyContextView extends LitElement {
                     artistName = artistRes?.result?.name || 'Artist';
                 }
                 const limit = 50;
-                const offset = 0;
-                const albumsPromise = this.api.fetchSpotifyPlus('get_artist_albums', { artist_id: id, limit: limit, offset: offset });
-                const albumsRes = await albumsPromise;
-                const items = albumsRes?.result?.items || [];
-                const total = albumsRes?.result?.total || 0;
+                const { items, total } = await this.api.fetchPaginated('get_artist_albums', { artist_id: id }, limit);
 
                 this._contextData = {
                     id,
