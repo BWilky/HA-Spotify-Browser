@@ -380,11 +380,12 @@ export class SpotifyContextView extends LitElement {
                 }
 
                 albumsPromise.then(({ items }) => {
-                    if (items.length) {
-                        this._contextData = { ...this._contextData, albums: items };
-                        SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                        this.requestUpdate();
-                    }
+                    // Always resolve the rail's loading state, even when the artist
+                    // has zero results under Spotify's "album" group classification
+                    // (e.g. an artist whose only releases are singles/EPs).
+                    this._contextData = { ...this._contextData, albums: items };
+                    SpotifyContextView.cacheSet(this.pageId, this._contextData);
+                    this.requestUpdate();
                 });
 
                 topTracksPromise.then(tracks => {
