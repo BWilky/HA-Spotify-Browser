@@ -105,3 +105,52 @@ test('searchPlaylists paginates internally and preserves its return shape', asyn
     assert.equal(calls.length, 2);
     assert.ok(calls.every(c => c.limit <= 10));
 });
+
+test('fetchPaginated resolves immediately with an empty array when the artist has zero results', async () => {
+    // Real SpotifyPlus response for get_artist_albums on an artist whose only
+    // releases are singles/EPs (excluded by the default include_groups=album
+    // filter): { total: 0, items_count: 0, items: [], next: null }.
+    const calls = [];
+    const hass = {
+        callWS: async (payload) => {
+            const { limit, offset } = payload.service_data;
+            calls.push({ limit, offset });
+            return { response: { result: { items: [], total: 0 } } };
+        }
+    };
+    const api = new SpotifyApi(hass, 'media_player.test');
+
+    const { items, total } = await api.fetchPaginated('get_artist_albums', { artist_id: 'a1' }, 12);
+
+    assert.deepEqual(items, []);
+    assert.equal(total, 0);
+    assert.equal(calls.length, 1);
+});
+
+test('fetchPaginated keeps going when a page is shorter than requested but total says more remain', async () => {
+    // Mirrors a real SpotifyPlus search_playlists response: asked for limit=10,
+    // only 8 items came back (server-side de-dup/filtering), but total=11 and
+    // `next` pointed at offset=10 — so the real cursor advances by the
+    // requested limit, not by how many items were actually returned.
+    const pages = {
+        0: { items: makeItems(8, 'p'), total: 11 },
+        10: { items: makeItems(3, 'q'), total: 11 }
+    };
+    const calls = [];
+    const hass = {
+        callWS: async (payload) => {
+            const { limit, offset } = payload.service_data;
+            calls.push({ limit, offset });
+            const page = pages[offset] || { items: [], total: 11 };
+            return { response: { result: { items: page.items, total: page.total } } };
+        }
+    };
+    const api = new SpotifyApi(hass, 'media_player.test');
+
+    const { items, total } = await api.fetchPaginated('search_playlists', { criteria: 'test' }, 12);
+
+    assert.equal(items.length, 11);
+    assert.equal(total, 11);
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls.map(c => c.offset), [0, 10]);
+});

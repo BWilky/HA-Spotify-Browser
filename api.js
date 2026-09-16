@@ -330,8 +330,14 @@ export class SpotifyApi {
      * service, in batches of at most `maxLimit` per call (SpotifyPlus rejects
      * `limit` above its per-service cap). Starts at `baseParams.offset` (default
      * 0) and stops once `desiredTotal` items are collected, the API-reported
-     * `total` is reached, or a page comes back shorter than requested (fewer
-     * items available than asked for).
+     * `total` is reached, or a page comes back genuinely empty.
+     *
+     * Deliberately does NOT treat "page shorter than requested" as "no more
+     * available" — Spotify's search/list endpoints can filter or de-dupe a
+     * page below `limit` while still having more results at the next offset
+     * (confirmed live: limit=10, items_count=8, total=11, next at offset 10).
+     * `offset` is advanced by the requested `limit`, not by how many items
+     * actually came back, to stay aligned with the API's own paging cursor.
      */
     async fetchPaginated(service, baseParams, desiredTotal, maxLimit = SpotifyApi.MAX_PAGE_LIMIT) {
         const items = [];
@@ -344,8 +350,8 @@ export class SpotifyApi {
             const page = res?.result?.items || [];
             if (total === null) total = res?.result?.total ?? null;
             items.push(...page);
-            offset += page.length;
-            if (page.length < limit) break;
+            offset += limit;
+            if (page.length === 0) break;
             if (total !== null && offset >= total) break;
         }
         return { items, total: total ?? items.length, offset };
