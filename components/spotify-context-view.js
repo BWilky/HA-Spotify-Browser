@@ -141,6 +141,7 @@ export class SpotifyContextView extends LitElement {
             } else if (type === 'artist-discography') {
                 const paged = await this.api.fetchPaginated('get_artist_albums', {
                     artist_id: this._contextData.id,
+                    include_groups: 'album,single,compilation',
                     offset: offset
                 }, limit);
                 newItems = paged.items;
@@ -355,7 +356,7 @@ export class SpotifyContextView extends LitElement {
             } else if (type === 'artist') {
                 // Artist pages load progressively: each promise updates state + cache as it resolves.
                 const artistPromise = this.api.fetchSpotifyPlus('get_artist', { artist_id: id });
-                const albumsPromise = this.api.fetchPaginated('get_artist_albums', { artist_id: id }, 12);
+                const albumsPromise = this.api.fetchPaginated('get_artist_albums', { artist_id: id, include_groups: 'album,single' }, 12);
                 const topTracksPromise = (async () => {
                     try {
                         const artistRes = await artistPromise;
@@ -451,7 +452,7 @@ export class SpotifyContextView extends LitElement {
                     artistName = artistRes?.result?.name || 'Artist';
                 }
                 const limit = 50;
-                const { items, total } = await this.api.fetchPaginated('get_artist_albums', { artist_id: id }, limit);
+                const { items, total } = await this.api.fetchPaginated('get_artist_albums', { artist_id: id, include_groups: 'album,single,compilation' }, limit);
 
                 this._contextData = {
                     id,
