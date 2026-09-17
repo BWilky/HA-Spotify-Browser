@@ -12,6 +12,10 @@ export class SpotifyApi {
         'add_player_queue_items'
     ]);
 
+    // SpotifyPlus caps `limit` at 10 for get_artist_albums and all search_* services
+    // (Spotify's July 2026 API change; SpotifyPlus v1.0.215).
+    static MAX_PAGE_LIMIT = 10;
+
     constructor(hass, entityId, deviceResolver = null, defaultVolumeConfig = null, onNotification = null, onError = null) {
         this.hass = hass;
         this.entityId = entityId;
@@ -319,6 +323,38 @@ export class SpotifyApi {
             }
             return null;
         }
+    }
+
+    /**
+     * Fetch `desiredTotal` items from a `limit`/`offset`-paginated SpotifyPlus
+     * service, in batches of at most `maxLimit` per call (SpotifyPlus rejects
+     * `limit` above its per-service cap). Starts at `baseParams.offset` (default
+     * 0) and stops once `desiredTotal` items are collected, the API-reported
+     * `total` is reached, or a page comes back genuinely empty.
+     *
+     * Deliberately does NOT treat "page shorter than requested" as "no more
+     * available" — Spotify's search/list endpoints can filter or de-dupe a
+     * page below `limit` while still having more results at the next offset
+     * (confirmed live: limit=10, items_count=8, total=11, next at offset 10).
+     * `offset` is advanced by the requested `limit`, not by how many items
+     * actually came back, to stay aligned with the API's own paging cursor.
+     */
+    async fetchPaginated(service, baseParams, desiredTotal, maxLimit = SpotifyApi.MAX_PAGE_LIMIT) {
+        const items = [];
+        let offset = baseParams.offset || 0;
+        let total = null;
+        while (items.length < desiredTotal) {
+            if (total !== null && offset >= total) break;
+            const limit = Math.min(maxLimit, desiredTotal - items.length);
+            const res = await this.fetchSpotifyPlus(service, { ...baseParams, limit, offset });
+            const page = res?.result?.items || [];
+            if (total === null) total = res?.result?.total ?? null;
+            items.push(...page);
+            offset += limit;
+            if (page.length === 0) break;
+            if (total !== null && offset >= total) break;
+        }
+        return { items, total: total ?? items.length, offset };
     }
 
     /** True only when the HA WebSocket is genuinely connected and ready. */
@@ -1009,12 +1045,8 @@ export class SpotifyApi {
     async searchPlaylists(query, limit = 10, offset = 0) {
         if (!this.hass || !query) return { result: { items: [] } };
 
-        // Use 'search_playlists' service
-        return await this.fetchSpotifyPlus('search_playlists', {
-            criteria: query,
-            limit: limit,
-            offset: offset
-        });
+        const { items, total } = await this.fetchPaginated('search_playlists', { criteria: query, offset }, limit);
+        return { result: { items, total } };
     }
 
     async saveTrackFavorites(ids) {
