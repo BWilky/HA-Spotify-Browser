@@ -150,9 +150,13 @@ export class PlayerController extends EventTarget {
         const attrs = stateObj.attributes;
         // The Connect device name lives on the SpotifyPlus entity even when we read
         // playback from the Sonos entity (whose own `source` is e.g. "Line-in").
-        const activeDevice = sonos.isSonos
+        const rawDevice = sonos.isSonos
             ? (spStateObj?.attributes?.source || attrs.friendly_name || null)
             : (attrs.source || null);
+        // Show the device manager's saved name for a renamed device.
+        const activeDevice = rawDevice
+            ? (this.api?.deviceManager?.displayName(spStateObj?.attributes?.sp_device_id, rawDevice) ?? rawDevice)
+            : null;
 
         // 1. Determine Effective Track (HASS + Optimistic + API Fallback)
         const track = this._calculateEffectiveTrack(stateObj);

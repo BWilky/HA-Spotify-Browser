@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "../../../lit.js";
-import { parseDeviceItems, normalizeDevice, parseSpotifyUri, extrapolatedPosition } from "../../../utils.js";
+import { parseDeviceItems, normalizeDevice, parseSpotifyUri, extrapolatedPosition, formatTime } from "../../../utils.js";
 import "../../common/spotify-slider.js";
 import "../../devices/index.js";
 
@@ -111,7 +111,13 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 white-space: nowrap; 
                 overflow: hidden; 
                 text-overflow: ellipsis;
+                /* Tap the device name to switch speakers (#5) */
+                cursor: pointer;
+                background: none; border: none; padding: 0; text-align: left;
+                font-family: inherit;
+                max-width: 100%;
             }
+            .queue-device-row:hover { opacity: 1; text-decoration: underline; }
 
             .queue-device-row svg {
                 width: 12px; height: 12px;
@@ -245,6 +251,17 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 opacity: 0.8;
             }
 
+            /* --- Elapsed / remaining (#12) --- */
+            .queue-time-row {
+                display: flex;
+                justify-content: space-between;
+                padding: 0 8px 6px;
+                font-size: var(--spf-text-xs, 11px);
+                color: var(--spf-text-sub, #b3b3b3);
+                font-variant-numeric: tabular-nums;
+                line-height: 1;
+            }
+
             /* --- Progress Bar --- */
             .queue-progress-container {
                 position: absolute; 
@@ -346,6 +363,12 @@ export class SpotifySidebarNowPlaying extends LitElement {
         if (position > duration) position = duration;
         const percent = (position / duration) * 100;
         progressBar.style.width = `${percent}%`;
+
+        const cur = this.shadowRoot.getElementById('queue-time-cur');
+        const rem = this.shadowRoot.getElementById('queue-time-rem');
+        const hasDuration = duration > 1;
+        if (cur) cur.textContent = hasDuration ? formatTime(position) : '--:--';
+        if (rem) rem.textContent = hasDuration ? `-${formatTime(duration - position)}` : '--:--';
     }
 
     toggleVolumeOverlay() {
@@ -561,10 +584,11 @@ export class SpotifySidebarNowPlaying extends LitElement {
                     <div class="queue-info">
                         <div class="queue-title active">${this.track?.name || 'Unknown Track'}</div>
                         <div class="queue-artist">${this.track?.artists?.map(a => a.name).join(', ') || 'Unknown Artist'}</div>
-                        <div class="queue-device-row">
+                        <button class="queue-device-row" @click=${(e) => { e.stopPropagation(); this.toggleDeviceOverlay(); }}
+                                title="Switch device" aria-label="Switch device">
                             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v9.28a4.39 4.39 0 0 0-1.5-.28 4.5 4.5 0 1 0 4.5 4.5V6h4V3h-7z" fill="none"/><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 6h-8v-1h8v1zm0-3h-8V4h8v1z" fill="none"/><path d="M7 24h2v-2H7v2zm-4 0h2v-2H3v2zm8 0h2v-2h-2v2zM2 9h2v2H2V9zm0 4h2v2H2v-2zm0 4h2v2H2v-2z" fill="none"/><path d="M19 1H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 16H5V3h14v14zM7 10h10v2H7zm0-4h10v2H7z"/></svg>
-                            <span class="device-name-text">${stateObj?.attributes?.source || 'Device'}</span>
-                        </div>
+                            <span class="device-name-text">${this.playerController?.state?.activeDevice || stateObj?.attributes?.source || 'Device'}</span>
+                        </button>
                     </div>
                     
                     <button class="queue-play-btn large-side-btn" @click=${() => {
@@ -578,6 +602,11 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 ${this.renderControls(miniplayer)}
                 ${this.renderFloatingVolume(stateObj)}
                 ${this.renderFloatingDevices()}
+
+                <div class="queue-time-row">
+                    <span id="queue-time-cur">--:--</span>
+                    <span id="queue-time-rem">--:--</span>
+                </div>
                 
                 <div class="queue-progress-container">
                     <div class="queue-progress-bar" id="queue-progress-bar"></div>

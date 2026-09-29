@@ -410,6 +410,7 @@ export const sharedStyles = css`
             display: flex;
             align-items: center;
             gap: 5px;
+            cursor: pointer;
             color: var(--spf-brand, #1ed760);
             font-size: var(--spf-text-sm, 12px);
             font-weight: 700;

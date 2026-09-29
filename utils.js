@@ -278,3 +278,13 @@ export function getVibrantColor(url) {
         img.src = url;
     });
 }
+
+/* --- Time --- */
+
+/** Seconds -> "m:ss" (e.g. 65 -> "1:05"). Bad/negative input renders as 0:00. */
+export function formatTime(seconds) {
+    if (!seconds || seconds < 0 || isNaN(seconds)) return '0:00';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+}

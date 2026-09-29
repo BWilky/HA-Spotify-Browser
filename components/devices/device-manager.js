@@ -27,6 +27,11 @@ export class DeviceManager {
 
     // Simplified access to storage with schema migration
     async _loadData() {
+        return this._readData();
+    }
+
+    /** Synchronous read of saved devices/settings (storage is an in-memory sensor). */
+    _readData() {
         if (!this.checkAvailability()) return { settings: { version: 1 }, devices: [] };
 
         try {
@@ -139,6 +144,18 @@ export class DeviceManager {
 
     async rename(deviceId, newName) {
         return await this.update(deviceId, { name: newName });
+    }
+
+    /**
+     * Name to show for a device: the saved (user-renamed) name when the id is
+     * in the device manager, otherwise the raw Connect name. Lets a rename made
+     * in the device manager show up in now-playing labels too, not just the
+     * picker (#7).
+     */
+    displayName(deviceId, fallbackName) {
+        if (!deviceId) return fallbackName;
+        const saved = this._readData().devices.find(d => d.id === deviceId);
+        return saved?.name || fallbackName;
     }
 
     /**
