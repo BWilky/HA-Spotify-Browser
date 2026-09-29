@@ -633,7 +633,11 @@ class SpotifyHome extends LitElement {
             }
             else if (sectionKey === 'recent') {
                 if (offset > 0) return;
-                const res = await this.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: 50 });
+                // Keep this light: it's fetched in parallel with every other home
+                // section (see loadHomeData), and 50 full track objects made this the
+                // heaviest concurrent call — it would intermittently time out and blank
+                // the section. 20 tracks still dedupe to plenty of unique albums.
+                const res = await this.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: 20 });
                 if (res?.result?.items) {
                     const uniqueItems = dedupeRecentAlbums(res.result.items);
                     data = { items: uniqueItems, total: uniqueItems.length }; type = 'album';

@@ -439,7 +439,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
         this.requestUpdate();
 
         this.playerController?.beginTransferHold();
-        await this.api.fetchSpotifyPlus('player_transfer_playback', { device_id: device.id, play: true }, false);
+        await this.api.transferPlayback(device);
 
         // Close the overlay shortly after transfer
         if (this._overlayCloseTimer) clearTimeout(this._overlayCloseTimer);

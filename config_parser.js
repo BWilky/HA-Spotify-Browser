@@ -422,6 +422,14 @@ const SCHEMA = {
         fields: { sensor: str, event: str, script: scriptId },
     },
 
+    // Appearance of the dashboard placeholder tile (custom:spotify-browser-card).
+    // Consumed by the card element in index.js; registered here so the block is
+    // documented and does not trip the unknown-option warning.
+    card: {
+        defaults: { title: 'Spotify Browser', label: 'launch', icon: 'mdi:spotify', color: '#1DB954' },
+        fields: { title: str, label: str, icon: str, color: str },
+    },
+
     integrations: {
         defaults: { lastfm: { api_key: null } },
         fields: {

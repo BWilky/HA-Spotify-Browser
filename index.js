@@ -3,25 +3,147 @@ import './spotify-browser-app.js';
 
 /**
  * Placeholder card so dashboards using `type: custom:spotify-browser-card`
- * render a launch button instead of a "card not found" error. The card's
- * YAML body doubles as the browser configuration (read by SpotifyExtension).
+ * render a launch tile instead of a "card not found" error. The card's YAML
+ * body doubles as the browser configuration (read by SpotifyExtension).
+ *
+ * It renders a themed tile (icon badge + title + label) modelled on HA's own
+ * tile card: it uses `ha-card`/`ha-icon` and HA theme CSS variables so it
+ * inherits the active Lovelace theme, and it implements `getGridOptions()` so
+ * it resizes in sections view. Tapping it dispatches `spotify-browser-open`,
+ * which the SpotifyExtension controller below turns into an overlay open.
+ *
+ * Appearance is configured under a `card:` block:
+ *   card:
+ *     title: Spotify Browser   # default
+ *     label: launch            # default
+ *     icon: mdi:spotify        # default
+ *     color: green             # icon color: theme token or hex (default #1DB954)
  */
+const CARD_DEFAULTS = { title: 'Spotify Browser', label: 'launch', icon: 'mdi:spotify', color: '#1DB954' };
+
+// Resolve a user color value: literal CSS colors pass through, bare names map to
+// HA theme color tokens (e.g. `green` -> var(--green-color, green)).
+function resolveCardColor(color) {
+    const c = String(color || '').trim();
+    if (!c) return CARD_DEFAULTS.color;
+    if (/^(#|rgb|hsl|var\()/i.test(c)) return c;
+    return `var(--${c}-color, ${c})`;
+}
+
 class SpotifyBrowserCard extends HTMLElement {
-    setConfig(config) { this._config = config; }
+    constructor() {
+        super();
+        this.attachShadow({ mode: 'open' });
+    }
+
+    setConfig(config) {
+        this._config = config || {};
+        const card = (this._config.card && typeof this._config.card === 'object') ? this._config.card : {};
+        this._card = {
+            title: card.title != null ? String(card.title) : CARD_DEFAULTS.title,
+            label: card.label != null ? String(card.label) : CARD_DEFAULTS.label,
+            icon: card.icon || CARD_DEFAULTS.icon,
+            color: resolveCardColor(card.color),
+        };
+        if (this.isConnected) this._render();
+    }
+
     getCardSize() { return 1; }
 
-    connectedCallback() {
-        if (this._rendered) return;
-        this._rendered = true;
-        const btn = document.createElement('button');
-        btn.textContent = 'Open Spotify Browser';
-        btn.style.cssText = `
-            width: 100%; padding: 12px; border: none; border-radius: 12px;
-            background: #1DB954; color: #000; font-weight: 700; font-size: var(--spf-text-base, 13.5px);
-            cursor: pointer;
+    getGridOptions() { return { rows: 1, columns: 6, min_rows: 1, min_columns: 3 }; }
+
+    connectedCallback() { this._render(); }
+
+    _render() {
+        const { title, label, icon, color } = this._card || CARD_DEFAULTS;
+        this.shadowRoot.innerHTML = `
+            <style>
+                :host { display: block; height: 100%; }
+                ha-card {
+                    height: 100%;
+                    --tile-color: ${color};
+                }
+                .tile {
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    height: 100%;
+                    box-sizing: border-box;
+                    padding: 10px;
+                    cursor: pointer;
+                    border-radius: var(--ha-card-border-radius, 12px);
+                    outline: none;
+                    -webkit-tap-highlight-color: transparent;
+                }
+                .tile:hover,
+                .tile:focus-visible {
+                    background: color-mix(in srgb, var(--primary-text-color, #212121) 6%, transparent);
+                }
+                .tile:active {
+                    background: color-mix(in srgb, var(--primary-text-color, #212121) 12%, transparent);
+                }
+                .badge {
+                    flex: 0 0 auto;
+                    width: 40px;
+                    height: 40px;
+                    border-radius: 50%;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    color: var(--tile-color);
+                    background: color-mix(in srgb, var(--tile-color) 20%, transparent);
+                }
+                .badge ha-icon {
+                    --mdc-icon-size: 24px;
+                    width: 24px;
+                    height: 24px;
+                }
+                .text {
+                    min-width: 0;
+                    display: flex;
+                    flex-direction: column;
+                    justify-content: center;
+                }
+                .primary,
+                .secondary {
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                }
+                .primary {
+                    color: var(--primary-text-color, #212121);
+                    font-size: 14px;
+                    font-weight: 500;
+                    line-height: 20px;
+                }
+                .secondary {
+                    color: var(--secondary-text-color, #727272);
+                    font-size: 12px;
+                    font-weight: 400;
+                    line-height: 16px;
+                }
+            </style>
+            <ha-card>
+                <div class="tile" role="button" tabindex="0">
+                    <div class="badge"><ha-icon></ha-icon></div>
+                    <div class="text">
+                        <span class="primary"></span>
+                        <span class="secondary"></span>
+                    </div>
+                </div>
+            </ha-card>
         `;
-        btn.addEventListener('click', () => window.dispatchEvent(new CustomEvent('spotify-browser-open')));
-        this.appendChild(btn);
+
+        this.shadowRoot.querySelector('ha-icon').setAttribute('icon', icon);
+        this.shadowRoot.querySelector('.primary').textContent = title;
+        this.shadowRoot.querySelector('.secondary').textContent = label;
+
+        const tile = this.shadowRoot.querySelector('.tile');
+        const open = () => window.dispatchEvent(new CustomEvent('spotify-browser-open'));
+        tile.addEventListener('click', open);
+        tile.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+        });
     }
 }
 if (!customElements.get('spotify-browser-card')) {
@@ -145,16 +267,29 @@ class SpotifyExtension {
             return lovelace.config.spotify_browser;
         }
 
-        // 2. Check views for a custom:spotify-browser-card (top level or one level nested)
-        for (const view of lovelace.config.views || []) {
-            for (const card of view.cards || []) {
-                if (card.type === 'custom:spotify-browser-card') return card;
-                for (const subCard of card.cards || []) {
-                    if (subCard.type === 'custom:spotify-browser-card') return subCard;
+        // 2. Search the layout for a custom:spotify-browser-card. Walk views ->
+        // sections -> cards recursively so it's found in sections, masonry and
+        // grid views, and inside nested container cards (stack/grid/conditional).
+        return this._findCard(lovelace.config.views) || null;
+    }
+
+    _findCard(node) {
+        if (Array.isArray(node)) {
+            for (const item of node) {
+                const found = this._findCard(item);
+                if (found) return found;
+            }
+            return null;
+        }
+        if (node && typeof node === 'object') {
+            if (node.type === 'custom:spotify-browser-card') return node;
+            for (const key of ['views', 'sections', 'cards', 'card']) {
+                if (node[key]) {
+                    const found = this._findCard(node[key]);
+                    if (found) return found;
                 }
             }
         }
-
         return null;
     }
 

@@ -48,25 +48,45 @@ resources:
 
 ## 2. Get it running
 
-Add the card to any dashboard view:
+There are two ways to set it up. **Putting it in the dashboard root is the better way** — the browser isn't tied to a single card, so you can open it from anywhere on the dashboard.
 
-```yaml
-type: custom:spotify-browser-card
-entity: media_player.spotifyplus_yourname
-```
+### Dashboard root (recommended)
 
-That's the whole minimal config. The card renders a launch button; tap it and the browser opens.
-
-You can also configure it once at the dashboard root instead of placing a card (dashboard menu → Raw configuration editor):
+Open the dashboard menu (⋮) → **Edit dashboard** → ⋮ → **Raw configuration editor**, and add this at the top:
 
 ```yaml
 spotify_browser:
   entity: media_player.spotifyplus_yourname
 ```
 
+That loads the browser on every tab of the dashboard. You open it by linking to a URL hash (see [Launch the browser](#3-launch-the-browser) below), so you can add as many launch points as you want — a button card, a picture element, a tap action on a media player card, an automation — and they all work across every tab.
+
+### Place a card
+
+If you just want a single tile to tap, add the card to a view instead:
+
+```yaml
+type: custom:spotify-browser-card
+entity: media_player.spotifyplus_yourname
+```
+
+That's the whole minimal config. The card renders a launch tile; tap it and the browser opens. It follows your Lovelace theme and is resizable in sections view.
+
+Change the tile's text, icon, and icon color under a `card:` block:
+
+```yaml
+type: custom:spotify-browser-card
+entity: media_player.spotifyplus_yourname
+card:
+  title: Spotify Browser   # default
+  label: launch            # default
+  icon: mdi:spotify        # default
+  color: green             # icon color: a theme token (green/primary/…) or a hex like "#1DB954"
+```
+
 ## 3. Launch the browser
 
-Besides the card button, anything that navigates to a URL hash opens it — a dashboard button, a picture element, an automation:
+Anything that navigates to a URL hash opens the browser — a button card, a picture element, a tap action on a media player card, an automation. You can add as many as you like, on any tab:
 
 * `#spotify-browser` — open the browser
 * `#spotify-browser-now-playing` — open straight to Now Playing (mobile)

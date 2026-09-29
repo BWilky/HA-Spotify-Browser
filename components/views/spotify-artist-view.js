@@ -514,20 +514,20 @@ export class SpotifyArtistView extends LitElement {
                             <button class="hero-btn-play" @click=${() => this._handleHeroPlayClick()}>
                                 ${this._getIsPlaying() ? pauseIcon(28) : playIcon(28)}
                             </button>
-                            <button 
-                                class="hero-btn-fav" 
-                                @click=${this._toggleFollow}
-                                style="${this._isFollowing ? 'border-color: var(--spf-brand); color: var(--spf-brand);' : ''}"
-                            >
-                                ${this._isFollowing ? 'FOLLOWING' : 'FOLLOW'}
-                            </button>
-
                             ${this._pinnedEntity ? html`
                                 <button class="hero-pin ${this._isPinned ? 'pinned' : ''}" @click=${this._togglePin}
                                         aria-label="${this._isPinned ? 'Unpin' : 'Pin'}" title="${this._isPinned ? 'Unpin' : 'Pin'}">
                                     ${pinIcon}
                                 </button>
                             ` : ''}
+
+                            <button
+                                class="hero-btn-fav"
+                                @click=${this._toggleFollow}
+                                style="${this._isFollowing ? 'border-color: var(--spf-brand); color: var(--spf-brand);' : ''}"
+                            >
+                                ${this._isFollowing ? 'FOLLOWING' : 'FOLLOW'}
+                            </button>
                         </div>
                     </div>
                 </div>

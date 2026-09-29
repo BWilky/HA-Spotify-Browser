@@ -1,5 +1,44 @@
 import { debugLog, playlistSortParams } from './utils.js';
 
+// Known SpotifyPlus playback failures that deserve a specific, actionable
+// message instead of a raw validation string. Ordered most-specific first.
+// `reopenPicker` says whether popping the device picker again could help
+// (pointless for a one-time server-side setup problem like the Cast token).
+const PLAYBACK_ERROR_PATTERNS = [
+    {
+        code: 'cast_token',
+        test: /Spotify Desktop Player authorization token was not found|Spotify Cast Application could not be activated/i,
+        reopenPicker: false,
+        duration: 8000,
+        message: "This Chromecast needs SpotifyPlus's one-time Desktop Player token setup. See the SpotifyPlus wiki (\"Spotify Desktop Player Token\"), then try again."
+    },
+    {
+        code: 'zeroconf',
+        test: /discoverable via Zeroconf/i,
+        reopenPicker: true,
+        duration: 6000,
+        message: "Device is unreachable on the network. Make sure it's awake and on the same network as Home Assistant, then pick it again."
+    },
+    {
+        code: 'no_active_device',
+        test: /no active Spotify player device/i,
+        reopenPicker: true,
+        duration: 4000,
+        message: "No active Spotify player. Pick a device to start playback."
+    }
+];
+
+/**
+ * Classify a SpotifyPlus/HA error into a friendly, actionable descriptor,
+ * or null when it's not one we have specific guidance for. Accepts an error
+ * object, a plain string, or anything with a `.message`.
+ */
+export function classifyPlaybackError(e) {
+    const msg = e?.message || (typeof e === 'string' ? e : '');
+    if (!msg) return null;
+    return PLAYBACK_ERROR_PATTERNS.find(p => p.test.test(msg)) || null;
+}
+
 export class SpotifyApi {
     // Only these (user-initiated playback) services should surface a validation
     // error to the app's error callback, which opens the device picker. Reads
@@ -15,6 +54,9 @@ export class SpotifyApi {
     // SpotifyPlus caps `limit` at 10 for get_artist_albums and all search_* services
     // (Spotify's July 2026 API change; SpotifyPlus v1.0.215).
     static MAX_PAGE_LIMIT = 10;
+
+    // How long a failed launch is remembered for replay on the next device pick.
+    static PENDING_PLAY_TTL_MS = 120000;
 
     constructor(hass, entityId, deviceResolver = null, defaultVolumeConfig = null, onNotification = null, onError = null) {
         this.hass = hass;
@@ -50,6 +92,9 @@ export class SpotifyApi {
         this._connection = null;
         this._transferScanTimers = [];
         this._lastScanAt = 0;
+        // Remembers a launch that failed on a device, so re-picking a device
+        // from the (re)opened picker replays it instead of a bare transfer.
+        this._pendingPlay = null;
         this._readyScanTimer = null;
         this._readyScanPromise = null;
         this._onSocketReady = () => { this._socketReady = true; this._resumedAt = Date.now(); };
@@ -78,6 +123,31 @@ export class SpotifyApi {
 
     _reportError(error) {
         if (this.onError) this.onError(error);
+    }
+
+    /** True when the SpotifyPlus entity is playing/paused/buffering. */
+    _entityActive() {
+        const s = this.hass?.states?.[this.entityId]?.state;
+        return ['playing', 'paused', 'buffering'].includes(s);
+    }
+
+    _storePendingPlay(uri, type, extraOptions) {
+        this._pendingPlay = { uri, type, extraOptions, at: Date.now() };
+    }
+
+    /** One-shot: return a fresh remembered launch and clear it, else null. */
+    _takePendingPlay() {
+        const p = this._pendingPlay;
+        this._pendingPlay = null;
+        if (!p || Date.now() - p.at > SpotifyApi.PENDING_PLAY_TTL_MS) return null;
+        return p;
+    }
+
+    /** Whether a device selection would replay a remembered launch (UI wording). */
+    hasPendingPlay() {
+        const p = this._pendingPlay;
+        if (!p || Date.now() - p.at > SpotifyApi.PENDING_PLAY_TTL_MS) return false;
+        return !this._entityActive();
     }
 
     _resolveDefaultVolume() {
@@ -312,7 +382,13 @@ export class SpotifyApi {
             const errCode = e.code || '';
             const errMsg = e.message || '';
             const isValidationError = errCode === 'service_validation_error' || errMsg.includes('Validation error');
-            if (isValidationError && SpotifyApi.PLAYBACK_SERVICES.has(service)) {
+            // The Cast-token and Zeroconf failures often arrive as plain
+            // HomeAssistantError (not service_validation_error), so match them
+            // by shape too — otherwise they'd never reach the app's onError from
+            // the transfer path. Mark reported errors so callers can skip a
+            // duplicate generic toast.
+            if (SpotifyApi.PLAYBACK_SERVICES.has(service) && (isValidationError || classifyPlaybackError(e))) {
+                e._sbReported = true;
                 this._reportError(e);
             }
 
@@ -437,6 +513,11 @@ export class SpotifyApi {
     async playMedia(uri, type, specificDevice = null, extraOptions = {}) {
         if (!this.hass) return { success: false, error: "No HASS" };
 
+        // A new play intent supersedes any remembered failed launch (and this
+        // also clears it on the success path). transferPlayback's replay takes
+        // the memory before calling in, so it isn't lost here.
+        this._pendingPlay = null;
+
         const stateObj = this.hass.states[this.entityId];
         // Active = playing, paused, or buffering. Idle/Off is not active.
         const isActive = stateObj && ['playing', 'paused', 'buffering'].includes(stateObj.state);
@@ -446,7 +527,11 @@ export class SpotifyApi {
         let resolvedDeviceObj = null; // The full resolved device object (for brand/Sonos detection)
 
         if (specificDevice) {
-            deviceToUse = specificDevice;
+            // specificDevice may be a device object (from a pending-play replay,
+            // so Sonos/brand detection works) or a bare id string (internal
+            // track fallback).
+            resolvedDeviceObj = typeof specificDevice === 'object' ? specificDevice : null;
+            deviceToUse = resolvedDeviceObj ? resolvedDeviceObj.id : specificDevice;
         } else {
             if (!isActive) {
                 if (this.deviceResolver) {
@@ -497,18 +582,23 @@ export class SpotifyApi {
         }
 
         // Apply Default Volume if configured (even if we resolved a device
-        // dynamically). Runs after Sonos detection so the volume_set routes to
-        // the Sonos speaker on a Sonos launch, not the idle SpotifyPlus entity
-        // (which rejects it with "no active Spotify player device").
+        // dynamically). Sonos routes to the local HA speaker entity, which is
+        // safe to set pre-play (noteLaunch above already mapped it). The
+        // SpotifyPlus entity, though, rejects volume_set until the device is
+        // actually active ("no active Spotify player device"), so defer that
+        // path until playback has succeeded — see _applyLaunchVolume below.
+        let deferredVolume = null;
         if (!specificDevice && !isActive) {
             const vol = this._resolveDefaultVolume();
             if (vol !== null) {
                 const launchDeviceId = resolvedDeviceObj?.id || (typeof deviceToUse === 'string' ? deviceToUse : null);
                 if (!sonosEntity && this.deviceManager?.getVolumeCapability(launchDeviceId) === false) {
                     debugLog(`[SpotifyAPI] Skipping default volume — ${launchDeviceId} does not support remote volume`);
-                } else {
-                    debugLog("Applying Default Volume:", vol);
+                } else if (sonosEntity) {
+                    debugLog("Applying Default Volume (Sonos local):", vol);
                     this.setVolume(vol / 100);
+                } else {
+                    deferredVolume = vol / 100;
                 }
             }
         }
@@ -598,11 +688,66 @@ export class SpotifyApi {
         // --- EXECUTE PLAYBACK ---
         const result = await executePlay(deviceToUse);
 
+        // Now that the device is active, apply the deferred launch volume.
+        if (result.success && deferredVolume !== null) this._applyLaunchVolume(deferredVolume);
+
         if (!specificDevice && !isActive && result.success === false && deviceToUse) {
-            this._notify(`Playback Failed on ${deviceToUse}`);
+            // Remember the launch when it died to a device problem, so re-picking
+            // a device from the (re)opened picker replays it instead of a bare
+            // transfer. (specificDevice replays re-store inside transferPlayback.)
+            if (result.error?._sbReported || classifyPlaybackError(result.error)) {
+                this._storePendingPlay(uri, type, extraOptions);
+            }
+            // Skip the generic toast when the API already surfaced a specific,
+            // actionable message for this error via the onError callback.
+            if (!result.error?._sbReported) {
+                this._notify(`Playback failed on ${resolvedDeviceObj?.name || deviceToUse}`);
+            }
         }
 
         return result;
+    }
+
+    /**
+     * Apply the configured launch volume right after a cold-start play. The
+     * Spotify device is active the moment play succeeds, but the Web API can
+     * lag a beat before it accepts volume_set — retry once, silently. A missed
+     * default volume isn't worth a toast.
+     */
+    async _applyLaunchVolume(level) {
+        const res = await this.setVolume(level, { silent: true });
+        if (res?.success || res?.skipped) return;
+        setTimeout(() => this.setVolume(level, { silent: true }), 1500);
+    }
+
+    /**
+     * Transfer playback to a device. If a recent launch failed on another
+     * device and the player is still idle, replay that launch on the chosen
+     * device (play-with-device_id transfers implicitly, and reuses all the
+     * Sonos/offset/fallback logic) instead of a bare transfer. Returns
+     * { success, replayed?, reported? }.
+     */
+    async transferPlayback(device, { play = true } = {}) {
+        if (!this._entityActive()) {
+            const pending = this._takePendingPlay();
+            if (pending) {
+                const res = await this.playMedia(pending.uri, pending.type, device, pending.extraOptions);
+                if (!res?.success) {
+                    // Keep the memory alive so the user can pick another device.
+                    this._storePendingPlay(pending.uri, pending.type, pending.extraOptions);
+                    return { success: false, replayed: true, reported: !!res?.error?._sbReported };
+                }
+                return { success: true, replayed: true };
+            }
+        }
+        try {
+            // expectResponse=false: player_transfer_playback doesn't support
+            // return_response=true. throwOnError so we can classify failures.
+            await this.fetchSpotifyPlus('player_transfer_playback', { device_id: device.id, play }, false, true, true);
+            return { success: true };
+        } catch (e) {
+            return { success: false, reported: !!e._sbReported };
+        }
     }
 
     async togglePlayback(play) {
@@ -1122,7 +1267,7 @@ export class SpotifyApi {
         }
     }
 
-    async setVolume(volumeLevel) {
+    async setVolume(volumeLevel, { silent = false } = {}) {
         if (!this.hass) return { success: false };
         const entityId = this._controlEntity({ perSpeaker: true });
 
@@ -1145,9 +1290,13 @@ export class SpotifyApi {
             return { success: true };
         } catch (e) {
             console.error("Failed to set volume:", e);
-            this._notify((e?.message || '').includes('Cannot control device volume')
-                ? "This device doesn't support remote volume control."
-                : "Couldn't change the volume.");
+            if (!silent) {
+                const info = classifyPlaybackError(e);
+                this._notify(info ? info.message
+                    : (e?.message || '').includes('Cannot control device volume')
+                        ? "This device doesn't support remote volume control."
+                        : "Couldn't change the volume.");
+            }
             return { success: false, error: e };
         }
     }

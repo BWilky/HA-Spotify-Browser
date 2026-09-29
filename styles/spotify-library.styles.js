@@ -112,6 +112,7 @@ export const libraryStyles = css`
            rows don't stretch the full width of the modal with empty space. */
         .body, .pills, .row, .skel, .empty {
             max-width: 760px; margin-left: auto; margin-right: auto;
+            box-sizing: border-box;
         }
         .pills { top: 0; justify-content: flex-start; padding: 16px 16px 12px; }
     }

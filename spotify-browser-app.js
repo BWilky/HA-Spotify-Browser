@@ -1,6 +1,6 @@
 import { LitElement, html } from "./lit.js";
 
-import { SpotifyApi } from './api.js';
+import { SpotifyApi, classifyPlaybackError } from './api.js';
 import { parseDeviceItems, normalizeDevice, fireHaptic, extrapolatedPosition, setDebug, debugLog } from './utils.js';
 import { sharedStyles } from './styles/shared-styles.js';
 import { Router } from './router.js';
@@ -681,7 +681,16 @@ class SpotifyBrowserApp extends LitElement {
                     .canManageDevices=${!!this.deviceManager}
                     .showRevealButton=${this._showRevealButton}
                     .blur=${this.config.appearance.animations.blur}
-                    @close-popups=${() => { this._devicePopupVisible = false; }}
+                    @close-popups=${() => {
+                this._devicePopupVisible = false;
+                // Release a dangling resolver so a backdrop-dismissed pick
+                // doesn't get resolved by the next unrelated device selection
+                // (which would replay a stale URI). Cancel => no pending play.
+                if (this._pendingDeviceResolution) {
+                    this._pendingDeviceResolution(null);
+                    this._pendingDeviceResolution = null;
+                }
+            }}
                     @device-selected=${this._handleDeviceSelected}
                     @reveal-all-devices=${this._handleRevealAllDevices}
                     @toggle-hidden-devices=${this._handleToggleHiddenDevices}
@@ -939,15 +948,23 @@ class SpotifyBrowserApp extends LitElement {
             },
             // Error Callback
             (err) => {
+                const popups = this.shadowRoot.getElementById('popups');
+                // Known failures get a specific, actionable message. Only reopen
+                // the picker when re-picking could actually help (not for the
+                // Cast-token setup problem).
+                const info = classifyPlaybackError(err);
+                if (info) {
+                    if (popups) popups.showToast(info.message, info.duration);
+                    if (info.reopenPicker) this._openDevicePicker();
+                    return;
+                }
                 const errCode = err.code || '';
                 const errMsg = err.message || '';
-                if (errCode === 'service_validation_error' || errMsg.includes('not found') || errMsg.includes('Validation error')) {
-                    const popups = this.shadowRoot.getElementById('popups');
+                if (errCode === 'service_validation_error' || errMsg.includes('Validation error')) {
                     if (popups) popups.showToast("Device unavailable. Please select a player.");
                     this._openDevicePicker();
-                } else {
-                    const popups = this.shadowRoot.getElementById('popups');
-                    if (popups) popups.showToast(`Error: ${errMsg}`);
+                } else if (popups) {
+                    popups.showToast(`Error: ${errMsg}`);
                 }
             }
         );
@@ -1079,18 +1096,22 @@ class SpotifyBrowserApp extends LitElement {
             const popups = this.shadowRoot.getElementById('popups');
             if (popups) popups.showToast(`Connecting to ${e.detail.name}...`);
         } else {
-            // Standard Transfer (Active Playback)
+            // Standard Transfer (Active Playback) — or replay of a launch that
+            // just failed on another device (api.transferPlayback decides).
             this._devicePopupVisible = false;
             this._deviceManagerVisible = false;
 
             const popups = this.shadowRoot.getElementById('popups');
-            if (popups) popups.showToast(`Transferring playback to ${e.detail.name}`);
+            const replaying = this.api.hasPendingPlay();
+            if (popups) popups.showToast(replaying
+                ? `Starting playback on ${e.detail.name}...`
+                : `Transferring playback to ${e.detail.name}`);
             this.playerController?.beginTransferHold();
-            // expectResponse=false because player_transfer_playback doesn't support return_response=true
-            this.api.fetchSpotifyPlus('player_transfer_playback', { device_id: e.detail.id, play: true }, false)
-                .then(res => {
-                    if (!res && popups) popups.showToast(`Transfer to ${e.detail.name} failed`);
-                });
+            this.api.transferPlayback(e.detail).then(res => {
+                if (!res.success && !res.reported && popups) {
+                    popups.showToast(`Transfer to ${e.detail.name} failed`);
+                }
+            });
         }
     }
 
@@ -1628,11 +1649,13 @@ class SpotifyBrowserApp extends LitElement {
         const device = e.detail;
         this._connectPanelVisible = false;
         const popups = this.shadowRoot.getElementById('popups');
-        if (popups) popups.showToast(`Transferring playback to ${device.name}`);
+        const replaying = this.api?.hasPendingPlay();
+        if (popups) popups.showToast(replaying
+            ? `Starting playback on ${device.name}...`
+            : `Transferring playback to ${device.name}`);
         this.playerController?.beginTransferHold();
-        // player_transfer_playback doesn't support return_response=true
-        const res = await this.api?.fetchSpotifyPlus('player_transfer_playback', { device_id: device.id, play: true }, false);
-        if (!res && popups) popups.showToast(`Transfer to ${device.name} failed`);
+        const res = await this.api?.transferPlayback(device);
+        if (res && !res.success && !res.reported && popups) popups.showToast(`Transfer to ${device.name} failed`);
     }
 
     /* --- Drag-to-close (mobile, iPhone-panel style) --- */
