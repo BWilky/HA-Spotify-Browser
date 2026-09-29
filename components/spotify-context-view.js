@@ -680,10 +680,21 @@ export class SpotifyContextView extends LitElement {
         if (!apiKey || !artistName) return [];
 
         try {
-            const encodedArtist = encodeURIComponent(artistName);
-            const url = `https://ws.audioscrobbler.com/2.0/?method=artist.getsimilar&artist=${encodedArtist}&api_key=${apiKey}&format=json&limit=10`;
+            // Send credentials in a POST body instead of the URL so the API
+            // key isn't captured in browser history, proxy logs, or page URLs.
+            const body = new URLSearchParams({
+                method: 'artist.getsimilar',
+                artist: artistName,
+                api_key: apiKey,
+                format: 'json',
+                limit: '10'
+            });
 
-            const response = await fetch(url);
+            const response = await fetch('https://ws.audioscrobbler.com/2.0/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body
+            });
             if (!response.ok) return [];
 
             const data = await response.json();
