@@ -59,7 +59,12 @@ export class Router extends EventTarget {
             // If reusing a component, update its data/config just in case
             if (newPage.requestUpdate) newPage.requestUpdate();
             // Update data on existing page if needed (implementation specific)
-            if (pageId.startsWith('artist:') || pageId.startsWith('album:') || pageId.startsWith('playlist:')) {
+            if (pageId === 'search') {
+                // The cached search page keeps its last query/results. A fresh
+                // navigation with a query (header search from another page)
+                // must apply it, or the previous results are shown (#23).
+                if (data?.query && typeof newPage.search === 'function') newPage.search(data.query);
+            } else if (pageId.startsWith('artist:') || pageId.startsWith('album:') || pageId.startsWith('playlist:')) {
                 if (newPage.pageId !== pageId || (data && newPage.data !== data)) {
                     newPage.pageId = pageId;
                     newPage.data = data;
