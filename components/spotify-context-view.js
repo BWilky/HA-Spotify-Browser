@@ -358,6 +358,15 @@ export class SpotifyContextView extends LitElement {
                 const artistPromise = this.api.fetchSpotifyPlus('get_artist', { artist_id: id });
                 const albumsPromise = this.api.fetchPaginated('get_artist_albums', { artist_id: id, include_groups: 'album,single' }, 12);
                 const topTracksPromise = (async () => {
+                    // Spotify's own top-tracks list (market-aware, by popularity).
+                    // Falls back to a track search, which is newest-first, if the
+                    // service isn't available or returns nothing.
+                    try {
+                        const top = await this.api.fetchSpotifyPlus('get_artist_top_tracks', { artist_id: id });
+                        const r = top?.result;
+                        const items = Array.isArray(r) ? r : (r?.items || r?.tracks || []);
+                        if (items.length) return items.slice(0, 12);
+                    } catch (e) { /* fall through to search */ }
                     try {
                         const artistRes = await artistPromise;
                         if (!artistRes?.result?.name) return [];
