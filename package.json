@@ -6,7 +6,7 @@
     "build": "esbuild index.js --bundle --outfile=dist/spotify-browser.js --sourcemap",
     "watch": "esbuild index.js --bundle --outfile=dist/spotify-browser.js --sourcemap --watch=forever",
     "build:prod": "esbuild index.js --bundle --minify --outfile=spotify-browser.js",
-    "test": "node --test tests/"
+    "test": "node --test tests/*.test.js"
   },
   "devDependencies": {
     "esbuild": "^0.28.1"
