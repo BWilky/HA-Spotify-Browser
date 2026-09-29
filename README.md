@@ -231,9 +231,13 @@ Unknown or renamed keys log a one-time console warning with a hint.
 
 Phones and some other devices refuse remote volume control (a Spotify limitation). The card detects this and shows "Volume is controlled on the device" instead of a broken slider.
 
+Some devices report an unhelpful Connect name (a receiver showing up as `eDMP32MB_A25287`, for example). Open the in-app device manager (the device picker → "More devices..." → settings), save the device and rename it: the saved name is then used everywhere, including the now-playing "playing on" label.
+
 ### queue
 * `open_on_desktop` — open the queue sidebar automatically on desktop (default `false`).
 * `miniplayer` — mini-player row in the sidebar. `false` hides it, or set individual buttons: `shuffle`, `previous`, `next`, `like`, `volume`, `device`.
+
+The sidebar's now-playing block always shows the active device (tap it to switch speakers) and the elapsed / remaining time of the track.
 
 ### sonos
 See [Sonos](#sonos). Keys: `enabled` (or `sonos: true` shorthand), `prefer_sonos`, `launch_mode`, `device_map`, `debug`.
