@@ -25,6 +25,15 @@ const PLAYBACK_ERROR_PATTERNS = [
         reopenPicker: true,
         duration: 4000,
         message: "No active Spotify player. Pick a device to start playback."
+    },
+    {
+        // Synthesised by the launch watchdog (see _watchStalledLaunch): the
+        // message already names the device, so it's used as-is.
+        code: 'stalled_device',
+        test: /did not start playing/i,
+        reopenPicker: true,
+        duration: 6000,
+        message: null
     }
 ];
 
@@ -36,7 +45,8 @@ const PLAYBACK_ERROR_PATTERNS = [
 export function classifyPlaybackError(e) {
     const msg = e?.message || (typeof e === 'string' ? e : '');
     if (!msg) return null;
-    return PLAYBACK_ERROR_PATTERNS.find(p => p.test.test(msg)) || null;
+    const p = PLAYBACK_ERROR_PATTERNS.find(p => p.test.test(msg));
+    return p ? { ...p, message: p.message || msg } : null;
 }
 
 export class SpotifyApi {
@@ -57,6 +67,15 @@ export class SpotifyApi {
 
     // How long a failed launch is remembered for replay on the next device pick.
     static PENDING_PLAY_TTL_MS = 120000;
+
+    // How long to give a device to start after a play call it accepted.
+    static STALLED_LAUNCH_MS = 5000;
+
+    /** True when the entity has a track loaded (title or content id). */
+    static playerHasItem(stateObj) {
+        const a = stateObj?.attributes;
+        return !!(a && (a.media_title || a.media_content_id));
+    }
 
     constructor(hass, entityId, deviceResolver = null, defaultVolumeConfig = null, onNotification = null, onError = null) {
         this.hass = hass;
@@ -125,10 +144,34 @@ export class SpotifyApi {
         if (this.onError) this.onError(error);
     }
 
-    /** True when the SpotifyPlus entity is playing/paused/buffering. */
+    /**
+     * True when the SpotifyPlus entity is playing/paused/buffering AND has a
+     * track loaded. A "paused" entity with nothing loaded is a stale Connect
+     * session: Spotify accepts commands for it but the device never starts,
+     * so for replay purposes it counts as not active.
+     */
     _entityActive() {
-        const s = this.hass?.states?.[this.entityId]?.state;
-        return ['playing', 'paused', 'buffering'].includes(s);
+        const stateObj = this.hass?.states?.[this.entityId];
+        return ['playing', 'paused', 'buffering'].includes(stateObj?.state) && SpotifyApi.playerHasItem(stateObj);
+    }
+
+    /**
+     * After a play call the device accepted while it had nothing loaded, check
+     * that it actually started. If not, remember the launch and surface an
+     * actionable error (the app reopens the device picker; picking a device
+     * replays the launch there via transferPlayback).
+     */
+    _watchStalledLaunch(uri, type, extraOptions, deviceName) {
+        const id = (this._launchWatchId = (this._launchWatchId || 0) + 1);
+        setTimeout(() => {
+            if (id !== this._launchWatchId) return; // superseded by a newer launch
+            const s = this.hass?.states?.[this.entityId];
+            if (s?.state === 'playing' || SpotifyApi.playerHasItem(s)) return;
+            this._storePendingPlay(uri, type, extraOptions);
+            const err = { code: 'stalled_device', _sbReported: true,
+                message: `${deviceName} did not start playing. Pick a device to try again.` };
+            this._reportError(err);
+        }, SpotifyApi.STALLED_LAUNCH_MS);
     }
 
     _storePendingPlay(uri, type, extraOptions) {
@@ -517,6 +560,7 @@ export class SpotifyApi {
         // also clears it on the success path). transferPlayback's replay takes
         // the memory before calling in, so it isn't lost here.
         this._pendingPlay = null;
+        this._launchWatchId = (this._launchWatchId || 0) + 1; // cancel a pending watchdog
 
         const stateObj = this.hass.states[this.entityId];
         // Active = playing, paused, or buffering. Idle/Off is not active.
@@ -690,6 +734,12 @@ export class SpotifyApi {
 
         // Now that the device is active, apply the deferred launch volume.
         if (result.success && deferredVolume !== null) this._applyLaunchVolume(deferredVolume);
+
+        // A bare play sent to an "active" device that has nothing loaded may be
+        // silently ignored (stale Spotify Connect session). Verify it started.
+        if (result.success && !specificDevice && isActive && !SpotifyApi.playerHasItem(stateObj)) {
+            this._watchStalledLaunch(uri, type, extraOptions, stateObj.attributes?.source || 'The active device');
+        }
 
         if (!specificDevice && !isActive && result.success === false && deviceToUse) {
             // Remember the launch when it died to a device problem, so re-picking
