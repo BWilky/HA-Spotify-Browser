@@ -2,7 +2,7 @@ import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { homeStyles } from '../styles/spotify-home.styles.js';
 import { renderCardTemplate, renderCardSkeletonTemplate } from './media-templates.js';
-import { loadMadeForYouItems, dedupeRecentAlbums } from './controllers/home-content.js';
+import { loadConfigPins, buildPinnedRow, dedupeRecentAlbums } from './controllers/home-content.js';
 import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj, playlistSortParams } from '../utils.js';
 import { playingBarsIcon } from './common/icons.js';
 
@@ -46,9 +46,9 @@ class SpotifyHome extends LitElement {
 
     constructor() {
         super();
-        this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0, madeforyou: 0 };
+        this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0 };
         this._totals = { favorites: null, artists: null, albums: null, recent: null };
-        this._fetching = { favorites: false, artists: false, albums: false, recent: false, madeforyou: false };
+        this._fetching = { favorites: false, artists: false, albums: false, recent: false };
         this._sectionData = {}; // Stores { sectionKey: [items] }
         this._expandedSections = new Set(); // Section ids toggled from carousel to grid
         this._hasLoaded = false;
@@ -318,43 +318,11 @@ class SpotifyHome extends LitElement {
         `;
     }
 
-    _pillSection(title, sectionId, items = null, playingId = null, canEdit = false) {
-        let content;
-        if (items === null) {
-            content = Array(8).fill(0).map(() => recentPillSkeleton());
-        } else if (items.length === 0) {
-            content = html`<div style="padding:20px; opacity:0.5; white-space:nowrap;">No content found.</div>`;
-        } else {
-            content = items.map(item => this._recentPillTemplate(item, playingId));
-        }
-
-        // Reorder Button for Pinned Section (only when the user can edit)
-        const headerAction = (sectionId === 'pinned' && canEdit) ? html`
-            <button class="icon-btn reorder-btn" @click=${this._onReorderClick} aria-label="Reorder Items" style="background:none; border:none; color:var(--secondary-text-color, #b3b3b3); cursor:pointer; margin-left: 8px; padding: 4px; display: flex; align-items: center;">
-                 <span style="font-size: var(--spf-text-sm, 12px); margin-right: 4px; font-weight: bold;">Edit</span>
-                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h18v2H3v-2z"/></svg>
-            </button>
-        ` : '';
-
-        return html`
-        <section class="home-section" data-section-id="${sectionId}">
-            <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
-                 <h3 class="section-title" style="margin:0;">${title}</h3>
-                 ${headerAction}
-            </div>
-            <div class="recent-grid-layout" id="grid-${sectionId}" data-section="${sectionId}">
-                ${content}
-            </div>
-        </section>
-        `;
-    }
-
     render() {
         if (!this.config) {
             return html``;
         }
         const isMobile = window.matchMedia('(max-width: 768px)').matches;
-        const hasMadeForYou = this.config.home?.made_for_you?.content?.length > 0;
 
         let order = this._getSectionOrder();
 
@@ -365,29 +333,18 @@ class SpotifyHome extends LitElement {
         }
 
         if (isMobile) {
-            return this.renderHomeMobile(hasMadeForYou, order);
+            return this.renderHomeMobile(order);
         }
-        return this.renderHomeDesktop(hasMadeForYou, order);
+        return this.renderHomeDesktop(order);
     }
 
     /**
-     * Build the pinned buttons actually shown: Liked Songs (#0) + the user's
-     * other pins, then top up to a max of 8 with recently played items that
-     * aren't already pinned. Returns null while pins are still loading.
+     * The pinned buttons actually shown: Liked Songs, config pins, the user's
+     * pins, then topped up to 8 with recently played items that aren't already
+     * pinned. Returns null while pins are still loading.
      */
     _pinnedDisplayItems(stored) {
-        if (stored === null || stored === undefined) return null;
-        const result = (Array.isArray(stored) ? stored : []).slice(0, 8);
-        const seen = new Set(result.map(i => i.id));
-        const recent = this._sectionData?.recent || [];
-        for (const r of recent) {
-            if (result.length >= 8) break;
-            if (!r || !r.id || seen.has(r.id)) continue;
-            const type = r.type || r._fallbackType || 'album';
-            result.push({ ...r, type });
-            seen.add(r.id);
-        }
-        return result.slice(0, 8);
+        return buildPinnedRow(stored, this._sectionData?.recent || []);
     }
 
     renderPinnedSection(title, sectionId, items = null, playingId, isMobile = false) {
@@ -417,9 +374,9 @@ class SpotifyHome extends LitElement {
         // 2. Empty (shouldn't normally happen — Liked Songs is always present).
         if (items.length === 0) return '';
 
-        // 3. Cards. Pinned is capped at 8, so it always renders as a card row
-        // (the carousel scrolls horizontally on overflow). No title, no Edit
-        // button — long-pressing any pinned button opens the editor (editors only).
+        // 3. Cards. The row is a carousel that scrolls horizontally on overflow.
+        // No title, no Edit button — long-pressing any pinned button opens the
+        // editor (editors only).
         return html`
         <section class="home-section" data-section-id="${sectionId}">
             <div class="carousel-wrapper">
@@ -463,8 +420,7 @@ class SpotifyHome extends LitElement {
         `;
     }
 
-    renderHomeDesktop(hasMadeForYou, order) {
-        const usePills = this.config.home?.made_for_you?.pills || false;
+    renderHomeDesktop(order) {
         const sd = this._sectionData || {};
 
         const playingId = this._getPlayingTrackId();
@@ -475,9 +431,6 @@ class SpotifyHome extends LitElement {
             'favorites': this._carouselSection('Your Favorite Playlists', 'favorites', sd['favorites']),
             'artists': this._carouselSection('Followed Artists', 'artists', sd['artists']),
             'albums': this._carouselSection('Your Favorite Albums', 'albums', sd['albums']),
-            'madeforyou': hasMadeForYou
-                ? (usePills ? this._pillSection('Made For You', 'madeforyou', sd['madeforyou'], playingId) : this._carouselSection('Made For You', 'madeforyou', sd['madeforyou']))
-                : ''
         };
 
         return html`<div class="scroll-content"
@@ -492,7 +445,7 @@ class SpotifyHome extends LitElement {
     _getSectionOrder() {
         // Parser emits home.sort pre-mapped to internal section ids.
         return this.config.home?.sort ||
-            ['pinned', 'recent', 'madeforyou', 'favorites', 'artists', 'albums'];
+            ['pinned', 'recent', 'favorites', 'artists', 'albums'];
     }
 
     _getPlayingTrackId() {
@@ -513,7 +466,7 @@ class SpotifyHome extends LitElement {
         return isContextPlaying(this.hass, entityId, uri);
     }
 
-    renderHomeMobile(hasMadeForYou, order) {
+    renderHomeMobile(order) {
         const sd = this._sectionData || {};
         const playingId = this._getPlayingTrackId();
 
@@ -542,11 +495,6 @@ class SpotifyHome extends LitElement {
                 return this._carouselSection('Your Artists', 'artists', sd['artists']);
             } else if (key === 'albums') {
                 return this._carouselSection('Your Albums', 'albums', sd['albums']);
-            } else if (key === 'madeforyou') {
-                const usePills = this.config.home?.made_for_you?.pills || false;
-                return hasMadeForYou
-                    ? (usePills ? this._pillSection('Made For You', 'madeforyou', sd['madeforyou'], playingId) : this._carouselSection('Made For You', 'madeforyou', sd['madeforyou']))
-                    : '';
             }
             return '';
         };
@@ -566,7 +514,7 @@ class SpotifyHome extends LitElement {
         if (!this.hass || !this.api) return;
         this._hasLoaded = true;
 
-        this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0, madeforyou: 0 };
+        this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0 };
 
         // Checks if pinned entity is configured and available
         const hasPinned = this.pinned && this.pinned.checkAvailability();
@@ -578,16 +526,22 @@ class SpotifyHome extends LitElement {
             order = order.filter(k => k !== 'pinned');
         }
 
-        const fetchList = order.map(key => {
-            if (key === 'pinned') return this.fetchSectionData('pinned');
-            if (key === 'madeforyou') {
-                const mfy = this.config.home?.made_for_you?.content;
-                if (!mfy || mfy.length === 0) return Promise.resolve();
-            }
-            return this.fetchSectionData(key);
-        });
+        const fetchList = order.map(key => this.fetchSectionData(key));
 
         await Promise.allSettled(fetchList);
+    }
+
+    /** Resolve `home.pinned.items` into real items once; cached on the manager. */
+    async _resolveConfigPins() {
+        if (!this.pinned || !this.api || this._configPinsResolved) return;
+        if (!this.pinned.hasConfigItems()) { this._configPinsResolved = true; return; }
+        try {
+            const items = await loadConfigPins(this.api, this.pinned.configItems);
+            this.pinned.setResolvedConfigPins(items);
+            this._configPinsResolved = true;
+        } catch (e) {
+            console.warn('[SpotifyHome] Could not resolve config pins:', e);
+        }
     }
 
     async fetchSectionData(sectionKey) {
@@ -596,9 +550,11 @@ class SpotifyHome extends LitElement {
         this.requestUpdate();
 
         if (sectionKey === 'pinned') {
-            // The manager returns Liked Songs first, then the user's other pins
-            // (already capped). Home tops this up to 8 with recently played items
-            // at render time (see _pinnedDisplayItems).
+            // Config pins need a lookup for their name/artwork (once per page).
+            // The manager then returns Liked Songs, config pins, and the user's
+            // other pins (already capped). Home tops this up to 8 with recently
+            // played items at render time (see _pinnedDisplayItems).
+            await this._resolveConfigPins();
             const items = await this.pinned.getItems();
             if (items) {
                 this._sectionData = { ...this._sectionData, pinned: items };
@@ -620,14 +576,7 @@ class SpotifyHome extends LitElement {
             let data = null;
             let type = 'playlist';
 
-            if (sectionKey === 'madeforyou') {
-                if (offset > 0) return;
-                const items = await loadMadeForYouItems(this.api, this.config);
-                if (items.length === 0) return;
-                data = { items: items, total: items.length };
-                type = 'playlist';
-            }
-            else if (sectionKey === 'favorites') {
+            if (sectionKey === 'favorites') {
                 const res = await this.api.fetchSpotifyPlus('get_playlist_favorites', { limit: limit, offset: offset, ...playlistSortParams() });
                 data = res?.result; type = 'playlist';
             }

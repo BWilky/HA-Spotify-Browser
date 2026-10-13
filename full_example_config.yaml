@@ -30,6 +30,11 @@ accounts:
   - name: "Alice"
     entity: media_player.spotify_alice
     hash: "#alice"
+    # Pins shown only while Alice is active (same item formats as home.pinned.items).
+    pinned:
+      - playlists_recommended:
+          - id: "37i9dQZF1E39vTG3GurFGW"
+            title: "Daily Mix 1"
 
 # --- Browser Behavior ---
 browser:
@@ -94,26 +99,30 @@ appearance:
 # --- Home Screen ---
 home:
   # Section order. Omit items to hide them. Tokens: pinned, recently_played,
-  # made_for_you, favourite_playlists, followed_artists, favourite_albums
+  # favourite_playlists, followed_artists, favourite_albums
   sort:
     - pinned
     - recently_played
-    - made_for_you
     - favourite_playlists
     - followed_artists
     - favourite_albums
 
-  # Pinned items section + manager. Pins persist via the storage sensor below —
-  # no helper entity needed.
-  pinned: true
-
-  # Made For You section. A plain list is treated as `content`.
-  made_for_you:
-    content:
-      - id: "37i9dQZF1DXcBWIGoYBM5M"
+  # Pinned row + editor. `pinned: true` is enough; user pins persist via the
+  # storage sensor below (no helper entity needed). `items` fixes extra pins in
+  # the row from config: they follow Liked Songs, can't be removed in the
+  # editor, don't count against the 7 user pins, and show even without storage.
+  # A plain list is treated as `items`.
+  pinned:
+    enabled: true
+    # shared (default): one user-pin list for every account.
+    # account: each account keeps its own list (pinned_items:<entity>).
+    scope: shared
+    items:
+      - id: "37i9dQZF1DXcBWIGoYBM5M"   # playlist ID string or {id, type, title}
         title: "Top Hits"
-        type: "playlist"
-    pills: false # genre-pill styling on desktop
+      - playlists_recommended:         # Spotify-generated playlists (Daily Mix…)
+          - id: "37i9dQZF1E39vTG3GurFGW"
+            title: "Daily Mix 1"
 
 # --- Devices & Volume ---
 devices:

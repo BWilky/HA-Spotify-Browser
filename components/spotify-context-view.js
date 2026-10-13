@@ -2,7 +2,7 @@
 import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { contextViewStyles } from '../styles/spotify-context-view.styles.js';
-import { loadMadeForYouItems, dedupeRecentAlbums } from './controllers/home-content.js';
+import { dedupeRecentAlbums } from './controllers/home-content.js';
 import { getPlayingTrackId, getCurrentTrackId, isContextPlaying, playlistSortParams } from '../utils.js';
 
 // Import new sub-views
@@ -607,12 +607,6 @@ export class SpotifyContextView extends LitElement {
                     if (newItems.length > 0) {
                         nextCursor = newItems[newItems.length - 1].id;
                     }
-                }
-            } else if (sectionId === 'madeforyou') {
-                title = 'Made For You';
-                if (offset === 0) {
-                    newItems = await loadMadeForYouItems(this.api, this.config);
-                    total = newItems.length;
                 }
             }
 

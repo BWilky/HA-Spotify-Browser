@@ -880,9 +880,9 @@ class SpotifyBrowserApp extends LitElement {
             this._validateStorage();
         }
 
-        if (!this.pinnedManager && this.config?.home?.pinned) {
+        if (!this.pinnedManager && this.config?.home?.pinned?.enabled) {
             try {
-                this.pinnedManager = new PinnedItemsManager(this.hass, this.config.home, this.storageManager);
+                this.pinnedManager = new PinnedItemsManager(this.hass, this.config, this.storageManager);
                 if (this.router) this.router.updateDependencies({ pinned: this.pinnedManager });
             } catch (e) {
                 console.error("[SpotifyBrowser] Failed to initialize PinnedItemsManager", e);
@@ -1136,6 +1136,12 @@ class SpotifyBrowserApp extends LitElement {
     switchAccount(entity) {
         if (!entity || entity === this.config.entity) return;
         this.config = { ...this.config, entity };
+        // Per-account pins (scope: account) and per-account config pins follow
+        // the active entity. Must precede the home rebuild below.
+        if (this.pinnedManager) {
+            this.pinnedManager.updateConfig(this.config);
+            this.pinnedManager.setAccount(entity);
+        }
         if (this.api) this.api.destroy();
         this.api = null;
         // Device ids aren't meaningful across accounts — drop cached capabilities.
@@ -1157,6 +1163,8 @@ class SpotifyBrowserApp extends LitElement {
         // The context-view state cache is keyed by pageId only (account-blind);
         // stale entries would resurface the previous account's playlists.
         SpotifyContextView.clearAll();
+        // Refresh the app-level pin snapshot (reorder dialog) for the new account.
+        this._handlePinnedChanged();
     }
 
     _handleAccountSelected(e) {

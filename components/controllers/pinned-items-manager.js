@@ -21,25 +21,102 @@ export const USER_LIBRARY_ITEM = {
     title: 'User Library',
     subtitle: 'Your collection & liked songs',
     image: LIKED_SONGS_IMAGE,
-    uri: 'spotify:user-library'
+    uri: 'spotify:user-library',
+    fixed: true
 };
 
-// Besides the mandatory Liked Songs entry, the user may pin up to 7 items
-// (8 buttons total). Home fills any remaining slots with recently played items.
+// Besides the mandatory Liked Songs entry, the user may pin up to 7 items.
+// Config pins (home.pinned.items) sit between the two and don't count. Home
+// fills any remaining slots (up to 8) with recently played items.
 export const MAX_PINNED_OTHERS = 7;
 
+const CONFIG_PIN_ERROR = 'Pinned by the card config — edit home.pinned.items to change it';
+
 export class PinnedItemsManager {
+    /** @param config the full parsed card config ({ entity, accounts, home, ... }). */
     constructor(hass, config, storageManager) {
         this.hass = hass;
         this.config = config || {};
         this.storageManager = storageManager;
-        this._storageKey = 'pinned_items';
+        this._entity = this.config.entity || null;
         // Optimistic write cache: a save fires a HA event and the sensor only
         // reflects it after a round-trip, so reads in between would be stale.
         // After a write we return this list until the sensor catches up (or a
         // timeout passes, so a lost/conflicting write can't get stuck).
         this._pendingWrite = null;
         this._pendingWriteAt = 0;
+        // Config pins with artwork, once home has resolved them (see
+        // setResolvedConfigPins). Until then the raw config entries stand in.
+        this._resolvedConfigPins = null;
+    }
+
+    get _pinnedCfg() {
+        return this.config?.home?.pinned || {};
+    }
+
+    /** 'shared' (one list for everyone) or 'account' (one list per account). */
+    get scope() {
+        return this._pinnedCfg.scope === 'account' ? 'account' : 'shared';
+    }
+
+    /** Storage key for the active list: pinned_items, or pinned_items:<entity>. */
+    get _storageKey() {
+        return (this.scope === 'account' && this._entity) ? `pinned_items:${this._entity}` : 'pinned_items';
+    }
+
+    /**
+     * Make `entity` the active account. Per-account scope reads/writes that
+     * account's list from now on; per-account config pins switch as well, so
+     * previously resolved config pins are dropped for re-resolution.
+     */
+    setAccount(entity) {
+        if (!entity || entity === this._entity) return;
+        this._entity = entity;
+        this._pendingWrite = null;
+        this._resolvedConfigPins = null;
+    }
+
+    /**
+     * Config pins for the active account: the shared `home.pinned.items`, then
+     * the active account's own `accounts[].pinned` (deduped by id).
+     * Each: { id, type, title?, recommended? }.
+     */
+    get configItems() {
+        const shared = Array.isArray(this._pinnedCfg.items) ? this._pinnedCfg.items : [];
+        const acc = (this.config?.accounts || []).find(a => a && a.entity === this._entity);
+        const own = Array.isArray(acc?.pinned) ? acc.pinned : [];
+        const seen = new Set(shared.map(i => i.id));
+        return [...shared, ...own.filter(i => i && !seen.has(i.id))];
+    }
+
+    hasConfigItems() {
+        return this.configItems.length > 0;
+    }
+
+    isConfigPinned(itemId) {
+        return this.configItems.some(i => i.id === itemId);
+    }
+
+    /** Replace the placeholder config pins with resolved ones (name, art, uri). */
+    setResolvedConfigPins(items) {
+        this._resolvedConfigPins = Array.isArray(items) ? items : null;
+    }
+
+    /** Config pins as shown: resolved if available, else placeholders from config. */
+    _configPins() {
+        const items = this.configItems;
+        if (items.length === 0) return [];
+        const resolved = new Map((this._resolvedConfigPins || []).map(i => [i.id, i]));
+        return items.map(i => resolved.get(i.id) || {
+            id: i.id,
+            type: i.type,
+            name: i.title || '',
+            title: i.title || '',
+            subtitle: '',
+            image: null,
+            uri: `spotify:${i.type}:${i.id}`,
+            fixed: true,
+        });
     }
 
     /** Effective pinned list: the optimistic write if the sensor hasn't caught up, else the sensor's. */
@@ -71,9 +148,14 @@ export class PinnedItemsManager {
     /**
      * Whether the pinned section can be SHOWN (read). True whenever a sensor
      * backend exists — everyone who can see the sensor sees the pins, even if
-     * they can't edit them.
+     * they can't edit them — or when the config defines pins of its own.
      */
     checkAvailability() {
+        if (this.hasConfigItems()) return true;
+        return this._hasBackend();
+    }
+
+    _hasBackend() {
         if (!this.storageManager) return false;
         return this.storageManager.writeStatus() !== 'no_backend';
     }
@@ -93,29 +175,41 @@ export class PinnedItemsManager {
     }
 
     /**
-     * Normalize a stored list into the canonical pinned list: the mandatory
-     * Liked Songs entry first, then the user's other pins (max 7). Any stored
-     * user-library entry is dropped and re-prepended so it's always #0.
+     * Normalize a stored list into the canonical STORED pinned list: the
+     * mandatory Liked Songs entry first, then the user's other pins (max 7).
+     * Any stored user-library or config-pinned entry is dropped (the former
+     * is re-prepended so it's always #0; the latter comes from config).
      */
     _normalize(stored) {
         const arr = Array.isArray(stored) ? stored : [];
-        const others = arr.filter(i => i && i.id !== 'user-library').slice(0, MAX_PINNED_OTHERS);
+        const others = arr
+            .filter(i => i && i.id !== 'user-library' && !this.isConfigPinned(i.id))
+            .slice(0, MAX_PINNED_OTHERS);
         return [{ ...USER_LIBRARY_ITEM }, ...others];
+    }
+
+    /** Everything shown in the pinned row: Liked Songs, config pins, user pins. */
+    _withConfigPins(normalized) {
+        const [library, ...others] = normalized;
+        return [library, ...this._configPins(), ...others];
     }
 
     async getItems() {
         if (!this.checkAvailability()) return [];
         try {
-            return this._normalize(this._readItems());
+            const stored = this._hasBackend() ? this._readItems() : [];
+            return this._withConfigPins(this._normalize(stored));
         } catch (e) {
             console.error("[PinnedItemsManager] Failed to fetch items:", e);
-            return [{ ...USER_LIBRARY_ITEM }];
+            return this._withConfigPins([{ ...USER_LIBRARY_ITEM }]);
         }
     }
 
     isPinned(itemId) {
         if (!this.checkAvailability()) return false;
         if (itemId === 'user-library') return true; // mandatory, always pinned
+        if (this.isConfigPinned(itemId)) return true;
+        if (!this._hasBackend()) return false;
         try {
             return !!this._readItems().find(i => i.id === itemId);
         } catch (e) {
@@ -124,9 +218,10 @@ export class PinnedItemsManager {
     }
 
     async add(item) {
-        if (!this.checkAvailability()) return { success: false, error: "No storage configured" };
+        if (!this._hasBackend()) return { success: false, error: "No storage configured" };
         // Liked Songs is always pinned at #0; pinning it is a no-op.
         if (item.id === 'user-library') return { success: true };
+        if (this.isConfigPinned(item.id)) return { success: false, error: CONFIG_PIN_ERROR };
 
         try {
             const currentItems = this._normalize(this._readItems()); // [library, ...others]
@@ -166,9 +261,10 @@ export class PinnedItemsManager {
     }
 
     async remove(itemId) {
-        if (!this.checkAvailability()) return { success: false, error: "No storage" };
+        if (!this._hasBackend()) return { success: false, error: "No storage" };
         // Liked Songs is mandatory and cannot be removed.
         if (itemId === 'user-library') return { success: true };
+        if (this.isConfigPinned(itemId)) return { success: false, error: CONFIG_PIN_ERROR };
         try {
             const currentItems = this._normalize(this._readItems());
             const newItems = currentItems.filter(i => i.id !== itemId);
@@ -181,6 +277,7 @@ export class PinnedItemsManager {
     }
 
     async toggle(item) {
+        if (this.isConfigPinned(item.id)) return { success: false, error: CONFIG_PIN_ERROR };
         const items = this._normalize(this._readItems());
         const exists = items.find(i => i.id === item.id);
         if (exists) return await this.remove(item.id);
@@ -188,6 +285,7 @@ export class PinnedItemsManager {
     }
 
     async addByUri(api, uri) {
+        if (!this._hasBackend()) return { success: false, error: "No storage configured" };
         if (!uri || !uri.startsWith('spotify:')) return { success: false, error: "Invalid URI format" };
 
         const parts = uri.split(':');
@@ -265,18 +363,19 @@ export class PinnedItemsManager {
     }
 
     async reorder(orderedItemsOrIds) {
-        if (!this.checkAvailability()) return { success: false };
+        if (!this._hasBackend()) return { success: false };
         try {
             const currentItems = this._normalize(this._readItems());
             const itemMap = new Map(currentItems.map(i => [i.id, i]));
 
             // Rebuild the "others" order from the incoming list, dropping any
-            // user-library entries (it's force-pinned at #0 below) and dupes.
+            // user-library entries (it's force-pinned at #0 below), config pins
+            // (they live in YAML, not storage) and dupes.
             const others = [];
             const processedIds = new Set();
             for (const itemOrId of orderedItemsOrIds) {
                 const id = (typeof itemOrId === 'object' && itemOrId.id) ? itemOrId.id : itemOrId;
-                if (id === 'user-library' || processedIds.has(id)) continue;
+                if (id === 'user-library' || this.isConfigPinned(id) || processedIds.has(id)) continue;
                 processedIds.add(id);
                 if (typeof itemOrId === 'object') others.push(itemOrId);
                 else if (itemMap.has(id)) others.push(itemMap.get(id));
@@ -290,7 +389,7 @@ export class PinnedItemsManager {
     }
 
     async _save(items) {
-        if (!this.checkAvailability()) return { success: false };
+        if (!this._hasBackend()) return { success: false };
         // Reflect the new list immediately — BEFORE the network write — so reads
         // (home, the editor) update instantly instead of waiting for the event to
         // fire and the sensor's state to round-trip back through hass. Setting this
@@ -344,7 +443,7 @@ export class PinnedItemsManager {
     }
 
     async reset() {
-        if (!this.checkAvailability()) return { success: false };
+        if (!this._hasBackend()) return { success: false };
         // Keep the mandatory Liked Songs entry; clear the user's other pins.
         return await this._save([{ ...USER_LIBRARY_ITEM }]);
     }

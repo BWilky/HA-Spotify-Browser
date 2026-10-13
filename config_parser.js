@@ -77,8 +77,8 @@ const MOVED_KEYS = {
     desktop_style: 'appearance.desktop',
     homescreen: 'home',
     home_order: 'home.sort',
-    madeforyou: 'home.made_for_you',
-    desktop_madeforyou_pills: 'home.made_for_you.pills',
+    madeforyou: 'home.pinned.items',
+    desktop_madeforyou_pills: null,
     device_playback: 'devices',
     volume: 'devices.volume',
     external_providers: 'integrations',
@@ -165,7 +165,6 @@ const listOf = (fields) => (v, path) => {
 const SORT_TOKENS = {
     pinned: 'pinned',
     recently_played: 'recent',
-    made_for_you: 'madeforyou',
     favourite_playlists: 'favorites',
     followed_artists: 'artists',
     favourite_albums: 'albums',
@@ -180,11 +179,53 @@ const sortTokens = (v, path) => {
     const order = [];
     for (const key of v) {
         const k = String(key).toLowerCase();
+        // Made For You was folded into the pinned row (v3); drop the token quietly.
+        if (k === 'made_for_you' || k === 'madeforyou') continue;
         const id = SORT_TOKENS[k] || (SECTION_IDS.includes(k) ? k : null);
         if (id) order.push(id);
         else warnOnce(`${path}.${key}`, `"${path}" has unknown section "${key}" — expected one of ${Object.keys(SORT_TOKENS).join(', ')}. Dropped.`);
     }
     return order.length ? order : undefined;
+};
+
+/**
+ * Pinned config items -> flat [{ id, type, title?, recommended? }]. Accepts the
+ * historical Made For You entry shapes so old lists keep working:
+ *   'playlistId'                                  a playlist
+ *   { playlists: ['id', ...] }                    playlists
+ *   { playlists_recommended: [{ id, title }] }    Spotify-generated playlists
+ *                                                 (artwork via the cover endpoint)
+ *   { id, title?, type? }                         any item (type defaults to playlist)
+ *   { likedsongs: true }                          dropped — Liked Songs is always pinned
+ */
+const pinnedItems = (v, path) => {
+    if (!Array.isArray(v)) {
+        warnOnce(path, `"${path}" must be a list. Ignored.`);
+        return [];
+    }
+    const out = [];
+    const pl = (id, extra = {}) => { if (id) out.push({ id: String(id), type: 'playlist', ...extra }); };
+    v.forEach((entry, i) => {
+        if (typeof entry === 'string') pl(entry);
+        else if (!entry || typeof entry !== 'object') warnOnce(`${path}[${i}]`, `"${path}[${i}]" is not a valid item. Ignored.`);
+        else if (entry.likedsongs) { /* always pinned anyway */ }
+        else if (Array.isArray(entry.playlists)) entry.playlists.forEach(id => pl(id));
+        else if (Array.isArray(entry.playlists_recommended)) {
+            entry.playlists_recommended.forEach(r => {
+                if (!r) return;
+                if (typeof r === 'string') pl(r, { recommended: true });
+                else pl(r.id, { ...(r.title ? { title: String(r.title) } : {}), recommended: true });
+            });
+        }
+        else if (entry.id) {
+            const item = { id: String(entry.id), type: entry.type ? String(entry.type).toLowerCase() : 'playlist' };
+            if (entry.title || entry.name) item.title = String(entry.title || entry.name);
+            if (entry.recommended === true) item.recommended = true;
+            out.push(item);
+        }
+        else warnOnce(`${path}[${i}]`, `"${path}[${i}]" needs an id. Ignored.`);
+    });
+    return out;
 };
 
 /* -------------------------- generic normalizer --------------------------- */
@@ -335,21 +376,42 @@ const SCHEMA = {
 
     home: {
         defaults: {
-            sort: ['pinned', 'recent', 'madeforyou', 'favorites', 'artists', 'albums'],
-            pinned: false,
-            made_for_you: { content: [], pills: false },
+            sort: ['pinned', 'recent', 'favorites', 'artists', 'albums'],
+            pinned: { enabled: false, scope: 'shared', items: [] },
+            made_for_you: [],
         },
         fields: {
             sort: sortTokens, // undefined (bad input) keeps the default order
-            pinned: bool,
-            made_for_you: {
-                defaults: { content: [], pills: false },
-                primary: 'content',
+            // true/false, a list of items, or { enabled, items }. Config items are
+            // fixed pins shown after Liked Songs, ahead of the user's own pins.
+            pinned: {
+                defaults: { enabled: false, scope: 'shared', items: [] },
+                primary: 'items',
                 fields: {
-                    content: (v, path) => (Array.isArray(v) ? v : (warnOnce(path, `"${path}" must be a list. Ignored.`), [])),
-                    pills: bool,
+                    enabled: bool,
+                    // 'shared': one pin list for every account. 'account': each
+                    // account keeps its own list (stored under pinned_items:<entity>).
+                    scope: enumOf(['shared', 'account'], 'shared'),
+                    items: pinnedItems,
                 },
             },
+            // v2 "Made For You" section — folded into pinned.items (v3).
+            made_for_you: {
+                defaults: { content: [] },
+                primary: 'content',
+                fields: { content: pinnedItems, pills: () => undefined },
+                post: (out) => out.content,
+            },
+        },
+        post: (out, raw) => {
+            if (raw && typeof raw === 'object' && raw.made_for_you !== undefined) {
+                warnOnce('home.made_for_you', '"home.made_for_you" was folded into "home.pinned.items" in v3 — its items now show in the pinned row (the "pills" option is gone).');
+                const seen = new Set(out.pinned.items.map(i => i.id));
+                for (const item of out.made_for_you) if (!seen.has(item.id)) out.pinned.items.push(item);
+                if (out.pinned.items.length) out.pinned.enabled = true;
+            }
+            delete out.made_for_you;
+            return out;
         },
     },
 
@@ -451,13 +513,18 @@ export class ConfigParser {
         const accounts = (Array.isArray(raw.accounts) ? raw.accounts : [])
             .filter((acc) => acc && typeof acc === 'object')
             .map((acc, i) => {
-                warnUnknown(acc, ['entity', 'name', 'image', 'hash', 'default'], `accounts[${i}]`);
+                warnUnknown(acc, ['entity', 'name', 'image', 'hash', 'default', 'pinned'], `accounts[${i}]`);
+                // Per-account config pins: a list, or { items: [...] }, same entry
+                // shapes as home.pinned.items. Shown only while this account is active.
+                const pinnedRaw = (acc.pinned && typeof acc.pinned === 'object' && !Array.isArray(acc.pinned))
+                    ? acc.pinned.items : acc.pinned;
                 return {
                     entity: acc.entity || null,
                     name: acc.name || null,
                     image: acc.image || null,
                     hash: acc.hash ? hashStr(acc.hash) : null,
                     is_default: acc.default === true,
+                    pinned: pinnedRaw === undefined ? [] : pinnedItems(pinnedRaw, `accounts[${i}].pinned`),
                 };
             });
 

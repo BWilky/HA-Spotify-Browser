@@ -237,8 +237,8 @@ class SpotifyReorderDialog extends LitElement {
     _handlePointerDown(e, index) {
         if (e.button !== 0 && e.pointerType === 'mouse') return;
         if (e.target.closest('button')) return; // Ignore drag if clicking a button
-        // Liked Songs is locked at #0 — it can't be dragged.
-        if (this.items[index]?.id === 'user-library') return;
+        // Liked Songs and config pins are locked — they can't be dragged.
+        if (this.items[index]?.fixed || this.items[index]?.id === 'user-library') return;
 
         const target = e.currentTarget;
         target.setPointerCapture(e.pointerId);
@@ -303,9 +303,11 @@ class SpotifyReorderDialog extends LitElement {
         const [movedItem] = newItems.splice(from, 1);
         let targetIdx = (pos === 'after') ? to + 1 : to;
         if (from < targetIdx) targetIdx--;
-        // Keep Liked Songs locked at #0 — nothing can be dropped above it.
-        const hasLockedFirst = newItems[0]?.id === 'user-library';
-        if (hasLockedFirst && targetIdx < 1) targetIdx = 1;
+        // Keep Liked Songs and config pins locked at the top — nothing can be
+        // dropped among them.
+        let lockedCount = 0;
+        while (lockedCount < newItems.length && (newItems[lockedCount]?.fixed || newItems[lockedCount]?.id === 'user-library')) lockedCount++;
+        if (targetIdx < lockedCount) targetIdx = lockedCount;
         newItems.splice(targetIdx, 0, movedItem);
         this.items = newItems;
         this._dispatchUpdate();
@@ -382,8 +384,9 @@ class SpotifyReorderDialog extends LitElement {
                                     @pointerup=${this._handlePointerUp}
                                     @pointercancel=${this._handlePointerUp}>
                                     ${this.items.map((item, index) => {
-                    // Liked Songs is mandatory and locked at #0: not draggable, not removable.
-                    const locked = item.id === 'user-library';
+                    // Liked Songs (#0) and config pins are locked: not draggable, not removable.
+                    const locked = !!item.fixed || item.id === 'user-library';
+                    const lockedLabel = item.id === 'user-library' ? 'Always pinned' : 'Pinned in card config';
                     return html`
                                         <li class="reorder-item ${locked ? 'locked' : ''}
                                             ${this._draggedItemIndex === index ? 'dragging ghost' : ''}
@@ -400,7 +403,7 @@ class SpotifyReorderDialog extends LitElement {
                                             <div class="item-thumb" style="background-image: url('${item.image || ''}')"></div>
                                             <div class="item-info">
                                                 <div class="item-title">${item.title || item.name || '(Untitled Item)'}</div>
-                                                <div class="item-subtitle">${locked ? 'Always pinned' : (item.subtitle || '')}</div>
+                                                <div class="item-subtitle">${locked ? lockedLabel : (item.subtitle || '')}</div>
                                             </div>
                                             <div style="display:flex; align-items:center;">
                                                 ${locked ? '' : html`
