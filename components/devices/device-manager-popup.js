@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "../../lit.js";
-import { parseDeviceItems, normalizeDevice, deviceTypeLabel, normalizeRename, fireHaptic } from '../../utils.js';
+import { parseDeviceItems, normalizeDevice, deviceTypeLabel, normalizeRename, reorderList, dragTargetIndex, fireHaptic } from '../../utils.js';
 import { deviceTypeIcon, menuIcon, dragHandleIcon, pinIcon } from '../common/icons.js';
 import '../bottom-sheet.js';
 
@@ -74,7 +74,18 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 min-height: 60px;
                 border-bottom: 1px solid rgba(255,255,255,0.08);
                 position: relative;
+                transition: transform 0.15s ease;
             }
+            .row.dragging {
+                transition: none;
+                background: #282828;
+                box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+                border-radius: 8px;
+                border-bottom-color: transparent;
+                z-index: 1;
+            }
+            .row.dragging .grip { cursor: grabbing; }
+            .grip:active { cursor: grabbing; }
             .grip, .more {
                 flex-shrink: 0;
                 width: 44px; height: 44px;
@@ -312,9 +323,83 @@ export class SpotifyDeviceManagerPopup extends LitElement {
         `;
     }
 
-    /* --- Drag reorder (handlers filled in by the reorder task) --- */
+    /* --- Drag reorder (pointer events on the grip; works with mouse and finger) --- */
 
-    _onGripDown(e, index) { /* no-op until drag reorder lands */ }
+    _rowEls() {
+        return [...this.shadowRoot.querySelectorAll('.row[data-index]')];
+    }
+
+    _recordMids() {
+        this._dragMids = this._rowEls().map(r => {
+            const b = r.getBoundingClientRect();
+            return b.top + b.height / 2;
+        });
+    }
+
+    _draggedRowEl() {
+        return this._dragIndex == null ? null : this.shadowRoot.querySelector(`.row[data-index="${this._dragIndex}"]`);
+    }
+
+    _onGripDown(e, index) {
+        if (this._editingId || this._dragIndex != null) return;
+        e.preventDefault();
+        const grip = e.currentTarget;
+        try { grip.setPointerCapture(e.pointerId); } catch (_) { /* unsupported */ }
+        this._dragGrip = grip;
+        this._dragPointerId = e.pointerId;
+        this._dragStartY = e.clientY;
+        this._dragIndex = index;
+        this._dragMoved = false;
+        this._dragStarted = false;
+        this._recordMids();
+        grip.addEventListener('pointermove', this._onGripMove);
+        grip.addEventListener('pointerup', this._onGripUp);
+        grip.addEventListener('pointercancel', this._onGripUp);
+        fireHaptic('light');
+    }
+
+    _onGripMove = async (e) => {
+        if (this._dragIndex == null) return;
+        e.preventDefault();
+        const delta = e.clientY - this._dragStartY;
+        if (!this._dragStarted) {
+            if (Math.abs(delta) <= 4) return; // tap tolerance: don't jiggle the list
+            this._dragStarted = true;
+        }
+        const row = this._draggedRowEl();
+        if (row) row.style.transform = `translateY(${delta}px)`;
+
+        const to = dragTargetIndex(this._dragMids, e.clientY, this._dragIndex);
+        if (to !== this._dragIndex) {
+            if (row) row.style.transform = '';
+            this._savedDevices = reorderList(this._savedDevices, this._dragIndex, to);
+            this._dragIndex = to;
+            this._dragStartY = e.clientY;
+            this._dragMoved = true;
+            await this.updateComplete;
+            this._recordMids();
+        }
+    };
+
+    _onGripUp = async () => {
+        const grip = this._dragGrip;
+        if (grip) {
+            grip.removeEventListener('pointermove', this._onGripMove);
+            grip.removeEventListener('pointerup', this._onGripUp);
+            grip.removeEventListener('pointercancel', this._onGripUp);
+            try { grip.releasePointerCapture(this._dragPointerId); } catch (_) { /* already released */ }
+        }
+        const row = this._draggedRowEl();
+        if (row) row.style.transform = '';
+        const changed = this._dragMoved;
+        this._dragGrip = null;
+        this._dragIndex = null;
+        this._dragMoved = false;
+        if (changed && this.deviceManager) {
+            fireHaptic('medium');
+            await this.deviceManager.saveDevices(this._savedDevices);
+        }
+    };
 
     /* --- Render --- */
 
