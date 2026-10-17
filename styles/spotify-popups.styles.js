@@ -7,7 +7,7 @@ export const popupsStyles = css`
         position: absolute;
         top: 0; left: 0;
         width: 100%; height: 100%;
-        z-index: 230000; /* Ensure container (Alerts/Toasts) is on top of Manager (220000) */
+        z-index: 230000; /* Ensure container (Alerts/Toasts) is on top of Manager (212000) */
         pointer-events: none; /* Let clicks pass through empty areas */
     }
 
@@ -105,4 +105,8 @@ export const popupsStyles = css`
     .alert-btn:hover { background: var(--spf-hover-white); }
     .alert-btn.primary { background: var(--spf-brand); border-color: var(--spf-brand); color: black; }
     .alert-btn.primary:hover { background: var(--spf-brand-hover); }
+
+    /* The device picker is a bottom sheet inside this host (z 215000); keep
+       "Scanning for devices..." toasts visible above it. */
+    .toast-container { z-index: 220000; }
 `;

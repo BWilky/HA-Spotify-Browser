@@ -279,9 +279,6 @@ export function getVibrantColor(url) {
     });
 }
 
-/* --- Time --- */
-
-/** Seconds -> "m:ss" (e.g. 65 -> "1:05"). Bad/negative input renders as 0:00. */
 /* ---- Device list helpers (Manage Devices sheet) ---- */
 
 /** New array with the item at `from` moved to `to`; a copy when the move is a no-op or out of range. */
@@ -355,6 +352,9 @@ export function unsavedLiveDevices(live, saved) {
     return (live || []).filter(d => !ids.has(d.id));
 }
 
+/* --- Time --- */
+
+/** Seconds -> "m:ss" (e.g. 65 -> "1:05"). Bad/negative input renders as 0:00. */
 export function formatTime(seconds) {
     if (!seconds || seconds < 0 || isNaN(seconds)) return '0:00';
     const m = Math.floor(seconds / 60);

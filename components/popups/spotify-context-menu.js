@@ -154,21 +154,25 @@ class SpotifyContextMenu extends LitElement {
     updated(changed) {
         if (changed.has('visible')) {
             if (this.visible) {
-                window.addEventListener('keydown', this._onKeyDown);
+                // Capture phase so this runs before an underlying sheet's
+                // Escape handler; preventDefault tells that sheet to stay open.
+                window.addEventListener('keydown', this._onKeyDown, true);
                 if (this._isDesktop) this._placePopover();
             } else {
-                window.removeEventListener('keydown', this._onKeyDown);
+                window.removeEventListener('keydown', this._onKeyDown, true);
             }
         }
     }
 
     disconnectedCallback() {
         super.disconnectedCallback();
-        window.removeEventListener('keydown', this._onKeyDown);
+        window.removeEventListener('keydown', this._onKeyDown, true);
     }
 
     _onKeyDown(e) {
-        if (e.key === 'Escape') this._close();
+        if (e.key !== 'Escape') return;
+        e.preventDefault();
+        this._close();
     }
 
     _close() {

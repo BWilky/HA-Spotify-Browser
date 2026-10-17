@@ -179,18 +179,22 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 color: rgba(255,255,255,0.85);
             }
             .ic svg { width: 26px; height: 26px; fill: currentColor; }
+            /* 44px tap target; the visible pill is drawn by ::before inside it. */
             .add {
-                flex-shrink: 0;
-                background: none;
-                border: 1px solid rgba(255,255,255,0.3);
+                position: relative; flex-shrink: 0;
+                min-height: 44px; margin-left: 8px; padding: 0 14px;
+                background: none; border: none;
                 color: var(--spf-text-main, #fff);
-                border-radius: 999px;
                 font: inherit; font-size: var(--spf-text-sm, 12px); font-weight: 700;
-                padding: 6px 14px; margin: 8px 0 8px 8px;
                 cursor: pointer;
+                -webkit-tap-highlight-color: transparent;
             }
-            .add:active { background: rgba(255,255,255,0.12); }
-            @media (hover: hover) { .add:hover { border-color: #fff; } }
+            .add::before {
+                content: ""; position: absolute; left: 0; right: 0; top: 7px; bottom: 7px;
+                border: 1px solid rgba(255,255,255,0.3); border-radius: 999px;
+            }
+            .add:active::before { background: rgba(255,255,255,0.12); }
+            @media (hover: hover) { .add:hover::before { border-color: #fff; } }
 
             /* ---- Remove all ---- */
             .reset {
@@ -253,7 +257,13 @@ export class SpotifyDeviceManagerPopup extends LitElement {
         }
         if (changedProperties.has('visible') && !this.visible) {
             this._editingId = null;
+            this._cancelDrag();
         }
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        this._cancelDrag();
     }
 
     async refreshSaved() {
@@ -303,12 +313,9 @@ export class SpotifyDeviceManagerPopup extends LitElement {
         };
 
         // Prevent duplicate visual add if clicked multiple times fast
-        if (!this._savedDevices.find(d => d.id === device.id)) {
-            this._savedDevices = [...this._savedDevices, newDevice];
-        }
-
-        await this.deviceManager.add(device);
-        // Do not call refreshSaved() immediately; wait for HASS update
+        if (this._savedDevices.find(d => d.id === device.id)) return;
+        this._savedDevices = [...this._savedDevices, newDevice];
+        await this.deviceManager.saveDevices(this._savedDevices);
     }
 
     async handleReset() {
@@ -352,15 +359,17 @@ export class SpotifyDeviceManagerPopup extends LitElement {
 
     async _onRowAction(id, d) {
         if (!this.deviceManager) return;
+        // Every device write persists the list we show, so back-to-back
+        // actions can't clobber each other through a lagging storage read.
         if (id === 'dm-default') {
             if (d.is_default) return;
             this._savedDevices = this._savedDevices.map(s => ({ ...s, is_default: s.id === d.id }));
-            await this.deviceManager.setDefault(d.id);
+            await this.deviceManager.saveDevices(this._savedDevices);
         } else if (id === 'dm-rename') {
             this._startRename(d);
         } else if (id === 'dm-remove') {
             this._savedDevices = this._savedDevices.filter(s => s.id !== d.id);
-            await this.deviceManager.remove(d.id);
+            await this.deviceManager.saveDevices(this._savedDevices);
         }
     }
 
@@ -382,7 +391,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
         this._editingId = null;
         if (!name || !this.deviceManager) return;
         this._savedDevices = this._savedDevices.map(s => s.id === d.id ? { ...s, name } : s);
-        await this.deviceManager.rename(d.id, name);
+        await this.deviceManager.saveDevices(this._savedDevices);
     }
 
     _renderRenameInput(d) {
@@ -390,7 +399,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
             <input class="name-input" type="text" maxlength="100" .value=${d.name}
                 @keydown=${(e) => {
                     if (e.key === 'Enter') { e.preventDefault(); this._commitRename(d, e.target.value); }
-                    else if (e.key === 'Escape') { this._editingId = null; }
+                    else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); this._editingId = null; }
                 }}
                 @blur=${(e) => this._commitRename(d, e.target.value)}>
         `;
@@ -422,13 +431,23 @@ export class SpotifyDeviceManagerPopup extends LitElement {
         this._dragPointerId = e.pointerId;
         this._dragStartY = e.clientY;
         this._dragIndex = index;
-        this._dragMoved = false;
+        this._dragOriginalOrder = this._savedDevices.map(d => d.id);
         this._dragStarted = false;
         this._recordMids();
         grip.addEventListener('pointermove', this._onGripMove);
         grip.addEventListener('pointerup', this._onGripUp);
         grip.addEventListener('pointercancel', this._onGripUp);
+        // If the grip is removed mid-drag (a storage refresh re-rendered the
+        // list), pointerup never arrives; this still does.
+        grip.addEventListener('lostpointercapture', this._onGripUp);
         fireHaptic('light');
+    }
+
+    /** Drop any in-progress drag without saving (sheet hidden / element removed). */
+    _cancelDrag() {
+        if (this._dragIndex == null && !this._dragGrip) return;
+        this._dragOriginalOrder = null; // nothing to compare → no save
+        this._onGripUp();
     }
 
     _onGripMove = async (e) => {
@@ -448,7 +467,6 @@ export class SpotifyDeviceManagerPopup extends LitElement {
             this._savedDevices = reorderList(this._savedDevices, this._dragIndex, to);
             this._dragIndex = to;
             this._dragStartY = e.clientY;
-            this._dragMoved = true;
             await this.updateComplete;
             this._recordMids();
         }
@@ -460,14 +478,17 @@ export class SpotifyDeviceManagerPopup extends LitElement {
             grip.removeEventListener('pointermove', this._onGripMove);
             grip.removeEventListener('pointerup', this._onGripUp);
             grip.removeEventListener('pointercancel', this._onGripUp);
+            grip.removeEventListener('lostpointercapture', this._onGripUp);
             try { grip.releasePointerCapture(this._dragPointerId); } catch (_) { /* already released */ }
         }
         const row = this._draggedRowEl();
         if (row) row.style.transform = '';
-        const changed = this._dragMoved;
+        const before = this._dragOriginalOrder;
+        const after = this._savedDevices.map(d => d.id);
+        const changed = !!before && before.join('\n') !== after.join('\n');
         this._dragGrip = null;
         this._dragIndex = null;
-        this._dragMoved = false;
+        this._dragOriginalOrder = null;
         if (changed && this.deviceManager) {
             fireHaptic('medium');
             await this.deviceManager.saveDevices(this._savedDevices);
@@ -569,7 +590,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
 
     render() {
         return html`
-            <spotify-bottom-sheet desktop-modal .visible=${this.visible} @close=${(e) => { e.stopPropagation(); this.close(); }}>
+            <spotify-bottom-sheet desktop-modal close-on-escape .visible=${this.visible} @close=${(e) => { e.stopPropagation(); this.close(); }}>
                 <div class="head">
                     <h2 class="title">Manage devices</h2>
                     <button class="done" @click=${this.close}>Done</button>

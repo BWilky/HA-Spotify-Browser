@@ -180,7 +180,7 @@ export class SpotifyDevicePickerLarge extends LitElement {
     render() {
         const devices = this.devices || [];
         return html`
-            <spotify-bottom-sheet desktop-modal .visible=${this.visible} @close=${(e) => { e.stopPropagation(); this._close(); }}>
+            <spotify-bottom-sheet desktop-modal close-on-escape .visible=${this.visible} @close=${(e) => { e.stopPropagation(); this._close(); }}>
                 <div class="head">
                     <h2 class="title">Connect to a device</h2>
                     <button class="x" aria-label="Close" @click=${this._close}>${this._xIcon()}</button>

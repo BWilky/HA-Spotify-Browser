@@ -14,6 +14,11 @@ import { LitElement, html, css } from "../lit.js";
  *   --spf-sheet-z       z-index (default 215000)
  *   --spf-sheet-max-h   max height (default 88%)
  *
+ * `closeOnEscape` (attribute `close-on-escape`): pressing Escape while open
+ * emits `close`, unless something above it (the context menu) already
+ * handled the key via preventDefault. Opt-in so stacked sheets don't all
+ * close at once.
+ *
  * `desktopModal` (attribute `desktop-modal`): at >=769px the panel renders as
  * a centered popup card (fade/scale, no grip, no drag-dismiss) instead of a
  * bottom sheet — for surfaces that should be sheets on phones but dialogs on
@@ -26,6 +31,7 @@ export class SpotifyBottomSheet extends LitElement {
         return {
             visible: { type: Boolean, reflect: true },
             desktopModal: { type: Boolean, reflect: true, attribute: 'desktop-modal' },
+            closeOnEscape: { type: Boolean, attribute: 'close-on-escape' },
         };
     }
 
@@ -124,6 +130,8 @@ export class SpotifyBottomSheet extends LitElement {
         super();
         this.visible = false;
         this.desktopModal = false;
+        this.closeOnEscape = false;
+        this._onKeyDown = this._onKeyDown.bind(this);
         this._onDown = this._onDown.bind(this);
         this._onMove = this._onMove.bind(this);
         this._onUp = this._onUp.bind(this);
@@ -135,8 +143,22 @@ export class SpotifyBottomSheet extends LitElement {
             && window.matchMedia('(min-width: 769px)').matches;
     }
 
+    updated(changed) {
+        if (changed.has('visible') || changed.has('closeOnEscape')) {
+            window.removeEventListener('keydown', this._onKeyDown);
+            if (this.visible && this.closeOnEscape) window.addEventListener('keydown', this._onKeyDown);
+        }
+    }
+
+    _onKeyDown(e) {
+        if (e.key !== 'Escape' || e.defaultPrevented) return;
+        e.preventDefault();
+        this._close();
+    }
+
     disconnectedCallback() {
         super.disconnectedCallback();
+        window.removeEventListener('keydown', this._onKeyDown);
         // If removed mid-drag, drop the window listeners added in _onDown.
         this._dragging = false;
         window.removeEventListener('pointermove', this._onMove);

@@ -6,7 +6,16 @@ export class DeviceManager {
         this.config = config || {};
         this.storageManager = storageManager;
         this._storageKey = 'device_manager';
+        // Our last successful write, served by _readData until the storage
+        // sensor reflects it (or PENDING_WRITE_MS passes). The write resolves
+        // before hass pushes the new sensor state, so without this a second
+        // quick action (two Adds, Hide then See all) would read stale data
+        // and overwrite the first.
+        this._pendingWrite = null;
+        this._now = () => Date.now();
     }
+
+    static PENDING_WRITE_MS = 5000;
 
     updateHass(hass) {
         this.hass = hass;
@@ -36,6 +45,15 @@ export class DeviceManager {
 
         try {
             const raw = this.storageManager.getData(this._storageKey);
+
+            const pending = this._pendingWrite;
+            if (pending) {
+                if (this._now() > pending.until || JSON.stringify(raw) === pending.json) {
+                    this._pendingWrite = null; // expired, or the sensor caught up
+                } else {
+                    return JSON.parse(pending.json);
+                }
+            }
 
             // Case 1: New Object Schema
             if (raw && !Array.isArray(raw) && typeof raw === 'object') {
@@ -319,7 +337,11 @@ export class DeviceManager {
     async _save(items) {
         if (!this.checkAvailability()) return { success: false };
         try {
-            return await this.storageManager.saveData(this._storageKey, items);
+            const result = await this.storageManager.saveData(this._storageKey, items);
+            if (!result || result.success !== false) {
+                this._pendingWrite = { json: JSON.stringify(items), until: this._now() + DeviceManager.PENDING_WRITE_MS };
+            }
+            return result;
         } catch (e) {
             console.error('[DeviceManager] Save failed:', e);
             return { success: false, error: e.message };
