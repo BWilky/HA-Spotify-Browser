@@ -78,6 +78,8 @@ class SpotifyContextMenu extends LitElement {
                 background-size: cover; background-position: center;
                 background-color: #333;
             }
+            .menu-art--icon { display: flex; align-items: center; justify-content: center; color: rgba(255,255,255,0.8); }
+            .menu-art--icon svg { width: 26px; height: 26px; fill: currentColor; }
             .menu-info { min-width: 0; }
             .menu-name {
                 color: #fff; font-size: var(--spf-text-base, 13.5px); font-weight: 700; line-height: 1.35;
@@ -202,7 +204,9 @@ class SpotifyContextMenu extends LitElement {
         if (!h) return '';
         return html`
             <div class="menu-header">
-                <div class="menu-art" style="${h.image ? `background-image: url('${h.image}')` : ''}"></div>
+                ${!h.image && h.icon
+                    ? html`<div class="menu-art menu-art--icon">${h.icon}</div>`
+                    : html`<div class="menu-art" style="${h.image ? `background-image: url('${h.image}')` : ''}"></div>`}
                 <div class="menu-info">
                     <div class="menu-name">${h.name || ''}</div>
                     ${h.subtitle ? html`<div class="menu-sub">${h.subtitle}</div>` : ''}

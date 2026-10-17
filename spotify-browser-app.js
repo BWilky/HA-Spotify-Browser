@@ -1410,7 +1410,7 @@ class SpotifyBrowserApp extends LitElement {
         this._menuTrack = null;
         this._menuContext = null;
         this._menuOnAction = onAction || null;
-        this._ctxMenuHeader = { image: header.image, name: header.name, subtitle: header.subtitle || header.artist };
+        this._ctxMenuHeader = { image: header.image, name: header.name, subtitle: header.subtitle || header.artist, icon: header.icon };
         this._ctxMenuItems = items;
         this._ctxMenuAnchor = anchor || null;
         this._ctxMenuVisible = true;
