@@ -95,17 +95,17 @@ class SpotifyPopups extends LitElement {
 
     /* --- Specific Popups --- */
     renderDevicePopup() {
-        if (!this.deviceVisible) return '';
-        const content = html`
+        // Always mounted: the sheet animates on `visible` and brings its own backdrop.
+        return html`
             <spotify-popup-devices
                 .devices=${this.devices}
                 .config=${this.config}
                 .readonly=${!this.canManageDevices}
                 .showRevealButton=${this.showRevealButton}
-                @close-popups=${() => this.dispatchEvent(new CustomEvent('close-popups'))}
+                .visible=${this.deviceVisible}
+                @close-popups=${(e) => { e.stopPropagation(); this.dispatchEvent(new CustomEvent('close-popups')); }}
             ></spotify-popup-devices>
         `;
-        return this._renderBackdrop(true, content);
     }
 
     renderAlert() {
