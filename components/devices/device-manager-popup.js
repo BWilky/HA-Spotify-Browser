@@ -38,14 +38,14 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 background: none; border: none; cursor: pointer;
                 color: var(--spf-text-main, #fff);
                 font: inherit; font-size: var(--spf-text-md, 15px); font-weight: 700;
-                min-height: 44px; padding: 0 4px; margin-right: -4px;
+                min-height: 44px; padding: 0 4px;
             }
             .done:active { opacity: 0.6; }
 
             /* ---- Body ---- */
             .body {
                 flex: 1; min-height: 0;
-                overflow-y: auto;
+                overflow-y: auto; overflow-x: hidden;
                 -webkit-overflow-scrolling: touch;
                 padding-bottom: 8px;
             }
@@ -95,8 +95,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 cursor: pointer;
                 -webkit-tap-highlight-color: transparent;
             }
-            .grip { touch-action: none; cursor: grab; margin-left: -10px; }
-            .more { margin-right: -12px; }
+            .grip { touch-action: none; cursor: grab; }
             @media (hover: hover) { .more:hover { color: #fff; } }
             .grip svg, .more svg { width: 22px; height: 22px; fill: currentColor; }
 
@@ -166,7 +165,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
 
             /* ---- Network devices ---- */
             .refresh {
-                width: 44px; height: 44px; margin-right: -12px;
+                width: 44px; height: 44px;
                 background: none; border: none; padding: 0; cursor: pointer;
                 color: var(--spf-text-sub, #b3b3b3);
                 display: flex; align-items: center; justify-content: center;
@@ -175,7 +174,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
             .refresh.spinning svg { animation: spin 1s linear infinite; }
             @keyframes spin { to { transform: rotate(360deg); } }
             .ic {
-                flex-shrink: 0; width: 44px; margin-left: -10px;
+                flex-shrink: 0; width: 44px;
                 display: flex; align-items: center; justify-content: center;
                 color: rgba(255,255,255,0.85);
             }

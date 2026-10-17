@@ -29,7 +29,7 @@ export class SpotifyDevicePickerLarge extends LitElement {
                 color: var(--spf-text-main, #fff);
             }
             .x {
-                width: 44px; height: 44px; margin-right: -12px;
+                width: 44px; height: 44px;
                 background: none; border: none; padding: 0; cursor: pointer;
                 color: var(--spf-text-main, #fff);
                 display: flex; align-items: center; justify-content: center;
@@ -40,7 +40,7 @@ export class SpotifyDevicePickerLarge extends LitElement {
 
             .list {
                 flex: 1; min-height: 0;
-                overflow-y: auto;
+                overflow-y: auto; overflow-x: hidden;
                 -webkit-overflow-scrolling: touch;
             }
             .row {

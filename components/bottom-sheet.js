@@ -56,7 +56,9 @@ export class SpotifyBottomSheet extends LitElement {
                slide-out still animates) makes closed sheets unrevealable. */
             .sheet {
                 position: absolute; left: 0; right: 0; bottom: 0;
-                max-height: var(--spf-sheet-max-h, 88%);
+                /* Never climb into the top safe area (notch / Dynamic Island):
+                   leave the inset plus 24px of breathing room above the sheet. */
+                max-height: min(var(--spf-sheet-max-h, 88%), calc(100% - var(--spf-safe-top, 0px) - 24px));
                 display: flex; flex-direction: column;
                 background: #181818;
                 border-radius: 16px 16px 0 0;
