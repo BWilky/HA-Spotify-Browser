@@ -1,6 +1,7 @@
 import { LitElement, html, css, svg } from "../../lit.js";
 import '../bottom-sheet.js';
 import { heartToggleIcon } from '../common/icons.js';
+import { popoverPosition } from '../../utils.js';
 
 /**
  * Menu glyphs: a local thin-stroke set mirroring the Spotify app's menu
@@ -183,19 +184,19 @@ class SpotifyContextMenu extends LitElement {
         const card = this.renderRoot.querySelector('.menu-card');
         if (!card) return;
         card.classList.remove('placed');
-        const a = this.anchor;
-        const vw = window.innerWidth, vh = window.innerHeight;
+        // The overlay is `fixed; inset: 0`, but the browser wrapper it lives
+        // in is transformed, so it (and the card) position against the
+        // wrapper, not the viewport. Its own rect is therefore both the
+        // usable area and the origin to convert the anchor into.
+        const overlay = this.renderRoot.querySelector('.pop-overlay');
+        const bounds = overlay ? overlay.getBoundingClientRect()
+            : { left: 0, top: 0, width: window.innerWidth, height: window.innerHeight };
         // Card must be laid out to measure; it's invisible (opacity 0) until placed.
-        const w = card.offsetWidth, h = card.offsetHeight;
-        const ax = a ? a.left : (vw - w) / 2;
-        let x = Math.min(Math.max(8, ax), vw - w - 8);
-        let y = a ? a.bottom + 6 : (vh - h) / 2;
-        if (y + h > vh - 8) y = (a ? a.top : vh) - h - 6;   // flip above
-        y = Math.min(Math.max(8, y), vh - h - 8);           // clamp on screen
-        card.style.left = `${x}px`;
-        card.style.top = `${y}px`;
+        const { left, top, origin } = popoverPosition(this.anchor, bounds, { width: card.offsetWidth, height: card.offsetHeight });
+        card.style.left = `${left}px`;
+        card.style.top = `${top}px`;
         // Scale in from the corner nearest the trigger.
-        card.style.transformOrigin = a && a.top > y ? 'top left' : 'bottom left';
+        card.style.transformOrigin = origin;
         requestAnimationFrame(() => card.classList.add('placed'));
     }
 

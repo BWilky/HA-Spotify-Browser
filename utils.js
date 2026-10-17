@@ -325,6 +325,30 @@ export function normalizeRename(newName, oldName) {
     return name;
 }
 
+/**
+ * Where an anchored popover card goes. `anchor` is the trigger's viewport
+ * rect (or null to center); `bounds` is the overlay's own viewport rect,
+ * which doubles as the containing block for the fixed card (the browser
+ * wrapper is transformed, so fixed descendants position against it, not the
+ * viewport); `size` is the card's { width, height }.
+ * Returns { left, top, origin } in the overlay's coordinates.
+ */
+export function popoverPosition(anchor, bounds, size) {
+    const vw = bounds.width, vh = bounds.height;
+    const w = size.width, h = size.height;
+    const a = anchor ? {
+        left: anchor.left - bounds.left, top: anchor.top - bounds.top,
+        bottom: anchor.bottom - bounds.top,
+    } : null;
+    const ax = a ? a.left : (vw - w) / 2;
+    const left = Math.min(Math.max(8, ax), vw - w - 8);
+    let top = a ? a.bottom + 6 : (vh - h) / 2;
+    if (top + h > vh - 8) top = (a ? a.top : vh) - h - 6;   // flip above
+    top = Math.min(Math.max(8, top), vh - h - 8);           // clamp on screen
+    const origin = a && a.top > top ? 'top left' : 'bottom left';
+    return { left, top, origin };
+}
+
 /** Live devices not already in the saved list (exact id match). */
 export function unsavedLiveDevices(live, saved) {
     const ids = new Set((saved || []).map(d => d.id));
