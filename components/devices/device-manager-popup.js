@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "../../lit.js";
-import { parseDeviceItems, normalizeDevice, deviceTypeLabel, normalizeRename, reorderList, dragTargetIndex, fireHaptic } from '../../utils.js';
+import { parseDeviceItems, normalizeDevice, deviceTypeLabel, normalizeRename, reorderList, dragTargetIndex, unsavedLiveDevices, fireHaptic } from '../../utils.js';
 import { deviceTypeIcon, menuIcon, dragHandleIcon, pinIcon } from '../common/icons.js';
 import '../bottom-sheet.js';
 
@@ -128,6 +128,79 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 caret-color: var(--spf-brand, #1ed760);
             }
             .name-input:focus { border-bottom-color: var(--spf-brand, #1ed760); }
+
+            /* ---- Settings ---- */
+            .set {
+                display: flex; align-items: center; gap: 12px;
+                min-height: 64px;
+                border-bottom: 1px solid rgba(255,255,255,0.08);
+            }
+            .set.child { padding-left: 16px; }
+            .set-text { flex: 1; min-width: 0; padding: 10px 0; }
+            .set-label { font-size: var(--spf-text-md, 15px); font-weight: 700; color: var(--spf-text-main, #fff); }
+            .set-desc { font-size: var(--spf-text-sm, 12px); color: var(--spf-text-sub, #b3b3b3); margin-top: 2px; line-height: 1.35; }
+
+            .switch {
+                position: relative; flex-shrink: 0;
+                width: 44px; height: 26px;
+                display: block; cursor: pointer;
+                /* 44px tap target */
+                padding: 9px 0; margin: -9px 0;
+                box-sizing: content-box;
+            }
+            .switch input { position: absolute; opacity: 0; width: 0; height: 0; margin: 0; }
+            .knob {
+                position: absolute; left: 0; top: 9px;
+                width: 44px; height: 26px; border-radius: 13px;
+                background: #535353;
+                transition: background 0.2s;
+            }
+            .knob::before {
+                content: ""; position: absolute;
+                left: 2px; top: 2px; width: 22px; height: 22px; border-radius: 50%;
+                background: #fff;
+                transition: transform 0.2s;
+            }
+            .switch input:checked + .knob { background: var(--spf-brand, #1ed760); }
+            .switch input:checked + .knob::before { transform: translateX(18px); }
+
+            /* ---- Network devices ---- */
+            .refresh {
+                width: 44px; height: 44px; margin-right: -12px;
+                background: none; border: none; padding: 0; cursor: pointer;
+                color: var(--spf-text-sub, #b3b3b3);
+                display: flex; align-items: center; justify-content: center;
+            }
+            .refresh svg { width: 20px; height: 20px; fill: currentColor; }
+            .refresh.spinning svg { animation: spin 1s linear infinite; }
+            @keyframes spin { to { transform: rotate(360deg); } }
+            .ic {
+                flex-shrink: 0; width: 44px; margin-left: -10px;
+                display: flex; align-items: center; justify-content: center;
+                color: rgba(255,255,255,0.85);
+            }
+            .ic svg { width: 26px; height: 26px; fill: currentColor; }
+            .add {
+                flex-shrink: 0;
+                background: none;
+                border: 1px solid rgba(255,255,255,0.3);
+                color: var(--spf-text-main, #fff);
+                border-radius: 999px;
+                font: inherit; font-size: var(--spf-text-sm, 12px); font-weight: 700;
+                padding: 6px 14px; margin: 8px 0 8px 8px;
+                cursor: pointer;
+            }
+            .add:active { background: rgba(255,255,255,0.12); }
+            @media (hover: hover) { .add:hover { border-color: #fff; } }
+
+            /* ---- Remove all ---- */
+            .reset {
+                width: 100%; min-height: 56px; margin-top: 12px;
+                background: none; border: none; cursor: pointer;
+                color: #f15e6c;
+                font: inherit; font-size: var(--spf-text-base, 13.5px); font-weight: 700;
+            }
+            .reset:active { opacity: 0.6; }
         `;
     }
 
@@ -210,6 +283,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
     async handleToggleSetting(e) {
         const key = e.target.getAttribute('data-key');
         const checked = e.target.checked;
+        this._settings = { ...(this._settings || {}), [key]: checked };
         if (this.deviceManager) {
             await this.deviceManager.updateSetting(key, checked);
             // Rely on HASS update or optimistic state - do not force refresh stale data
@@ -243,9 +317,9 @@ export class SpotifyDeviceManagerPopup extends LitElement {
 
         this.dispatchEvent(new CustomEvent('show-alert', {
             detail: {
-                title: "Reset Devices",
-                message: "This will remove ALL saved devices. This action cannot be undone.",
-                confirmText: "Reset All",
+                title: "Remove all saved devices",
+                message: "This removes every saved device and its order. This can't be undone.",
+                confirmText: "Remove all",
                 onConfirm: async () => {
                     // Optimistic Update
                     this._savedDevices = [];
@@ -433,9 +507,66 @@ export class SpotifyDeviceManagerPopup extends LitElement {
         `;
     }
 
-    _renderSettings() { return ''; }
-    _renderNetwork() { return ''; }
-    _renderResetRow() { return ''; }
+    _settingRow(key, label, desc, { child = false } = {}) {
+        return html`
+            <div class="set ${child ? 'child' : ''}">
+                <div class="set-text">
+                    <div class="set-label">${label}</div>
+                    <div class="set-desc">${desc}</div>
+                </div>
+                <label class="switch">
+                    <input type="checkbox" data-key=${key}
+                           .checked=${this._settings?.[key] === true}
+                           @change=${this.handleToggleSetting}>
+                    <span class="knob"></span>
+                </label>
+            </div>
+        `;
+    }
+
+    _renderSettings() {
+        const hideConnect = this._settings?.hide_connect_devices === true;
+        return html`
+            ${this._sectionLabel('Settings')}
+            ${this._settingRow('hide_connect_devices', 'Hide Connect devices', 'Only show saved devices in the picker')}
+            ${hideConnect
+                ? this._settingRow('see_all_devices', '"See all" button', 'Lets the picker reveal network devices on demand', { child: true })
+                : ''}
+            ${this._settingRow('hide_offline_devices', 'Hide offline devices', "Hide saved devices that aren't available right now")}
+        `;
+    }
+
+    _refreshIcon() {
+        return html`<svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>`;
+    }
+
+    _renderNetwork() {
+        const rows = unsavedLiveDevices(this._liveDevices, this._savedDevices);
+        const refresh = html`
+            <button class="refresh ${this._isLoadingLive ? 'spinning' : ''}" aria-label="Refresh"
+                    @click=${this.refreshLive}>${this._refreshIcon()}</button>`;
+        return html`
+            ${this._sectionLabel('Other devices on your network', refresh)}
+            ${rows.length
+                ? rows.map(d => html`
+                    <div class="row">
+                        <div class="ic">${deviceTypeIcon(d.type)}</div>
+                        <div class="text">
+                            <div class="name">${d.name}</div>
+                            <div class="sub"><span>${deviceTypeLabel(d.type)}</span></div>
+                        </div>
+                        <button class="add" @click=${() => this.handleAdd(d)}>Add</button>
+                    </div>`)
+                : html`<div class="empty">${this._isLoadingLive
+                    ? 'Scanning…'
+                    : html`No other devices found.<br>Start playback on a device to see it here.`}</div>`}
+        `;
+    }
+
+    _renderResetRow() {
+        if (this._savedDevices.length === 0) return '';
+        return html`<button class="reset" @click=${this.handleReset}>Remove all saved devices</button>`;
+    }
 
     render() {
         return html`
