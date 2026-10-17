@@ -282,6 +282,55 @@ export function getVibrantColor(url) {
 /* --- Time --- */
 
 /** Seconds -> "m:ss" (e.g. 65 -> "1:05"). Bad/negative input renders as 0:00. */
+/* ---- Device list helpers (Manage Devices sheet) ---- */
+
+/** New array with the item at `from` moved to `to`; a copy when the move is a no-op or out of range. */
+export function reorderList(list, from, to) {
+    const out = [...list];
+    if (from === to || from < 0 || to < 0 || from >= out.length || to >= out.length) return out;
+    const [item] = out.splice(from, 1);
+    out.splice(to, 0, item);
+    return out;
+}
+
+/**
+ * Index a dragged row should occupy: how many OTHER rows (by their vertical
+ * midpoints, in current order) sit above the pointer. Clamped to the list.
+ */
+export function dragTargetIndex(midpoints, pointerY, fromIndex) {
+    if (!midpoints || !midpoints.length) return 0;
+    let above = 0;
+    midpoints.forEach((mid, i) => { if (i !== fromIndex && mid < pointerY) above++; });
+    return Math.max(0, Math.min(midpoints.length - 1, above));
+}
+
+const DEVICE_TYPE_LABELS = {
+    computer: 'Computer', smartphone: 'Smartphone', phone: 'Smartphone', tablet: 'Tablet',
+    tv: 'TV', speaker: 'Speaker', castaudio: 'Cast audio', castvideo: 'Cast video',
+    avr: 'AVR', stb: 'Set-top box', audiodongle: 'Audio dongle',
+};
+
+/** Spotify device type → display label ("CastAudio" → "Cast audio"). Empty → "Speaker". */
+export function deviceTypeLabel(type) {
+    const t = String(type || '').trim();
+    if (!t) return 'Speaker';
+    const known = DEVICE_TYPE_LABELS[t.toLowerCase()];
+    return known || (t.charAt(0).toUpperCase() + t.slice(1));
+}
+
+/** Trimmed rename, or null when empty / unchanged. */
+export function normalizeRename(newName, oldName) {
+    const name = String(newName ?? '').trim();
+    if (!name || name === oldName) return null;
+    return name;
+}
+
+/** Live devices not already in the saved list (exact id match). */
+export function unsavedLiveDevices(live, saved) {
+    const ids = new Set((saved || []).map(d => d.id));
+    return (live || []).filter(d => !ids.has(d.id));
+}
+
 export function formatTime(seconds) {
     if (!seconds || seconds < 0 || isNaN(seconds)) return '0:00';
     const m = Math.floor(seconds / 60);
