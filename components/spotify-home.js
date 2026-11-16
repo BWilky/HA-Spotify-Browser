@@ -2,7 +2,7 @@ import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { homeStyles } from '../styles/spotify-home.styles.js';
 import { renderCardTemplate, renderCardSkeletonTemplate } from './media-templates.js';
-import { loadConfigPins, buildPinnedRow, dedupeRecentAlbums } from './controllers/home-content.js';
+import { loadConfigPins, buildPinnedRow, dedupeRecentAlbums, sectionFetchWindow, homeRefreshDue } from './controllers/home-content.js';
 import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj, playlistSortParams } from '../utils.js';
 import { playingBarsIcon } from './common/icons.js';
 
@@ -52,6 +52,7 @@ class SpotifyHome extends LitElement {
         this._sectionData = {}; // Stores { sectionKey: [items] }
         this._expandedSections = new Set(); // Section ids toggled from carousel to grid
         this._hasLoaded = false;
+        this._lastRefreshAt = 0;
         this._hassSig = undefined;
     }
 
@@ -513,6 +514,7 @@ class SpotifyHome extends LitElement {
     async loadHomeData() {
         if (!this.hass || !this.api) return;
         this._hasLoaded = true;
+        this._lastRefreshAt = Date.now();
 
         this._offsets = { favorites: 0, artists: 0, albums: 0, recent: 0 };
 
@@ -544,7 +546,23 @@ class SpotifyHome extends LitElement {
         }
     }
 
-    async fetchSectionData(sectionKey) {
+    /**
+     * Re-fetch the library sections in place when the browser is reopened or
+     * comes back to the foreground (#26). The page stays cached between opens,
+     * so without this a wall tablet shows whatever loaded with the dashboard.
+     * Existing items stay on screen until the new ones arrive, and a failed
+     * fetch keeps them. Pinned refreshes itself from its sensor, so it's skipped.
+     */
+    refreshSections() {
+        if (!this._hasLoaded || !this.hass || !this.api) return;
+        if (!homeRefreshDue(this._lastRefreshAt)) return;
+        this._lastRefreshAt = Date.now();
+        for (const key of this._getSectionOrder()) {
+            if (key in this._offsets) this.fetchSectionData(key, { replace: true });
+        }
+    }
+
+    async fetchSectionData(sectionKey, { replace = false } = {}) {
         if (this._fetching[sectionKey]) return;
         this._fetching[sectionKey] = true;
         this.requestUpdate();
@@ -564,13 +582,15 @@ class SpotifyHome extends LitElement {
             return;
         }
 
-        const offset = this._offsets[sectionKey];
+        const { offset, limit } = sectionFetchWindow({
+            replace,
+            offset: this._offsets[sectionKey],
+            loaded: this._sectionData[sectionKey]?.length || 0,
+        });
         if (offset > 0 && this._totals[sectionKey] !== null && offset >= this._totals[sectionKey]) {
             this._fetching[sectionKey] = false;
             return;
         }
-
-        const limit = 20;
 
         try {
             let data = null;
@@ -609,10 +629,10 @@ class SpotifyHome extends LitElement {
 
             if (data && Array.isArray(data.items)) {
                 if (data.total !== undefined) this._totals[sectionKey] = data.total;
-                this._offsets[sectionKey] += data.items.length;
+                this._offsets[sectionKey] = (replace ? 0 : offset) + data.items.length;
 
-                // DATA UPDATE: Append new items to state
-                const currentItems = this._sectionData[sectionKey] || [];
+                // DATA UPDATE: append the new page, or swap the list on a refresh
+                const currentItems = replace ? [] : (this._sectionData[sectionKey] || []);
                 // We need to store type with the item if not present, or know it generally.
                 // mediaCard logic uses item.type OR fallback type.
                 // Let's ensure items have type if possible, or we pass it to render.

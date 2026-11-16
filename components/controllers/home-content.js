@@ -14,6 +14,34 @@ export function dedupeRecentAlbums(historyItems = []) {
     return uniqueItems;
 }
 
+/** Items per home section page (first load and each "load more"). */
+export const HOME_PAGE_SIZE = 20;
+
+/** Spotify's per-request max for the library endpoints home uses. */
+const SPOTIFY_MAX_LIMIT = 50;
+
+/**
+ * Minimum gap between reopen refreshes of the home sections, so a quick
+ * close/reopen (or a tablet waking repeatedly) doesn't hammer SpotifyPlus.
+ */
+export const HOME_REFRESH_COOLDOWN_MS = 60_000;
+
+/**
+ * Offset/limit for a home section fetch. A normal fetch pages on from the
+ * current offset. A refresh (replace) restarts at 0 and re-reads as many items
+ * as are already loaded (min one page, max 50), so a carousel the user had
+ * scrolled into doesn't shrink under them.
+ */
+export function sectionFetchWindow({ replace = false, offset = 0, loaded = 0 } = {}) {
+    if (!replace) return { offset, limit: HOME_PAGE_SIZE };
+    return { offset: 0, limit: Math.min(SPOTIFY_MAX_LIMIT, Math.max(HOME_PAGE_SIZE, loaded)) };
+}
+
+/** True when enough time has passed since the last home refresh. */
+export function homeRefreshDue(lastRefreshAt, now = Date.now()) {
+    return now - (lastRefreshAt || 0) >= HOME_REFRESH_COOLDOWN_MS;
+}
+
 /** Max buttons in the pinned row before it stops topping up with recent items. */
 export const PINNED_ROW_SIZE = 8;
 

@@ -1845,7 +1845,7 @@ class SpotifyBrowserApp extends LitElement {
         setTimeout(() => this._refreshAfterReturn(), 0);
     }
 
-    /** Bring now-playing, queue and recents up to date (reopen + refocus). */
+    /** Bring now-playing, queue, recents and home up to date (reopen + refocus). */
     async _refreshAfterReturn() {
         if (!this.api) return;
         await this.api.scanWhenReady();
@@ -1853,6 +1853,8 @@ class SpotifyBrowserApp extends LitElement {
         // scan only auto-refreshes them when the track actually changed.
         this.playerController?.refreshQueue();
         this.playerController?.refreshRecent();
+        // Home is cached across opens; refresh its library sections (throttled).
+        this.router?.pageCache.get('home')?.refreshSections?.();
     }
 
     _handleMiniPlayerPlayPause(e) {
