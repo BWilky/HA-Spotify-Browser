@@ -10,3 +10,6 @@ build.sh
 # Circular Std woff2s — commercially licensed, not redistributable
 # (see README "Typeface"; deployed separately by build.sh)
 fonts/
+
+# Local design/plan docs — never commit
+docs/superpowers/

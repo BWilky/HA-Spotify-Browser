@@ -419,19 +419,25 @@ const SCHEMA = {
         defaults: {
             default: null,
             icons: [],
-            volume: { fallback: 25, rules: [], rate_control: true, optimistic: true },
+            volume: { fallback: 25, rules: [], rate_control: true, optimistic: true, step: 2 },
         },
         fields: {
             default: str,
             icons: listOf({ name: str, id: str, icon: str }),
             volume: {
-                defaults: { fallback: 25, rules: [], rate_control: true, optimistic: true },
+                defaults: { fallback: 25, rules: [], rate_control: true, optimistic: true, step: 2 },
                 primary: 'fallback',
                 fields: {
                     fallback: num(25),
                     rules: listOf({ start: str, end: str, level: num(0) }),
                     rate_control: (v) => v === true,
                     optimistic: (v) => v === true,
+                    // Percent moved per tap on the volume +/- icons (mobile Connect sheet).
+                    step: (v, path) => {
+                        const n = Number(v);
+                        if (!Number.isFinite(n) || n < 1) { warnOnce(path, `"${path}" must be a number from 1 to 25 — using 2.`); return 2; }
+                        return Math.min(25, Math.round(n));
+                    },
                 },
             },
         },

@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "../../lit.js";
-import { fireHaptic } from "../../utils.js";
+import { fireHaptic, stepVolume, heldVolume } from "../../utils.js";
 import { deviceTypeIcon } from '../common/icons.js';
 import '../bottom-sheet.js';
 
@@ -12,7 +12,8 @@ import '../bottom-sheet.js';
  * state, for the active device + volume + now-playing line). Emits:
  *   - `close`          — dismiss the sheet
  *   - `device-selected`(device) — transfer playback to a device
- *   - `volume-change`  (0..1)   — set the active device volume
+ *   - `volume-change`  (0..1)   — set the active device volume (slider, or a
+ *                                 tap on the -/+ icons, which move by `volumeStep` %)
  *   - `open-manager`            — open the full device manager
  */
 export class SpotifyConnectPanel extends LitElement {
@@ -22,6 +23,7 @@ export class SpotifyConnectPanel extends LitElement {
             devices: { type: Array },
             state: { type: Object },
             loading: { type: Boolean },
+            volumeStep: { type: Number },
         };
     }
 
@@ -63,6 +65,15 @@ export class SpotifyConnectPanel extends LitElement {
 
             .vol-row { display: flex; align-items: center; gap: 12px; margin-top: 18px; }
             .vol-row svg { width: 22px; height: 22px; fill: rgba(255,255,255,0.8); flex-shrink: 0; }
+            /* The -/+ icons are tap targets: one tap nudges the volume by volumeStep. */
+            .vol-btn {
+                background: none; border: none; padding: 8px; margin: -8px; cursor: pointer;
+                display: flex; align-items: center; justify-content: center; border-radius: 50%;
+                color: inherit; -webkit-tap-highlight-color: transparent; flex-shrink: 0;
+            }
+            .vol-btn:active { background: rgba(255,255,255,0.12); }
+            .vol-btn:active svg { fill: var(--spf-brand, #1ed760); }
+            .vol-row.disabled .vol-btn { cursor: default; pointer-events: none; }
 
             input[type="range"] {
                 -webkit-appearance: none; appearance: none;
@@ -138,20 +149,33 @@ export class SpotifyConnectPanel extends LitElement {
         this.visible = false;
         this.devices = [];
         this.loading = false;
+        this.volumeStep = 2;
         this._volDragging = false;
+        // Optimistic hold after the user sets a level: { value, until } or null.
+        // Spotify can report a Cast speaker's old volume for a beat after a
+        // volume_set, so without this the thumb snaps back and then forward.
+        this._volHold = null;
     }
+
+    static VOL_HOLD_MS = 3000;
 
     updated() {
         // Sync the slider from player state, but never while the user is dragging
-        // (a background hass update would otherwise snap the thumb back).
+        // (a background hass update would otherwise snap the thumb back). After a
+        // change, keep showing the user's value until the state catches up.
         if (this.visible && !this._volDragging) {
             const el = this.shadowRoot.getElementById('vol-slider');
             if (el) {
-                const v = Math.round(this.state?.volume ?? 0);
-                el.value = String(v);
-                this._sliderFill(el, v);
+                const { volume, hold } = heldVolume(this.state?.volume, this._volHold);
+                this._volHold = hold;
+                el.value = String(volume);
+                this._sliderFill(el, volume);
             }
         }
+    }
+
+    _holdVolume(v) {
+        this._volHold = { value: v, until: Date.now() + SpotifyConnectPanel.VOL_HOLD_MS };
     }
 
     /* --- SVG icons --- */
@@ -207,9 +231,25 @@ export class SpotifyConnectPanel extends LitElement {
         }, 120);
     }
 
+    /** Tap on the -/+ icon: nudge by volumeStep, update the slider now, emit the new level. */
+    _onVolStep(direction) {
+        const el = this.shadowRoot.getElementById('vol-slider');
+        const current = el ? Number(el.value) : (this.state?.volume ?? 0);
+        const next = stepVolume(current, direction, this.volumeStep);
+        if (next === Math.round(current)) return;
+        fireHaptic('light');
+        if (el) { el.value = String(next); this._sliderFill(el, next); }
+        // Hold the slider at the tapped value until the player state catches up.
+        this._holdVolume(next);
+        this.dispatchEvent(new CustomEvent('volume-change', {
+            detail: next / 100, bubbles: true, composed: true
+        }));
+    }
+
     _onVolCommit(e) {
         this._volDragging = false;
         const v = Number(e.target.value);
+        this._holdVolume(v);
         if (this._volTimer) clearTimeout(this._volTimer);
         this.dispatchEvent(new CustomEvent('volume-change', {
             detail: v / 100, bubbles: true, composed: true
@@ -249,12 +289,14 @@ export class SpotifyConnectPanel extends LitElement {
                             <div class="card-sub">${this._barsIcon()}<span>${nowLine}</span></div>
                         ` : ''}
                         <div class="vol-row ${volDisabled ? 'disabled' : ''}">
-                            ${this._volLow()}
+                            <button class="vol-btn" aria-label="Volume down" ?disabled=${volDisabled}
+                                    @click=${() => this._onVolStep(-1)}>${this._volLow()}</button>
                             <input id="vol-slider" type="range" min="0" max="100" value=${String(vol)}
                                    ?disabled=${volDisabled}
                                    style="background: linear-gradient(to right, var(--spf-brand, #1ed760) ${vol}%, #4d4d4d ${vol}%);"
                                    @input=${this._onVolInput} @change=${this._onVolCommit}>
-                            ${this._volHigh()}
+                            <button class="vol-btn" aria-label="Volume up" ?disabled=${volDisabled}
+                                    @click=${() => this._onVolStep(+1)}>${this._volHigh()}</button>
                         </div>
                         ${volDisabled ? html`<div class="vol-hint">Volume is controlled on the device</div>` : ''}
                     </div>

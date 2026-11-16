@@ -279,6 +279,30 @@ export function getVibrantColor(url) {
     });
 }
 
+/**
+ * Volume after one tap on a +/- button: round the current 0..100 level,
+ * move it by `step` in `direction` (+1 / -1), clamp to 0..100.
+ */
+export function stepVolume(current, direction, step = 2) {
+    const base = Math.round(Number(current) || 0);
+    const next = base + (direction < 0 ? -1 : 1) * Math.abs(Number(step) || 0);
+    return Math.max(0, Math.min(100, next));
+}
+
+/**
+ * Optimistic volume for a slider the user just moved. `hold` is
+ * `{ value, until }` (0..100 level the user set, and a ms deadline) or null.
+ * While the hold is live the slider shows `hold.value`; it releases as soon
+ * as the player state reports that value (rounded) or the deadline passes.
+ * Returns `{ volume, hold }` — the level to display and the hold to keep.
+ */
+export function heldVolume(stateVolume, hold, now = Date.now()) {
+    const state = Math.round(Number(stateVolume) || 0);
+    if (!hold) return { volume: state, hold: null };
+    if (now >= hold.until || state === hold.value) return { volume: state, hold: null };
+    return { volume: hold.value, hold };
+}
+
 /* ---- Device list helpers (Manage Devices sheet) ---- */
 
 /** New array with the item at `from` moved to `to`; a copy when the move is a no-op or out of range. */

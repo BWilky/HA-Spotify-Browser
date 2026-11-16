@@ -786,6 +786,7 @@ class SpotifyBrowserApp extends LitElement {
                         .devices=${this._devices}
                         .state=${this._playerState}
                         .loading=${this._connectLoading}
+                        .volumeStep=${this.config.devices?.volume?.step ?? 2}
                         @close=${() => this._connectPanelVisible = false}
                         @device-selected=${this._handleConnectDeviceSelected}
                         @volume-change=${(e) => this.api?.setVolume(e.detail)}

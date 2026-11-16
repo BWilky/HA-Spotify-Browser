@@ -146,6 +146,7 @@ devices:
         level: 15 # Quiet at night
     rate_control: true # Throttle volume updates (Default: true)
     optimistic: true   # Optimistic UI updates (Default: true)
+    step: 2 # percent per tap on the volume -/+ icons in the mobile Connect sheet
 
 # --- Queue & Mini Player ---
 queue:

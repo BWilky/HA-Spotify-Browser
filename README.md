@@ -307,7 +307,7 @@ items:
 ### devices
 * `default` — device ID marked with a ★ in the picker.
 * `icons` — list of `{name: "Kitchen Speaker", icon: "mdi:speaker"}` (match by `name` or `id`; `icon` takes `mdi:` names or image URLs).
-* `volume` — a number sets the default level, or an object: `fallback`, `rules` (list of `{start: 'HH:MM', end: 'HH:MM', level: N}`), `rate_control`, `optimistic`.
+* `volume` — a number sets the default level, or an object: `fallback`, `rules` (list of `{start: 'HH:MM', end: 'HH:MM', level: N}`), `rate_control`, `optimistic`, `step` (percent per tap on the volume icons in the mobile Connect sheet, default `2`).
 
 Phones and some other devices refuse remote volume control (a Spotify limitation). The card detects this and shows "Volume is controlled on the device" instead of a broken slider.
 
@@ -449,6 +449,7 @@ devices:
         level: 15
     rate_control: true
     optimistic: true
+    step: 2                # % per tap on the volume icons (mobile Connect sheet)
 
 queue:
   open_on_desktop: true

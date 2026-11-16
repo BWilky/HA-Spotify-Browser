@@ -483,7 +483,7 @@ class SpotifyHome extends LitElement {
                     recentContent = sd['recent'].map(item => this._recentPillTemplate(item, playingId, this._isContextPlaying(item.uri)));
                 }
                 return html`
-                    <h3 class="section-title" style="margin-bottom:16px;">Good Morning</h3>
+                    <h3 class="section-title" style="margin-bottom:16px;">Recently Played</h3>
                     <div class="recent-grid-layout" id="grid-recent" data-section="recent" style="margin-bottom: 32px;">
                         ${recentContent}
                     </div>
