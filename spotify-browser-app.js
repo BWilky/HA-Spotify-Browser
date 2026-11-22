@@ -1822,7 +1822,7 @@ class SpotifyBrowserApp extends LitElement {
      * closed it manually.
      */
     _checkIdleClose() {
-        const ac = this.config?.auto_close;
+        const ac = this.config?.browser?.auto_close;
         if (!this._isOpen || !ac?.enabled || !(ac.timeout > 0)) return false;
         if ((Date.now() - this._lastActivityTime) / 1000 < ac.timeout) return false;
         if (document.hidden) {

@@ -170,6 +170,8 @@ class SpotifyHeader extends LitElement {
                     <button 
                         class="nav-btn" 
                         id="queue-btn" 
+                        aria-label="Now playing and queue"
+                        title="Now playing and queue"
                         style="margin-left: 4px;"
                         @click=${() => this.dispatchEvent(new CustomEvent('queue-click'))}
                     >

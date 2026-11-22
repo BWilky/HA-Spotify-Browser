@@ -92,3 +92,16 @@ test('accounts[].pinned also accepts the {items: [...]} object form', () => {
     const cfg = ConfigParser.parse({ accounts: [{ entity: 'media_player.a', pinned: { items: ['pl1'] } }] });
     assert.deepEqual(cfg.accounts[0].pinned, [{ id: 'pl1', type: 'playlist' }]);
 });
+
+// The app reads config.browser.auto_close (spotify-browser-app.js _checkIdleClose).
+test('browser.auto_close: seconds shorthand enables it, under browser only', () => {
+    const cfg = ConfigParser.parse({ entity: 'media_player.x', browser: { auto_close: 300 } });
+    assert.deepEqual(cfg.browser.auto_close, { enabled: true, timeout: 300 });
+    assert.equal(cfg.auto_close, undefined);
+});
+
+test('browser.auto_close: 0 or omitted stays disabled', () => {
+    const off = { enabled: false, timeout: 0 };
+    assert.deepEqual(ConfigParser.parse({ entity: 'media_player.x' }).browser.auto_close, off);
+    assert.deepEqual(ConfigParser.parse({ entity: 'media_player.x', browser: { auto_close: 0 } }).browser.auto_close, off);
+});
