@@ -512,8 +512,11 @@ class SpotifyBrowserApp extends LitElement {
 
         // Deep-link: slide straight up to the mobile Now Playing surface, which
         // sits over the home page — dismissing it reveals Spotify home. Desktop
-        // shows now-playing in a persistent sidebar, so this is mobile-only.
-        if (opts.nowPlaying && !this._isDesktop) {
+        // has no full-screen Now Playing; its now-playing surface is the queue
+        // sidebar, so open that instead (closing resets it per open_on_desktop).
+        if (opts.nowPlaying && this._isDesktop) {
+            this._queueVisible = true;
+        } else if (opts.nowPlaying) {
             this._pendingNowPlaying = true;
             this._maybeShowPendingNowPlaying();
             // On a cold open, playback state may not have arrived yet. Give it a

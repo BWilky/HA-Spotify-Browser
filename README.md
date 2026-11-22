@@ -87,7 +87,7 @@ card:
 Anything that navigates to a URL hash opens it:
 
 * `#spotify-browser` — open the browser
-* `#spotify-browser-now-playing` — open straight to Now Playing (mobile)
+* `#spotify-browser-now-playing` — open straight to Now Playing (full-screen on mobile; on desktop it opens the now-playing sidebar)
 * `#user-a` — open and switch to that account (from `accounts[].hash`)
 
 Button card example:
@@ -314,7 +314,7 @@ Phones and some other devices refuse remote volume control (a Spotify limitation
 Some devices report an unhelpful Connect name (a receiver showing up as `eDMP32MB_A25287`). Open the device manager (device picker → "More devices..." → settings), save the device and rename it. The saved name is used everywhere, including the now-playing label.
 
 ### queue
-* `open_on_desktop` — open the queue sidebar automatically on desktop (default `false`).
+* `open_on_desktop` — open the queue sidebar automatically on desktop (default `false`). On desktop the sidebar is where now-playing and the playback controls live; the list icon in the header toggles it. Set this to `true` for wall tablets in landscape so the controls are always on screen.
 * `miniplayer` — mini-player row in the sidebar. `false` hides it, or set individual buttons: `shuffle`, `previous`, `next`, `like`, `volume`, `device`.
 
 The sidebar's now-playing block shows the active device (tap it to switch speakers) and the elapsed and remaining time.
