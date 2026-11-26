@@ -49,6 +49,13 @@ export function classifyPlaybackError(e) {
     return p ? { ...p, message: p.message || msg } : null;
 }
 
+/** JSON with object keys sorted, so equal params always serialize identically. */
+function stableStringify(value) {
+    return JSON.stringify(value, (_key, v) => (v && typeof v === 'object' && !Array.isArray(v))
+        ? Object.keys(v).sort().reduce((sorted, k) => { sorted[k] = v[k]; return sorted; }, {})
+        : v);
+}
+
 export class SpotifyApi {
     // Only these (user-initiated playback) services should surface a validation
     // error to the app's error callback, which opens the device picker. Reads
@@ -64,6 +71,33 @@ export class SpotifyApi {
     // SpotifyPlus caps `limit` at 10 for get_artist_albums and all search_* services
     // (Spotify's July 2026 API change; SpotifyPlus v1.0.215).
     static MAX_PAGE_LIMIT = 10;
+
+    // Most pages of one fetchPaginated call that may be in flight at once.
+    static MAX_PAGE_CONCURRENCY = 4;
+
+    // Immutable catalog reads that fetchSpotifyPlus answers from the read cache
+    // (see _cachedRead). A service belongs here only if its response is the
+    // same whoever asks and nothing this card does can change it — so never
+    // playlists (editable), get_player_*, favorites / followed lists, check_*,
+    // search or devices.
+    static CACHED_READ_SERVICES = new Set(['get_artist', 'get_album', 'get_track']);
+
+    // Catalog objects all but never change, so the TTL only has to outlast one
+    // stretch of browsing (home pins, library rows, the artist/album page and
+    // its hero all asking for the same object) while keeping a card that stays
+    // open for weeks from showing hour-old art or names.
+    static READ_CACHE_TTL_MS = 5 * 60 * 1000;
+
+    // Oldest-first cap for the read cache: above what one TTL of browsing
+    // touches (a Liked Songs genre pass alone asks for 24 artists), and a hard
+    // bound on what a card left open for weeks can hold.
+    static READ_CACHE_MAX_ENTRIES = 200;
+
+    // How long identical requests keep joining a read that has not landed yet.
+    static READ_CACHE_PENDING_MS = 30000;
+
+    // Cap for the genre / track-art memos (a few short strings per entry).
+    static DERIVED_MEMO_MAX_ENTRIES = 500;
 
     // How long a failed launch is remembered for replay on the next device pick.
     static PENDING_PLAY_TTL_MS = 120000;
@@ -114,6 +148,11 @@ export class SpotifyApi {
         // Remembers a launch that failed on a device, so re-picking a device
         // from the (re)opened picker replays it instead of a bare transfer.
         this._pendingPlay = null;
+        // Read cache for CACHED_READ_SERVICES: key -> { promise, expires }.
+        // Per instance on purpose: an instance is bound to one entity (one
+        // Spotify account) and is rebuilt on account switch, so one account's
+        // responses can never be served to another.
+        this._readCache = new Map();
         this._readyScanTimer = null;
         this._readyScanPromise = null;
         this._onSocketReady = () => { this._socketReady = true; this._resumedAt = Date.now(); };
@@ -263,6 +302,18 @@ export class SpotifyApi {
         clearTimeout(this._readyScanTimer);
         this._readyScanTimer = null;
         this._readyScanPromise = null;
+        this.clearReadCache();
+    }
+
+    /**
+     * Forget every cached catalog read, plus the genre / track-art memos
+     * derived from them, so the next read hits SpotifyPlus again. A request
+     * already in flight still answers its own callers but is not remembered.
+     */
+    clearReadCache() {
+        this._readCache.clear();
+        this._artistGenreCache?.clear();
+        this._trackArtCache?.clear();
     }
 
     /**
@@ -333,6 +384,70 @@ export class SpotifyApi {
     }
 
     async fetchSpotifyPlus(service, params = {}, expectResponse = true, logError = true, throwOnError = false) {
+        // Immutable catalog reads share one request per TTL (see _cachedRead).
+        // A caller that asked for no response is never served a cached one.
+        if (this.hass && expectResponse && SpotifyApi.CACHED_READ_SERVICES.has(service)) {
+            return this._cachedRead(service, params, logError, throwOnError);
+        }
+        return this._callSpotifyPlus(service, params, expectResponse, logError, throwOnError);
+    }
+
+    /**
+     * Answer a CACHED_READ_SERVICES call from the read cache: identical
+     * requests (same service and params) share one in-flight call and, for
+     * READ_CACHE_TTL_MS after it lands, its response. Only real responses are
+     * kept — a failed or empty call is dropped at once, so the next identical
+     * request goes back to SpotifyPlus. `logError` / `throwOnError` are applied
+     * per caller, exactly as an uncached call would apply them.
+     */
+    async _cachedRead(service, params, logError, throwOnError) {
+        const cache = this._readCache;
+        const key = `${service}|${stableStringify(params)}`;
+        const now = Date.now();
+        // Drop what has expired from the old end.
+        for (const [k, e] of cache) {
+            if (e.expires > now) break;
+            cache.delete(k);
+        }
+
+        let entry = cache.get(key);
+        if (entry && entry.expires <= now) {
+            cache.delete(key);
+            entry = null;
+        }
+        if (!entry) {
+            // Until it lands the entry only lives READ_CACHE_PENDING_MS, so a
+            // call that never settles cannot hold up identical requests forever.
+            entry = { promise: null, expires: now + SpotifyApi.READ_CACHE_PENDING_MS };
+            const drop = () => { if (cache.get(key) === entry) cache.delete(key); };
+            entry.promise = this._callSpotifyPlus(service, params, true, false, true).then((res) => {
+                // Held as JSON text and parsed afresh for every caller: callers
+                // are free to modify what they get (the album page back-fills
+                // `tracks` onto it) without that reaching anyone else's copy.
+                const json = res == null ? res : JSON.stringify(res);
+                if (typeof json !== 'string') { drop(); return res; }
+                entry.expires = Date.now() + SpotifyApi.READ_CACHE_TTL_MS;
+                return json;
+            }).catch((e) => { drop(); throw e; });
+            cache.set(key, entry);
+            if (cache.size > SpotifyApi.READ_CACHE_MAX_ENTRIES) cache.delete(cache.keys().next().value);
+        }
+
+        try {
+            const body = await entry.promise;
+            return typeof body === 'string' ? JSON.parse(body) : body;
+        } catch (e) {
+            if (throwOnError) throw e;
+
+            if (logError) {
+                console.warn(`[SpotifyAPI] Failed Call [${service}]:`, JSON.stringify(e, null, 2));
+            }
+            return null;
+        }
+    }
+
+    /** One uncached SpotifyPlus call. Use fetchSpotifyPlus; this is its transport. */
+    async _callSpotifyPlus(service, params = {}, expectResponse = true, logError = true, throwOnError = false) {
         if (!this.hass) return null;
 
         // --- FIX: MAP STANDARD CONTROLS TO MEDIA_PLAYER DOMAIN ---
@@ -457,6 +572,16 @@ export class SpotifyApi {
      * (confirmed live: limit=10, items_count=8, total=11, next at offset 10).
      * `offset` is advanced by the requested `limit`, not by how many items
      * actually came back, to stay aligned with the API's own paging cursor.
+     *
+     * The first page goes out alone (it supplies `total`); after that, pages
+     * whose `limit`/`offset` no longer depend on an earlier response go out
+     * together, at most MAX_PAGE_CONCURRENCY at a time, and are read back in
+     * offset order. The calls are the same ones a page-at-a-time loop would
+     * make — except that a page which comes back empty (or fails) cannot stop
+     * the calls already issued alongside it. Whatever those return is thrown
+     * away: the result ends at the empty page, as it always did. With no
+     * `total` in the response nothing can be planned ahead, so it stays one
+     * page at a time.
      */
     async fetchPaginated(service, baseParams, desiredTotal, maxLimit = SpotifyApi.MAX_PAGE_LIMIT) {
         const items = [];
@@ -464,14 +589,30 @@ export class SpotifyApi {
         let total = null;
         while (items.length < desiredTotal) {
             if (total !== null && offset >= total) break;
-            const limit = Math.min(maxLimit, desiredTotal - items.length);
-            const res = await this.fetchSpotifyPlus(service, { ...baseParams, limit, offset });
-            const page = res?.result?.items || [];
-            if (total === null) total = res?.result?.total ?? null;
-            items.push(...page);
-            offset += limit;
-            if (page.length === 0) break;
-            if (total !== null && offset >= total) break;
+            // The next call is always known. The ones after it are known up
+            // front only once `total` is, and only while a full `maxLimit` page
+            // is still wanted beyond them — their limit is then `maxLimit`
+            // however short the pages before them come back.
+            const batch = [{ limit: Math.min(maxLimit, desiredTotal - items.length), offset }];
+            let planned = batch[0].limit;
+            while (total !== null && batch.length < SpotifyApi.MAX_PAGE_CONCURRENCY
+                && desiredTotal - items.length - planned >= maxLimit
+                && offset + planned < total) {
+                batch.push({ limit: maxLimit, offset: offset + planned });
+                planned += maxLimit;
+            }
+            const results = await Promise.all(batch.map(p =>
+                this.fetchSpotifyPlus(service, { ...baseParams, limit: p.limit, offset: p.offset })));
+
+            let done = false;
+            for (let i = 0; i < batch.length && !done; i++) {
+                const page = results[i]?.result?.items || [];
+                if (total === null) total = results[i]?.result?.total ?? null;
+                items.push(...page);
+                offset += batch[i].limit;
+                done = page.length === 0 || (total !== null && offset >= total);
+            }
+            if (done) break;
         }
         return { items, total: total ?? items.length, offset };
     }
@@ -1203,38 +1344,51 @@ export class SpotifyApi {
         return await this.fetchSpotifyPlus('get_playlist_favorites', { ...playlistSortParams(), ...options });
     }
 
-    // Per-artist genre lookup, cached on the instance. Returns string[] of
-    // genres (may be empty). Used to build the Liked Songs filter pills.
+    // Per-artist genre lookup. Returns string[] of genres (may be empty). Used
+    // to build the Liked Songs filter pills, which ask again for every artist
+    // on each visit — so beyond the read cache's few minutes, an answer is kept
+    // for the session (see _remember). A failed lookup still returns [] but is
+    // not kept, so the next call retries it.
     async getArtistGenres(artistId) {
         if (!this.hass || !artistId) return [];
         if (!this._artistGenreCache) this._artistGenreCache = new Map();
         if (this._artistGenreCache.has(artistId)) return this._artistGenreCache.get(artistId);
-        let genres = [];
+        let res = null;
         try {
-            const res = await this.fetchSpotifyPlus('get_artist', { artist_id: artistId });
-            genres = res?.result?.genres || res?.genres || [];
-        } catch (e) { genres = []; }
-        this._artistGenreCache.set(artistId, genres);
+            res = await this.fetchSpotifyPlus('get_artist', { artist_id: artistId });
+        } catch (e) { res = null; }
+        if (!res) return [];
+        const genres = res.result?.genres || res.genres || [];
+        this._remember(this._artistGenreCache, artistId, genres);
         return genres;
     }
 
     /**
      * Fetch a single track's album art URL by Spotify id, memoized for the
-     * session. Used to enrich the Sonos queue (sonos.get_queue returns no art).
-     * Returns a URL string or null.
+     * session. Used to enrich the Sonos queue (sonos.get_queue returns no art),
+     * which asks again for the whole queue on every track change. Returns a
+     * URL string or null. A failed lookup returns null but is not memoized, so
+     * the next call retries it.
      */
     async getTrackArt(trackId) {
         if (!this.hass || !trackId) return null;
         if (!this._trackArtCache) this._trackArtCache = new Map();
         if (this._trackArtCache.has(trackId)) return this._trackArtCache.get(trackId);
-        let url = null;
+        let res = null;
         try {
-            const res = await this.fetchSpotifyPlus('get_track', { track_id: trackId });
-            const track = res?.result || res;
-            url = track?.album?.images?.[0]?.url || null;
-        } catch (e) { url = null; }
-        this._trackArtCache.set(trackId, url);
+            res = await this.fetchSpotifyPlus('get_track', { track_id: trackId });
+        } catch (e) { res = null; }
+        if (!res) return null;
+        const track = res.result || res;
+        const url = track?.album?.images?.[0]?.url || null;
+        this._remember(this._trackArtCache, trackId, url);
         return url;
+    }
+
+    /** Keep a small derived value for the session; past the cap the oldest goes. */
+    _remember(memo, key, value) {
+        memo.set(key, value);
+        if (memo.size > SpotifyApi.DERIVED_MEMO_MAX_ENTRIES) memo.delete(memo.keys().next().value);
     }
 
     async searchPlaylists(query, limit = 10, offset = 0) {

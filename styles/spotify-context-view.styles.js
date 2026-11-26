@@ -137,6 +137,12 @@ export const contextViewStyles = css`
         /* FIX: Enforce minimum height to match loaded content */
         min-height: 56px;
         box-sizing: border-box;
+
+        /* Long lists: skip layout/paint of off-screen rows. The placeholder
+           is the content box (56px row - 2x8px padding); 'auto' then keeps
+           each row's last real size. Edit rows (.edit-row) are not affected. */
+        content-visibility: auto;
+        contain-intrinsic-size: auto 40px;
     }
     /* Inline now-playing layout: equalizer sits left of the green title */
     .track-name { display: flex; align-items: center; gap: 6px; }
@@ -185,6 +191,8 @@ export const contextViewStyles = css`
             border-radius: 0 !important;
             min-height: 64px !important;
             gap: 12px !important;
+            /* 64px row - 2x6px padding */
+            contain-intrinsic-size: auto 52px;
         }
 
         /* Album track numbers: keep them, centered in the art column */

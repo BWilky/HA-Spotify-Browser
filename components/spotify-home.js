@@ -3,7 +3,7 @@ import { sharedStyles } from '../styles/shared-styles.js';
 import { homeStyles } from '../styles/spotify-home.styles.js';
 import { renderCardTemplate, renderCardSkeletonTemplate } from './media-templates.js';
 import { loadConfigPins, buildPinnedRow, dedupeRecentAlbums, sectionFetchWindow, homeRefreshDue } from './controllers/home-content.js';
-import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj, playlistSortParams } from '../utils.js';
+import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj, playlistSortParams, IMG_THUMB } from '../utils.js';
 import { playingBarsIcon } from './common/icons.js';
 
 // --- Shared snippets (lit templates) ---
@@ -257,7 +257,7 @@ class SpotifyHome extends LitElement {
         const id = item.id;
         const uri = item.uri;
         const title = item.name || item.title || 'Unknown';
-        const img = getItemImage(item);
+        const img = getItemImage(item, item.type, IMG_THUMB); // 56px pill art (mobile only)
 
         // Track-level playing (overlay on the art). Note: pinned items might be
         // playlists/albums, but we only match Track ID reliably from HASS.

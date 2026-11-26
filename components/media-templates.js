@@ -1,5 +1,5 @@
 import { html } from "../lit.js";
-import { getItemImage } from "../utils.js";
+import { getItemImage, pickImage, IMG_THUMB, IMG_CARD } from "../utils.js";
 import { heartIcon, heartToggleIcon, queueIcon, menuIcon, playIcon, playingBarsIcon } from "./common/icons.js";
 
 /**
@@ -13,7 +13,7 @@ import { heartIcon, heartToggleIcon, queueIcon, menuIcon, playIcon, playingBarsI
  */
 export function renderCardTemplate(item, type, clickHandler) {
     const isArtist = type === true || type === 'artist';
-    const imgUrl = getItemImage(item);
+    const imgUrl = getItemImage(item, item?.type, IMG_CARD);
     const name = item.name || item.title || 'Unknown';
     // An explicitly provided subtitle wins (even an empty one — home passes a
     // precomputed subtitle); otherwise fall back to release year / type.
@@ -47,7 +47,7 @@ export function renderCardTemplate(item, type, clickHandler) {
  * @returns {TemplateResult} Lit-html template.
  */
 export function renderPillTemplate(item, playHandler, menuHandler, saveHandler, isLiked = false, isPlaying = false) {
-    const imgUrl = getItemImage(item, 'track');
+    const imgUrl = getItemImage(item, 'track', IMG_THUMB);
     const name = item.name || 'Unknown';
     // const duration = msToTime(item.duration_ms); // Pass pre-formatted or format here if utils available
 
@@ -150,6 +150,8 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
     if (!track) return '';
     const artistNames = track.artists ? track.artists.map(a => a.name).join(', ') : 'Unknown';
     const image = track.album?.images?.[0]?.url;
+    // Row art is a <=48px slot: use the small variant (menu keeps the full one).
+    const thumb = pickImage(track.album?.images, IMG_THUMB) || image;
     // Track Data for menu/actions
     const trackData = {
         name: track.name,
@@ -167,7 +169,7 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
     // (albums) there even while playing — the now-playing cue is the inline
     // equalizer + green title next to the track name, matching the native app.
     const firstCol = (isPlaylist && image && !isAlbum)
-        ? html`<img src="${image}" style="width: 40px; height: 40px; border-radius: 4px; object-fit: cover;" loading="lazy">`
+        ? html`<img src="${thumb}" style="width: 40px; height: 40px; border-radius: 4px; object-fit: cover;" loading="lazy" decoding="async">`
         : html`<div class="track-num">${index}</div>`;
 
     // Title: playlist mode carries the inline equalizer on the playing row and
@@ -204,7 +206,7 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
             ${firstCol}
 
             ${!isPlaylist && image ? html`
-            <div class="track-art-small" style="background-image: url('${image}');"></div>
+            <div class="track-art-small" style="background-image: url('${thumb}');"></div>
             ` : ''}
 
             <div class="track-info">
@@ -224,7 +226,7 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
  * Used for "See All" lists where a vertical list is preferred over a grid.
  */
 export function renderMediaRowTemplate(item, type, clickHandler) {
-    const imgUrl = getItemImage(item, type);
+    const imgUrl = getItemImage(item, type, IMG_THUMB);
     const name = item.name || 'Unknown';
 
     let subtitle = '';

@@ -323,26 +323,39 @@ export class SpotifyContextView extends LitElement {
                     const isOwner = !!this._currentUserId && result.owner?.id === this._currentUserId;
                     const totalTracks = result.tracks?.total ?? (result.tracks?.items?.length || 0);
 
+                    // Follow state only matters for playlists we don't own
+                    // (drives the heart button and collaborative edit rights).
+                    const needsFollow = !isOwner && !!this._currentUserId && !!(result.id || id);
+
                     this._contextData = {
                         ...this._contextData,
                         ...result,
                         type: 'playlist',
                         isLoading: false,
+                        // Playlist tracks page in in the background, never via load-more.
+                        hasMore: false,
                         isOwner,
                         canEditItems: isOwner,
+                        // The playlist view reads isFollowing from here instead of
+                        // re-fetching it; followPending tells it to wait for us.
+                        followPending: needsFollow,
                         snapshotId: result.snapshotId || result.snapshot_id || null,
                         tracksComplete: (result.tracks?.items?.length || 0) >= totalTracks,
                         ...(autoEdit ? { autoEdit: true } : {})
                     };
 
-                    // Follow state only matters for playlists we don't own
-                    // (drives the heart button and collaborative edit rights).
-                    if (!isOwner && this._currentUserId && this._contextData.id) {
+                    if (needsFollow) {
+                        let isFollowing;
                         try {
                             const follows = await this.api.checkUserFollowsPlaylist(this._contextData.id, this._currentUserId);
-                            if (follows && Array.isArray(follows) && follows.length > 0) this._isFollowing = follows[0];
+                            if (follows && Array.isArray(follows) && follows.length > 0) isFollowing = this._isFollowing = !!follows[0];
                         } catch (e) { }
-                        this._contextData.canEditItems = !!this._contextData.collaborative && this._isFollowing;
+                        this._contextData = {
+                            ...this._contextData,
+                            canEditItems: !!this._contextData.collaborative && !!this._isFollowing,
+                            followPending: false,
+                            ...(isFollowing !== undefined ? { isFollowing } : {})
+                        };
                     }
 
                     // Update cache
@@ -356,7 +369,7 @@ export class SpotifyContextView extends LitElement {
             } else if (type === 'artist') {
                 // Artist pages load progressively: each promise updates state + cache as it resolves.
                 const artistPromise = this.api.fetchSpotifyPlus('get_artist', { artist_id: id });
-                const albumsPromise = this.api.fetchPaginated('get_artist_albums', { artist_id: id, include_groups: 'album,single' }, 12);
+                const albumsPromise = this.api.fetchPaginated('get_artist_albums', { artist_id: id, include_groups: 'album,single' }, 10);
                 const topTracksPromise = (async () => {
                     // Spotify's own top-tracks list (market-aware, by popularity).
                     // Falls back to a track search, which is newest-first, if the
@@ -372,7 +385,7 @@ export class SpotifyContextView extends LitElement {
                         if (!artistRes?.result?.name) return [];
                         const { items } = await this.api.fetchPaginated('search_tracks', {
                             criteria: `artist:"${artistRes.result.name}"`
-                        }, 12);
+                        }, 10);
                         return items;
                     } catch (e) { return []; }
                 })();
@@ -408,7 +421,7 @@ export class SpotifyContextView extends LitElement {
                     try {
                         const artistRes = await artistPromise;
                         if (!artistRes?.result?.name) return [];
-                        const res = await this.api.searchPlaylists(artistRes.result.name, 12);
+                        const res = await this.api.searchPlaylists(artistRes.result.name, 10);
                         return res?.result?.items || [];
                     } catch (e) { return []; }
                 })();
@@ -445,7 +458,8 @@ export class SpotifyContextView extends LitElement {
                         }
                     }
 
-                    this._contextData = { ...this._contextData, ...albumData, type: 'album', isLoading: false };
+                    // hasMore: albums arrive whole; nothing to load more of.
+                    this._contextData = { ...this._contextData, ...albumData, type: 'album', isLoading: false, hasMore: false };
                     SpotifyContextView.cacheSet(this.pageId, this._contextData);
                     this.requestUpdate();
                 } else {
@@ -702,24 +716,21 @@ export class SpotifyContextView extends LitElement {
     async _hydrateSimilarArtists(artists) {
         // Take top 6 for "Fans Also Like"
         const targetArtists = artists.slice(0, 6);
-        const hydrated = [];
 
-        for (const artist of targetArtists) {
+        // Look them up concurrently; results keep Last.fm's order.
+        const results = await Promise.all(targetArtists.map(async (artist) => {
             try {
                 // Search matching artist in Spotify to get Image & ID
                 const res = await this.api.fetchSpotifyPlus('search_artists', {
                     criteria: artist.name,
                     limit: 1
                 });
-
-                if (res?.result?.items?.[0]) {
-                    hydrated.push(res.result.items[0]);
-                }
+                return res?.result?.items?.[0] || null;
             } catch (e) {
-                // Skip if search fails
+                return null; // Skip if search fails
             }
-        }
-        return hydrated;
+        }));
+        return results.filter(Boolean);
     }
 
     updateHeaderState() {

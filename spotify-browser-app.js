@@ -1,7 +1,7 @@
 import { LitElement, html } from "./lit.js";
 
 import { SpotifyApi, classifyPlaybackError } from './api.js';
-import { parseDeviceItems, normalizeDevice, fireHaptic, extrapolatedPosition, setDebug, debugLog } from './utils.js';
+import { parseDeviceItems, normalizeDevice, fireHaptic, extrapolatedPosition, setDebug, debugLog, pickImage, IMG_THUMB } from './utils.js';
 import { sharedStyles } from './styles/shared-styles.js';
 import { Router } from './router.js';
 import './components/spotify-header.js';
@@ -27,6 +27,10 @@ import { PlayerController } from './components/controllers/player-controller.js'
 import { ensureAppFonts } from './styles/fonts.js';
 
 import './components/devices/index.js'; // Registers Custom Elements
+
+// Shared "no items" value for the context menu: a fresh [] per render is a new
+// reference every time, which re-rendered the menu on every root render.
+const NO_MENU_ITEMS = Object.freeze([]);
 
 class SpotifyBrowserApp extends LitElement {
     static get properties() {
@@ -201,8 +205,8 @@ class SpotifyBrowserApp extends LitElement {
      * Hand the current hass to the services whose updateHass/setHass is a plain
      * pointer swap. Called from shouldUpdate so it runs on every hass change,
      * including the ticks the render gate drops. PlayerController.updateHass
-     * (derives state, can fetch the queue) and router.updateDependencies (fans
-     * out to every cached page) do real work, so they stay in updated().
+     * (derives state, can fetch the queue) and router.updateDependencies
+     * (re-renders the page on screen) do real work, so they stay in updated().
      */
     _syncServiceHass() {
         if (!this.hass) return;
@@ -229,7 +233,7 @@ class SpotifyBrowserApp extends LitElement {
             this._isDesktop = e.matches;
             if (this._isDesktop) {
                 this._stopMiniPlayerProgressTimer();
-            } else if (this._playerState?.isPlaying) {
+            } else if (this._isOpen && this._playerState?.isPlaying) {
                 this._startMiniPlayerProgressTimer();
             }
         };
@@ -294,9 +298,7 @@ class SpotifyBrowserApp extends LitElement {
 
             // Update Header State based on Page Type
             // Instead of blind reset, check if the page is already cached and can report state
-            this._headerAlpha = isHeroPage ? 0 : 1;
-            this._headerTitle = '';
-            this._headerTitleOpacity = 0;
+            this._setHeaderScroll(isHeroPage ? 0 : 1, '', 0);
 
             // Attempt to restore header state if we are navigating back to a cached view
             if (this.router && this.router.pageCache.has(pageId)) {
@@ -321,10 +323,12 @@ class SpotifyBrowserApp extends LitElement {
 
         // Listen for scroll updates from context views (forwarded by Router)
         this.router.addEventListener('header-scroll', (e) => {
-            this._headerAlpha = e.detail.alpha;
-            this._headerTitle = e.detail.title;
-            this._headerTitleOpacity = e.detail.textAlpha;
-            this.requestUpdate();
+            const { alpha, title, textAlpha } = e.detail;
+            if (alpha === this._headerAlpha && title === this._headerTitle
+                && textAlpha === this._headerTitleOpacity) return;
+            // This fires per scroll frame on hero pages, and only the header
+            // reads these values — no root render for it.
+            this._setHeaderScroll(alpha, title, textAlpha);
         });
 
         // Initialize API if ready
@@ -440,9 +444,12 @@ class SpotifyBrowserApp extends LitElement {
         if (changedProperties.has('hass') && this.hass) {
             // The pointer-only services already have this hass (_syncServiceHass,
             // from shouldUpdate). These two do real work, so they run only for
-            // the ticks the gate let through.
+            // the ticks the gate let through. The controller keeps deriving
+            // player state while closed (it is inactive then: no fetching), so
+            // the now-playing deep link has a track to show; pages need hass
+            // only on screen, and the open branch below catches the router up.
             if (this.playerController) this.playerController.updateHass(this.hass);
-            if (this.router) this.router.updateDependencies({ hass: this.hass });
+            if (this.router && this._isOpen) this.router.updateDependencies({ hass: this.hass });
         }
 
         if (changedProperties.has('api') && this.api) {
@@ -489,6 +496,10 @@ class SpotifyBrowserApp extends LitElement {
                     this.router.container = container;
                 }
 
+                // The router was not fed hass while closed; give it the
+                // current one before any page is shown or created.
+                if (this.router) this.router.updateDependencies({ hass: this.hass });
+
                 // OPENING: reset to home per the parsed home_on_exit config
                 // ({ enabled, timeout } — timeout keeps the last page for N seconds)
                 const hoe = this.config.browser.home_on_exit;
@@ -510,7 +521,12 @@ class SpotifyBrowserApp extends LitElement {
 
                 // Fresh data on every (re)open: scan once the socket/grace allows,
                 // then re-read queue/recents (the queue can change while the track doesn't).
+                // The controller fetched nothing while closed; let it again first.
+                this.playerController?.setActive(true);
                 this._refreshAfterReturn();
+
+                // The mini-player progress tick is not run while closed.
+                if (this._playerState?.isPlaying && !this._isDesktop) this._startMiniPlayerProgressTimer();
 
                 // The storage-corruption prompt is raised at boot, usually
                 // while closed (no popups element to host it) — show it now.
@@ -528,6 +544,10 @@ class SpotifyBrowserApp extends LitElement {
                 this._lastCloseTime = Date.now();
                 this._closeAllPopups(); // ANY close dismisses every popup/sheet
                 this._stopIdleWatch();
+                // Nothing is on screen: stop the controller's fetching (queue,
+                // recents, liked state, art) and the mini-player progress tick.
+                this.playerController?.setActive(false);
+                this._stopMiniPlayerProgressTimer();
                 this._restoreViewport(); // hand the keyboard/viewport behavior back to HA
                 this.style.removeProperty('--spf-app-height');
                 this.shadowRoot?.querySelector('.browser-wrapper')?.classList.remove('kb-open');
@@ -585,6 +605,35 @@ class SpotifyBrowserApp extends LitElement {
         }));
     }
 
+    /**
+     * The scroll-driven <spotify-header> properties. The one place they are
+     * computed: render() binds them, and _setHeaderScroll sets them on the
+     * element directly between renders.
+     */
+    _headerScrollProps() {
+        return {
+            transparent: this._headerAlpha < 1,
+            scrollAlpha: this._headerAlpha,
+            centerTitle: this._headerTitle,
+            titleOpacity: this._headerTitleOpacity,
+        };
+    }
+
+    /**
+     * Set the scroll-driven header state and apply it to <spotify-header>
+     * directly, without a root render. EVERY write to these fields goes
+     * through here: Lit skips a binding whose value equals the one it last
+     * committed, so a root render alone would not undo a value that was set
+     * on the element behind its back.
+     */
+    _setHeaderScroll(alpha, title, textAlpha) {
+        this._headerAlpha = alpha;
+        this._headerTitle = title;
+        this._headerTitleOpacity = textAlpha;
+        const header = this.shadowRoot.querySelector('spotify-header');
+        if (header) Object.assign(header, this._headerScrollProps());
+    }
+
     render() {
         if (!this.config || !this.hass || !this._isOpen) {
             return html``;
@@ -630,7 +679,11 @@ class SpotifyBrowserApp extends LitElement {
             }
         }
 
-
+        const headerScroll = this._headerScrollProps();
+        // Deliberately the full-size cover although the slot is small: the
+        // full-screen now-playing view shows this same image, and having it
+        // loaded here is what lets that view slide up with its art in place.
+        const miniPlayerArt = pickImage(this._playerState?.track?.album?.images);
 
         return html`
             <div class="backdrop ${this._entered ? 'open' : ''}" @click=${() => this._animateClose()}></div>
@@ -652,10 +705,10 @@ class SpotifyBrowserApp extends LitElement {
                     .backButtonVisible=${this.router && this.router.history.length > 0}
                     .searchVisible=${this._currentPageId === 'search' || this._searchVisible}
                     .menuVisible=${this._menuVisible}
-                    .transparent=${this._headerAlpha < 1}
-                    .scrollAlpha=${this._headerAlpha}
-                    .centerTitle=${this._headerTitle}
-                    .titleOpacity=${this._headerTitleOpacity}
+                    .transparent=${headerScroll.transparent}
+                    .scrollAlpha=${headerScroll.scrollAlpha}
+                    .centerTitle=${headerScroll.centerTitle}
+                    .titleOpacity=${headerScroll.titleOpacity}
                     .searchQuery=${this._currentSearchQuery || ''}
                     .avatarVisible=${this._currentPageId === 'home'}
                     .avatarUrl=${this._resolveAvatar()}
@@ -751,7 +804,7 @@ class SpotifyBrowserApp extends LitElement {
                 <spotify-context-menu
                     .visible=${this._ctxMenuVisible}
                     .header=${this._ctxMenuHeader}
-                    .items=${this._ctxMenuItems || []}
+                    .items=${this._ctxMenuItems || NO_MENU_ITEMS}
                     .anchor=${this._ctxMenuAnchor}
                     @action=${this._handleMenuAction}
                     @close=${() => { this._ctxMenuVisible = false; }}
@@ -784,7 +837,7 @@ class SpotifyBrowserApp extends LitElement {
 
                 ${!this._isDesktop && this._playerState && this._playerState.track ? html`
                     <div class="mobile-mini-player" @click=${this._handleMiniPlayerClick}>
-                        <div class="mini-player-art" style="${this._playerState.track?.album?.images?.[0]?.url ? `background-image: url('${this._playerState.track.album.images[0].url}')` : ''}"></div>
+                        <div class="mini-player-art" style="${miniPlayerArt ? `background-image: url('${miniPlayerArt}')` : ''}"></div>
                         <div class="mini-player-info">
                             <div class="mini-player-title">
                                 ${this._playerState.track?.name || 'Unknown Track'}
@@ -1041,6 +1094,9 @@ class SpotifyBrowserApp extends LitElement {
         this.playerController = new PlayerController(this.api);
         this.playerController.updateConfig(this.config);
         this.playerController.setSonosBridge(this.sonosBridge);
+        // Fetch (queue, recents, liked state, art) only while the overlay is
+        // open; the open/close branches of updated() flip this afterwards.
+        this.playerController.setActive(this._isOpen);
 
         // Listen to state changes
         this.playerController.addEventListener('state-changed', this._onPlayerStateChange);
@@ -1207,6 +1263,10 @@ class SpotifyBrowserApp extends LitElement {
         const popups = this.shadowRoot.getElementById('popups');
         if (popups) popups.showToast("Refreshing...");
 
+        // An explicit refresh must not be served from the api's short-lived
+        // catalog cache (artist/album/track objects).
+        this.api?.clearReadCache();
+
         const pageId = this.router?.currentPageId;
         const page = this.router?.pageCache.get(pageId);
         if (pageId === 'home') {
@@ -1291,7 +1351,7 @@ class SpotifyBrowserApp extends LitElement {
         this._currentProfileImg = '';
         try {
             const profile = await this.api.getCurrentUserProfile();
-            const url = profile?.images?.[0]?.url;
+            const url = pickImage(profile?.images, IMG_THUMB); // 32px header / 48px account-sheet avatar
             if (url && this.config?.entity === entity) this._currentProfileImg = url;
         } catch (_) { /* default icon */ }
     }
@@ -1660,7 +1720,7 @@ class SpotifyBrowserApp extends LitElement {
     _onPlayerStateChange(e) {
         this._playerState = e.detail;
         this._maybeShowPendingNowPlaying();
-        if (this._playerState?.isPlaying && !this._isDesktop) {
+        if (this._isOpen && this._playerState?.isPlaying && !this._isDesktop) {
             this._startMiniPlayerProgressTimer();
         } else {
             this._stopMiniPlayerProgressTimer();

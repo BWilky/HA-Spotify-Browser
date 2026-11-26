@@ -50,7 +50,7 @@ function setup(t) {
             if (service === 'get_player_recent_tracks') return { result: { items: api.recent } };
             return { success: true };
         },
-        checkTrackFavorites: async () => api.liked,
+        checkTrackFavorites: async () => { calls.check_favorites = (calls.check_favorites || 0) + 1; return api.liked; },
         saveTrackFavorites: async () => { api.liked = true; },
         removeTrackFavorites: async () => { api.liked = false; },
         playMedia: async () => ({ success: true }),
@@ -74,6 +74,7 @@ async function started(t, stateOpts) {
 }
 
 const queueCalls = (calls) => calls.get_player_queue_info || 0;
+const totalCalls = (calls) => Object.values(calls).reduce((sum, n) => sum + n, 0);
 
 /* ---- state-changed: one fresh object per real change, none otherwise ---- */
 
@@ -351,4 +352,169 @@ test('the end-of-track latch re-arms when the same track moves back before its e
     mock.timers.tick(60_000);
     await settle();
     assert.equal(queueCalls(calls), 3);
+});
+
+/* ---- setActive: no automatic network work or timers while nothing is on screen ---- */
+
+test('while inactive, a track change is announced but makes no api calls, preloads no art and arms no timers', async (t) => {
+    const { ctrl, api, calls, events } = setup(t);
+    const preloads = [];
+    globalThis.Image = class { set src(url) { preloads.push(url); } };
+    t.after(() => { delete globalThis.Image; });
+    const withArt = (n) => ({ ...track(n), album: { images: [{ url: `https://img.test/${n}` }] } });
+    api.queue = [withArt(1), withArt(2)];
+
+    ctrl.setActive(false);
+    ctrl.updateHass(hassWith(playerState()));
+    await settle();
+
+    assert.equal(events.length, 1);
+    assert.equal(events[0].track.id, 'id0');
+    assert.equal(events[0].isPlaying, true);
+    assert.equal(totalCalls(calls), 0);
+
+    // An explicit refresh gives peekNext() art to preload; the next track change must not use it.
+    await ctrl.refreshQueue();
+    const afterRefresh = totalCalls(calls);
+    ctrl.updateHass(hassWith(playerState({ n: 5, position: 0, duration: 100 })));
+    await settle();
+
+    assert.equal(ctrl.state.track.id, 'id5');
+    assert.equal(ctrl._lastTrackId, 'spotify:track:id5', 'track-change bookkeeping stays current');
+    assert.equal(totalCalls(calls), afterRefresh);
+    assert.deepEqual(preloads, []);
+    assert.equal(ctrl._eosTimer, null);
+    assert.ok(!ctrl._refreshTimer);
+
+    mock.timers.tick(600_000); // well past the track end and any debounce
+    await settle();
+    assert.equal(totalCalls(calls), afterRefresh);
+});
+
+test('an explicit refreshQueue / refreshRecent still works while inactive, without chaining further work', async (t) => {
+    const { ctrl, api, calls, events } = setup(t);
+    ctrl.setActive(false);
+    ctrl.updateHass(hassWith(playerState({ position: 200, duration: 200 }))); // already past its end
+    await settle();
+    events.length = 0;
+
+    await ctrl.refreshQueue();
+    await ctrl.refreshRecent();
+
+    assert.equal(events.length, 2);
+    assert.equal(events[0].queue, api.queue);
+    assert.equal(events[1].recentTracks, api.recent);
+    assert.equal(totalCalls(calls), 2);
+    assert.equal(ctrl._eosTimer, null, 'the refresh re-enters state sync but arms no end-of-track timer');
+
+    mock.timers.tick(60_000);
+    await settle();
+    assert.equal(totalCalls(calls), 2);
+});
+
+test('setActive(false) cancels an armed end-of-track timer and a pending debounced refresh', async (t) => {
+    const { ctrl, calls } = await started(t, { position: 190, duration: 200 });
+    ctrl.updateHass(hassWith(playerState({ n: 1, position: 0, duration: 30 }))); // arms the 1s debounce
+    await settle();
+    assert.ok(ctrl._eosTimer, 'end-of-track timer armed while active');
+    assert.ok(ctrl._refreshTimer, 'debounced queue refresh pending while active');
+    const before = totalCalls(calls);
+
+    ctrl.setActive(false);
+
+    assert.equal(ctrl._eosTimer, null);
+    assert.equal(ctrl._refreshTimer, null);
+    mock.timers.tick(600_000);
+    await settle();
+    assert.equal(totalCalls(calls), before);
+});
+
+test('setActive(true) re-checks the like state once, re-arms the end-of-track timer and fetches neither queue nor recents', async (t) => {
+    const { ctrl, api, calls, events } = await started(t, { position: 190, duration: 200 });
+    ctrl.setActive(false);
+    api.liked = true; // liked from another client while nothing was on screen
+    const before = { ...calls };
+    events.length = 0;
+
+    ctrl.setActive(true);
+    await settle();
+
+    assert.equal(calls.check_favorites, before.check_favorites + 1);
+    assert.equal(queueCalls(calls), queueCalls(before));
+    assert.equal(calls.get_player_recent_tracks, before.get_player_recent_tracks);
+    assert.equal(ctrl.state.isLiked, true);
+    assert.equal(events.length, 1, 'only the like change is announced');
+    assert.ok(ctrl._eosTimer, 'end-of-track timer re-armed from the current hass state');
+
+    mock.timers.tick(10_300);
+    await settle();
+    assert.equal(queueCalls(calls), queueCalls(before) + 1, 'and it still fires at the end of the track');
+});
+
+test('setActive with the current value is a no-op', async (t) => {
+    const { ctrl, calls, events } = await started(t);
+    const before = totalCalls(calls);
+
+    ctrl.setActive(true);
+    await settle();
+
+    assert.equal(totalCalls(calls), before);
+    assert.equal(events.length, 0);
+});
+
+test('a track that advanced through the queue while inactive is trimmed out of "up next" on return', async (t) => {
+    const { ctrl, calls, events } = await started(t);
+    ctrl.setActive(false);
+    const before = { ...calls };
+
+    // Two tracks later: id2 is playing; the queue [id1, id2, id3] was never re-fetched.
+    ctrl.updateHass(hassWith(playerState({ n: 1, position: 0, duration: 100 })));
+    ctrl.updateHass(hassWith(playerState({ n: 2, position: 0, duration: 100 })));
+    await settle();
+    assert.equal(ctrl.state.track.id, 'id2');
+    assert.deepEqual(ctrl.state.queue.map(q => q.id), ['id1', 'id2', 'id3'], 'untouched while inactive');
+    assert.equal(totalCalls(calls), totalCalls(before));
+
+    events.length = 0;
+    ctrl.setActive(true);
+
+    assert.deepEqual(ctrl.state.queue.map(q => q.id), ['id3']);
+    assert.equal(ctrl.peekNext().id, 'id3', 'the next-track prediction is no longer a played track');
+    assert.equal(events.length, 1);
+    await settle();
+    assert.equal(queueCalls(calls), queueCalls(before), 'the caller owns the queue fetch');
+    assert.equal(calls.get_player_recent_tracks, before.get_player_recent_tracks);
+    assert.equal(calls.check_favorites, before.check_favorites + 1, 'like state checked for the track now shown');
+
+    // Returning again with no further track change trims nothing more.
+    ctrl.setActive(false);
+    ctrl.setActive(true);
+    assert.deepEqual(ctrl.state.queue.map(q => q.id), ['id3']);
+});
+
+test('a track from outside the old queue leaves it for the caller\'s refresh to replace', async (t) => {
+    const { ctrl, api } = await started(t);
+    ctrl.setActive(false);
+    ctrl.updateHass(hassWith(playerState({ n: 7, position: 0, duration: 100 })));
+
+    ctrl.setActive(true);
+    assert.deepEqual(ctrl.state.queue.map(q => q.id), ['id1', 'id2', 'id3']);
+
+    api.queue = [track(8), track(9)];
+    await ctrl.refreshQueue(); // what the app's _refreshAfterReturn does
+    assert.deepEqual(ctrl.state.queue.map(q => q.id), ['id8', 'id9']);
+});
+
+test('the optimistic safety timer does not fetch while inactive', async (t) => {
+    const { ctrl, calls } = await started(t);
+    await ctrl.skipNext(); // arms the 8s safety net; HASS never confirms
+    const before = { ...calls };
+
+    ctrl.setActive(false);
+    mock.timers.tick(8000);
+    await settle();
+
+    assert.equal(ctrl._optimisticTrack, null, 'the prediction is still dropped');
+    assert.equal(queueCalls(calls), queueCalls(before));
+    assert.equal(calls.get_player_recent_tracks, before.get_player_recent_tracks);
 });

@@ -1,3 +1,5 @@
+import { pickImage, IMG_CARD } from '../../utils.js';
+
 /**
  * Collapses a recent-tracks history list into unique albums
  * (keeping the most recent track's name/artists per album).
@@ -104,16 +106,16 @@ async function fetchConfigPin(api, item) {
     }
     if (item.type === 'album') {
         const d = first(await api.fetchSpotifyPlus('get_album', { album_id: item.id }));
-        return d && { name: d.name, image: d.images?.[0]?.url, uri: d.uri, subtitle: (d.artists || []).map(a => a.name).join(', ') || 'Album' };
+        return d && { name: d.name, image: pickImage(d.images, IMG_CARD) || undefined, uri: d.uri, subtitle: (d.artists || []).map(a => a.name).join(', ') || 'Album' };
     }
     if (item.type === 'artist') {
         const d = first(await api.fetchSpotifyPlus('get_artist', { artist_id: item.id }));
-        return d && { name: d.name, image: d.images?.[0]?.url, uri: d.uri, subtitle: 'Artist' };
+        return d && { name: d.name, image: pickImage(d.images, IMG_CARD) || undefined, uri: d.uri, subtitle: 'Artist' };
     }
     if (item.type === 'track') {
         const d = first(await api.fetchSpotifyPlus('get_track', { track_id: item.id }));
-        return d && { name: d.name, image: d.album?.images?.[0]?.url, uri: d.uri, subtitle: (d.artists || []).map(a => a.name).join(', ') };
+        return d && { name: d.name, image: pickImage(d.album?.images, IMG_CARD) || undefined, uri: d.uri, subtitle: (d.artists || []).map(a => a.name).join(', ') };
     }
     const d = first(await api.fetchSpotifyPlus('get_playlist', { playlist_id: item.id }));
-    return d && { name: d.name, image: d.images?.[0]?.url, uri: d.uri, subtitle: d.owner?.display_name ? `By ${d.owner.display_name}` : 'Playlist' };
+    return d && { name: d.name, image: pickImage(d.images, IMG_CARD) || undefined, uri: d.uri, subtitle: d.owner?.display_name ? `By ${d.owner.display_name}` : 'Playlist' };
 }

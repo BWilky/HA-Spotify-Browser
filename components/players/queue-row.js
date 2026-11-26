@@ -1,4 +1,5 @@
 import { html } from "../../lit.js";
+import { pickImage, IMG_THUMB } from "../../utils.js";
 
 /**
  * Shared queue/recent row template: album art + track name + artist(s).
@@ -34,7 +35,7 @@ export function renderQueueRow(track, {
     playedAt = '',
 } = {}) {
     const v = VARIANTS[variant];
-    const art = track?.album?.images?.[0]?.url || '';
+    const art = pickImage(track?.album?.images, IMG_THUMB); // 40-52px slots
     const artist = track?.artists?.map(a => a.name).join(', ') || 'Unknown Artist';
     return html`
         <div class="${active ? `${v.row} ${v.active}` : v.row}" @click=${onClick}>

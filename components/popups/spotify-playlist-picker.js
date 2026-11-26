@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "../../lit.js";
-import { fireHaptic, getPlaylistSort, setPlaylistSort } from "../../utils.js";
+import { fireHaptic, getPlaylistSort, setPlaylistSort, pickImage, IMG_THUMB } from "../../utils.js";
 import { artFallbackStyles } from '../../styles/shared-styles.js';
 import '../bottom-sheet.js';
 
@@ -419,17 +419,20 @@ export class SpotifyPlaylistPicker extends LitElement {
                     ` : ''}
                     ${this._loading
                         ? html`<div class="loading-row">Loading your playlists…</div>`
-                        : playlists.map(pl => html`
+                        : playlists.map(pl => {
+                            const art = pickImage(pl.images, IMG_THUMB); // 52px slot
+                            return html`
                             <div class="row ${this._selected.has(pl.id) ? 'selected' : ''} ${this._busy ? 'busy' : ''}"
                                  @click=${() => this._togglePlaylist(pl.id)}>
-                                <div class="art ${pl.images?.[0]?.url ? '' : 'art-fallback'}" style=${pl.images?.[0]?.url ? `background-image: url('${pl.images[0].url}')` : ''}></div>
+                                <div class="art ${art ? '' : 'art-fallback'}" style=${art ? `background-image: url('${art}')` : ''}></div>
                                 <div class="row-text">
                                     <div class="row-name">${pl.name}</div>
                                     <div class="row-sub">${pl.tracks?.total ?? 0} songs</div>
                                 </div>
                                 <div class="sel">${this._checkSvg()}</div>
                             </div>
-                        `)}
+                        `;
+                        })}
                     ${!this._loading && playlists.length === 0 && !showLiked
                         ? html`<div class="empty">${q ? 'No playlists match.' : 'No playlists you can add to yet.'}</div>` : ''}
                 </div>

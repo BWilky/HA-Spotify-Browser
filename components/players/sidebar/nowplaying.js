@@ -1,5 +1,5 @@
 import { LitElement, html, css } from "../../../lit.js";
-import { parseDeviceItems, normalizeDevice, parseSpotifyUri, extrapolatedPosition, formatTime } from "../../../utils.js";
+import { parseDeviceItems, normalizeDevice, parseSpotifyUri, extrapolatedPosition, formatTime, pickImage, IMG_THUMB } from "../../../utils.js";
 import "../../common/spotify-slider.js";
 import "../../devices/index.js";
 
@@ -16,6 +16,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
             isLiked: { type: Boolean },
             deviceManager: { type: Object },
             playerController: { type: Object }, // Added
+            visible: { type: Boolean }, // Sidebar is on screen (drives the progress timer)
             _volumeVisible: { type: Boolean, state: true },
             _devicesVisible: { type: Boolean, state: true }, // Added
             _devices: { type: Array, state: true }, // Added
@@ -311,7 +312,15 @@ export class SpotifySidebarNowPlaying extends LitElement {
 
     connectedCallback() {
         super.connectedCallback();
-        this._startProgressTimer();
+        if (this.visible) this._startProgressTimer();
+    }
+
+    updated(changedProperties) {
+        // The 1s progress tick only runs while the sidebar is on screen.
+        if (changedProperties.has('visible')) {
+            if (this.visible) this._startProgressTimer();
+            else this._stopProgressTimer();
+        }
     }
 
     disconnectedCallback() {
@@ -571,6 +580,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
         // Read from the entity actually driving playback (the Sonos entity when
         // casting to Sonos), not always SpotifyPlus, so device name/volume stay correct.
         const stateObj = this.playerController?.playbackStateObj?.() || this.hass?.states[this.config?.entity];
+        const art = pickImage(this.track?.album?.images, IMG_THUMB); // 56px slot
 
         // Determine Playing State variables for rendering
         // ...
@@ -579,7 +589,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
             <div class="queue-now-playing-row">
                 <div class="queue-item-content">
                     <div class="queue-art large" 
-                         style="${this.track?.album?.images?.[0]?.url ? `background-image: url('${this.track.album.images[0].url}')` : 'background-color: #333'}"
+                         style="${art ? `background-image: url('${art}')` : 'background-color: #333'}"
                          @click=${this._handleArtClick}></div>
                     <div class="queue-info">
                         <div class="queue-title active">${this.track?.name || 'Unknown Track'}</div>

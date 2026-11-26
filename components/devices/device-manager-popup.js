@@ -232,6 +232,16 @@ export class SpotifyDeviceManagerPopup extends LitElement {
         this._dragIndex = null;
     }
 
+    /**
+     * Skip rendering while the popup is closed: `hass` is replaced about once
+     * a second during playback. The `visible` flip itself always renders.
+     * Nothing is lost by dropping the hidden updates — opening re-reads the
+     * saved devices/settings and re-scans the live ones (see updated()).
+     */
+    shouldUpdate(changedProperties) {
+        return this.visible || changedProperties.has('visible') || !this.hasUpdated;
+    }
+
     updated(changedProperties) {
         if (changedProperties.has('deviceManager') || (changedProperties.has('visible') && this.visible)) {
             // First load or visibility toggle - force refresh

@@ -134,9 +134,19 @@ export class SpotifyArtistView extends LitElement {
 
     updated(changedProperties) {
         if (changedProperties.has('data')) {
+            // The parent swaps `data` once per progressive load step (artist,
+            // albums, top tracks, playlists, similar). Following is per artist
+            // id (known from the loading placeholder on); likes only for top
+            // tracks not checked yet.
+            const prev = changedProperties.get('data');
+            const identityChanged = !prev || prev.id !== this.data?.id;
+            // A reload of the same artist (refresh(): loading placeholder) starts
+            // over too, so an explicit refresh re-reads follow and like state.
+            const reloaded = !identityChanged && !!this.data?.isLoading && !this.data.topTracks && !!prev.topTracks;
+            if (identityChanged || reloaded) this._likeChecked = new Set();
             this._checkPinStatus();
-            this._checkFollowStatus();
-            this._checkTrackLikes();
+            if (identityChanged || reloaded) this._checkFollowStatus();
+            if (identityChanged || prev?.topTracks !== this.data?.topTracks) this._checkTrackLikes();
         }
 
         // --- STATE HANDOFF LOGIC ---
@@ -293,12 +303,19 @@ export class SpotifyArtistView extends LitElement {
     async _checkTrackLikes() {
         if (!this.api || !this.data || !this.data.topTracks) return;
 
-        const trackIds = this.data.topTracks.map(t => t.id || t.track?.id).filter(Boolean);
+        // Only ids not checked yet for this artist; the top-tracks list is
+        // far below the 50-id cap, so one call. Unmarked again on failure.
+        if (!this._likeChecked) this._likeChecked = new Set();
+        const seen = this._likeChecked;
+        const trackIds = [...new Set(this.data.topTracks.map(t => t.id || t.track?.id).filter(id => id && !seen.has(id)))].slice(0, 50);
         if (trackIds.length === 0) return;
 
+        trackIds.forEach(id => seen.add(id));
         const results = await this.api.checkTrackFavorites(trackIds);
-        if (results) {
+        if (results && typeof results === 'object' && Object.keys(results).length) {
             this._trackLikes = { ...this._trackLikes, ...results };
+        } else {
+            trackIds.forEach(id => seen.delete(id));
         }
     }
 

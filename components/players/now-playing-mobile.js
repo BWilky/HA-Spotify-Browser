@@ -217,7 +217,7 @@ export class SpotifyNowPlayingMobile extends LitElement {
 
     connectedCallback() {
         super.connectedCallback();
-        this._startProgressTimer();
+        if (this.visible) this._startProgressTimer();
     }
 
     disconnectedCallback() {
@@ -226,6 +226,16 @@ export class SpotifyNowPlayingMobile extends LitElement {
         this._cleanupSwipeListeners();
         if (this._commitTimer) clearTimeout(this._commitTimer);
         if (this._commitResetTimer) clearTimeout(this._commitResetTimer);
+    }
+
+    /**
+     * Skip rendering while the sheet is closed: hass/state change about once a
+     * second during playback. The `visible` flip itself always renders (so the
+     * slide plays and opening shows current data); changes that arrived while
+     * closed are not replayed, so updated() re-derives them on open.
+     */
+    shouldUpdate(changedProps) {
+        return this.visible || changedProps.has('visible') || !this.hasUpdated;
     }
 
     updated(changedProps) {
@@ -240,7 +250,8 @@ export class SpotifyNowPlayingMobile extends LitElement {
                 this._stopProgressTimer();
             }
         }
-        if (changedProps.has('state')) {
+        // On open too: the track may have changed while closed (see shouldUpdate).
+        if (changedProps.has('state') || (changedProps.has('visible') && this.visible)) {
             this._updateAccent(this.state?.track?.album?.images?.[0]?.url || '');
         }
         // After an optimistic skip re-renders with the new track centered, snap

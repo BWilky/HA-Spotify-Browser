@@ -127,6 +127,21 @@ export class SpotifySidebarPlayer extends LitElement {
         }
     }
 
+    /**
+     * Skip rendering while the sidebar is off screen: `hass` is replaced about
+     * once a second during playback, and each render also re-renders the
+     * now-playing header and track list. `visible` is true whenever the
+     * sidebar is shown, including docked open on desktop. The `visible` flip
+     * itself always renders (slide + current data), and a new playerController
+     * always gets through so updated() can move the state-changed listener.
+     */
+    shouldUpdate(changedProperties) {
+        return this.visible
+            || changedProperties.has('visible')
+            || changedProperties.has('playerController')
+            || !this.hasUpdated;
+    }
+
     updated(changedProperties) {
         if (changedProperties.has('playerController')) {
             const oldCtrl = changedProperties.get('playerController');
@@ -199,6 +214,7 @@ export class SpotifySidebarPlayer extends LitElement {
                         .api=${this.api}
                         .deviceManager=${this.deviceManager}
                         .playerController=${this.playerController}
+                        .visible=${this.visible}
                         .track=${track}
                         .isPlaying=${this._state?.isPlaying}
                         .isShuffle=${this._state?.isShuffle}

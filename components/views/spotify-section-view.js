@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
-import { getItemImage } from '../../utils.js';
+import { getItemImage, IMG_THUMB } from '../../utils.js';
 
 export class SpotifySectionView extends LitElement {
     static get properties() {
@@ -129,7 +129,7 @@ export class SpotifySectionView extends LitElement {
         if (!item) return '';
         const title = item.name || 'Unknown';
 
-        const img = getItemImage(item);
+        const img = getItemImage(item, item.type, IMG_THUMB);
 
         // Robust Subtitle Logic
         let subtitle = '';

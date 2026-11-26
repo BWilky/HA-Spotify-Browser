@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
-import { getItemImage } from '../utils.js';
+import { getItemImage, IMG_THUMB, IMG_CARD } from '../utils.js';
 
 // Filter pills. "All" (type null) is the mixed/relevance view. SpotifyPlus
 // search exposes these four content types (no Profiles/Podcasts/Audiobooks),
@@ -16,9 +16,10 @@ const FILTERS = [
 const TYPE_LABEL = { track: 'Song', playlist: 'Playlist', artist: 'Artist', album: 'Album' };
 
 class SpotifySearch extends LitElement {
+    // `hass` is deliberately not reactive: nothing here reads it, and declaring
+    // it re-rendered this page (even hidden) on every player state change.
     static get properties() {
         return {
-            hass: { type: Object },
             api: { type: Object },
             config: { type: Object },
             _results: { type: Object },
@@ -320,7 +321,7 @@ class SpotifySearch extends LitElement {
     }
 
     _renderTopResult(artist) {
-        const img = getItemImage(artist, 'artist');
+        const img = getItemImage(artist, 'artist', IMG_CARD); // 64px mobile / 80px desktop avatar
         const following = this._topFollow;
         return html`
             <div class="top-result" @click=${() => this._navigate('artist', artist)}>
@@ -363,7 +364,7 @@ class SpotifySearch extends LitElement {
     }
 
     _renderRow(item, type) {
-        const img = getItemImage(item, type);
+        const img = getItemImage(item, type, IMG_THUMB);
         const isArtist = type === 'artist';
         const isTrack = type === 'track';
 
@@ -422,7 +423,7 @@ class SpotifySearch extends LitElement {
                 album: item.album?.name || '',
                 uri: item.uri,
                 id: item.id,
-                image: getItemImage(item, 'track'),
+                image: getItemImage(item, 'track', IMG_THUMB),
                 anchor: e.currentTarget.getBoundingClientRect(),
             }, bubbles: true, composed: true
         }));

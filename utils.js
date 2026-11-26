@@ -135,16 +135,50 @@ export function deviceBrand(d) {
 /* --- Media item helpers --- */
 
 /**
- * Resolves the best image URL for a media item (track, album, playlist, artist,
- * or flattened pinned item). Returns '' when none is available.
+ * Display-size hints for pickImage/getItemImage, in source pixels. Spotify
+ * serves ~640/300/64 for albums and playlists and ~640/320/160 for artists;
+ * these pick the same variants Spotify's own clients use for each slot.
  */
-export function getItemImage(item, type = item?.type) {
+const HI_DPI = typeof window !== 'undefined' && (window.devicePixelRatio || 1) >= 1.5;
+// List rows, queue rows, mini-player (<= ~56px slots). On high-density
+// screens a 64px source would be upscaled ~2-3x and look soft, so ask for the
+// next size up there (300 for albums/playlists, 160 for artists); standard
+// displays — including the low-power wall tablets this matters most for —
+// get the 64px variant.
+export const IMG_THUMB = HI_DPI ? 128 : 64;
+export const IMG_CARD = 300;  // grid/carousel cards (<= ~200px slots)
+
+/**
+ * Picks the smallest image at least `minPx` wide from a Spotify `images`
+ * array. With no `minPx` (or 0) it returns the first entry, which Spotify
+ * lists largest-first. Entries without a numeric width (mosaic covers,
+ * user-uploaded playlist art) can't be ranked: if nothing sized qualifies,
+ * the first entry is returned, exactly as before. Returns '' for no images.
+ */
+export function pickImage(images, minPx = 0) {
+    if (!Array.isArray(images) || images.length === 0) return '';
+    if (!minPx) return images[0]?.url || '';
+    let best = null;
+    for (const img of images) {
+        const w = img?.width;
+        if (typeof w !== 'number' || w < minPx || !img.url) continue;
+        if (!best || w < best.width) best = img;
+    }
+    return (best || images[0])?.url || '';
+}
+
+/**
+ * Resolves the best image URL for a media item (track, album, playlist, artist,
+ * or flattened pinned item). Returns '' when none is available. Pass `minPx`
+ * (IMG_THUMB / IMG_CARD) to get a right-sized variant instead of the largest.
+ */
+export function getItemImage(item, type = item?.type, minPx = 0) {
     if (!item) return '';
     if (item.image) return item.image; // Flattened pinned items
-    if (type === 'track' && item.album?.images?.length) return item.album.images[0].url;
-    if (item.images?.length) return item.images[0].url;
-    if (item.album?.images?.length) return item.album.images[0].url;
-    if (item.track?.album?.images?.length) return item.track.album.images[0].url;
+    if (type === 'track' && item.album?.images?.length) return pickImage(item.album.images, minPx);
+    if (item.images?.length) return pickImage(item.images, minPx);
+    if (item.album?.images?.length) return pickImage(item.album.images, minPx);
+    if (item.track?.album?.images?.length) return pickImage(item.track.album.images, minPx);
     return '';
 }
 

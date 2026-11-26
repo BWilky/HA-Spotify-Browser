@@ -36,6 +36,64 @@ export class PlayerController extends EventTarget {
         this._queueFetchId = 0; // Invalidates in-flight queue refreshes
         this._transferHoldTrack = null; // Track shown while a device transfer settles
         this._transferHoldUntil = 0;
+        this._active = true; // See setActive()
+        this._queueStale = false; // Track changed while inactive: queue not re-fetched for it
+    }
+
+    /**
+     * Whether anything is on screen to show this player (active by default).
+     * While inactive, updateHass() still derives and announces the HASS-driven
+     * state and keeps the track-change bookkeeping current, but nothing
+     * automatic touches the network or arms a timer: no queue/recents refresh
+     * or like check on a track change, no art preload, no end-of-track timer.
+     * Explicit calls (refreshQueue(), skip, like, ...) work as usual.
+     *
+     * Re-activating re-checks the like state of the displayed track and re-arms
+     * the end-of-track timer. It deliberately does NOT fetch the queue or
+     * recents — the caller refreshes those right after (the app's
+     * _refreshAfterReturn); until that lands, _trimStaleQueue() keeps
+     * already-played tracks out of "up next".
+     */
+    setActive(active) {
+        active = !!active;
+        if (active === this._active) return;
+        this._active = active;
+
+        if (!active) {
+            if (this._refreshTimer) {
+                // A cancelled debounce is a queue refresh that never ran.
+                clearTimeout(this._refreshTimer);
+                this._refreshTimer = null;
+                this._queueStale = true;
+            }
+            if (this._eosTimer) {
+                clearTimeout(this._eosTimer);
+                this._eosTimer = null;
+            }
+            return;
+        }
+
+        this._likedCheckId = null; // force a like re-check for the displayed track
+        this._updateStateFromHass();
+        this._trimStaleQueue();
+    }
+
+    /**
+     * The track changed while inactive, so the queue was never re-fetched for
+     * it. If the track now playing is in that old queue, drop everything up to
+     * and including it — what playing through the queue leaves — so played
+     * tracks aren't listed (or predicted by peekNext) as upcoming while the
+     * caller's refresh is in flight. A track that isn't in the old queue
+     * (context switched) leaves it untouched for that refresh to replace.
+     */
+    _trimStaleQueue() {
+        if (!this._queueStale || this._optimisticTrack) return;
+        this._queueStale = false;
+        const uri = this.state.track?.uri;
+        const index = uri ? this.state.queue.findIndex(t => t.uri === uri) : -1;
+        if (index === -1) return;
+        this._sonosQueueBase += index + 1; // keep Sonos row -> queue position mapping aligned
+        this._setState({ queue: this.state.queue.slice(index + 1) });
     }
 
     /**
@@ -167,7 +225,7 @@ export class PlayerController extends EventTarget {
         // an optimistic target while HASS still reports the previous track — so
         // keying the check off the displayed id (not media_content_id) keeps the
         // heart matching the visible track instead of lagging a song behind.
-        if (track?.id && track.id !== this._likedCheckId) {
+        if (this._active && track?.id && track.id !== this._likedCheckId) {
             this._likedCheckId = track.id;
             this.checkTrackFavorites(track.id);
         }
@@ -194,15 +252,19 @@ export class PlayerController extends EventTarget {
         if (this._lastTrackId !== currentTrackId) {
             this._lastTrackId = currentTrackId;
             // (Liked status is refreshed above, keyed off the displayed track id.)
-            if (this.state.queue.length === 0) {
+            if (!this._active) {
+                this._queueStale = true; // no fetches while inactive (see setActive)
+            } else if (this.state.queue.length === 0) {
                 this.refreshQueue();
             } else {
                 this._debounceRefreshQueue();
             }
             // Keep recents fresh so the "previous" track (and its art) is always
             // ready for an instant swipe/prev, and warm the neighbour images.
-            this.refreshRecent();
-            this._preloadNeighborArt();
+            if (this._active) {
+                this.refreshRecent();
+                this._preloadNeighborArt();
+            }
         }
 
         // Optimistic handoff: clear the prediction once HASS confirms it OR once
@@ -382,6 +444,7 @@ export class PlayerController extends EventTarget {
             if (fetchId !== this._queueFetchId) return;
             if (res && res.result) {
                 this._cachedApiQueue = res.result;
+                this._queueStale = false;
                 this._setState({ queue: res.result.queue || [] });
 
                 // Trigger update. Re-calculating state picks up the new API data if
@@ -419,6 +482,7 @@ export class PlayerController extends EventTarget {
 
             this._sonosQueueBase = curPos >= 0 ? curPos + 1 : 0;
             this._cachedSonosQueue = full;
+            this._queueStale = false;
             this._setState({ queue: full.slice(this._sonosQueueBase) });
 
             // sonos.get_queue returns no artwork; enrich the upcoming slice in the
@@ -661,6 +725,10 @@ export class PlayerController extends EventTarget {
             this._optimisticTrack = null;
             this._optimisticFromUri = null;
             this._queueBackup = null;
+            if (!this._active) {
+                this._queueStale = true; // caller refreshes on return (see setActive)
+                return;
+            }
             this.refreshQueue();
             this.refreshRecent();
         }, 8000);
@@ -728,6 +796,7 @@ export class PlayerController extends EventTarget {
             this._eosTimer = null;
         }
 
+        if (!this._active) return; // no timers while inactive (see setActive)
         if (stateObj.state !== 'playing') return;
 
         const position = stateObj.attributes.media_position;

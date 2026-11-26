@@ -1,7 +1,7 @@
 import { LitElement, html } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { libraryStyles } from '../../styles/spotify-library.styles.js';
-import { getItemImage, isContextPlaying, getLibrarySort, setLibrarySort } from '../../utils.js';
+import { getItemImage, isContextPlaying, getPlayerStateObj, getLibrarySort, setLibrarySort, IMG_THUMB } from '../../utils.js';
 import { menuIcon } from '../common/icons.js';
 
 // Filter pills. `null` = the default "Recents" view; the rest map to a saved /
@@ -53,12 +53,52 @@ class SpotifyLibrary extends LitElement {
         this._loadRecent();
     }
 
+    /**
+     * Gate re-renders on HASS ticks: hass arrives ~1/s while playing, but the
+     * only thing this page reads from it is which context is playing (the
+     * green row title, via _isPlaying). Skip hass-only ticks that didn't change
+     * that; any other changed property renders as usual.
+     */
+    shouldUpdate(changedProperties) {
+        const sig = this._playingSignature();
+        const sigChanged = sig !== this._playingSig;
+        this._playingSig = sig;
+        if (changedProperties.has('hass') && changedProperties.size === 1 && !sigChanged) {
+            return false;
+        }
+        return true;
+    }
+
+    /** Everything _isPlaying() reads from hass, as a comparable string. */
+    _playingSignature() {
+        const stateObj = getPlayerStateObj(this.hass, this.config?.entity);
+        if (!stateObj || stateObj.state !== 'playing') return '';
+        const attrs = stateObj.attributes || {};
+        return `${attrs.media_context_content_id}|${attrs.media_content_id}`;
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        // disconnectedCallback dropped the observer; render once so updated()
+        // re-observes the sentinel (hass ticks no longer re-render on their own).
+        if (this.hasUpdated) this.requestUpdate();
+    }
+
     updated() {
-        // Re-observe the sentinel every render: observe() always fires an initial
-        // callback, which chains page loads when the sentinel is still in view
-        // (a plain observer only fires on intersection *changes*).
-        this._observer?.disconnect();
+        // Re-observe the sentinel when it may need another load: observe() always
+        // fires an initial callback, which chains page loads when the sentinel is
+        // still in view (a plain observer only fires on intersection *changes*).
+        // That's only needed when the sentinel element is new (a paged load
+        // removes it while loading, then renders a fresh one) or the rows above
+        // it changed (A–Z reveals keep the same sentinel; a filter switch can
+        // reuse it). Other renders keep the existing observation.
         const sentinel = this.renderRoot.querySelector('.scroll-sentinel');
+        const filter = this._filter;
+        const rowsKey = `${filter}|${filter ? this[this._bucketKey(filter)]?.length : ''}|${this._paging[filter]?.visible}`;
+        if (sentinel === this._observedSentinel && rowsKey === this._observedRowsKey) return;
+        this._observedSentinel = sentinel;
+        this._observedRowsKey = rowsKey;
+        this._observer?.disconnect();
         if (!sentinel) return;
         if (!this._observer) {
             this._observer = new IntersectionObserver((entries) => {
@@ -72,6 +112,7 @@ class SpotifyLibrary extends LitElement {
         super.disconnectedCallback();
         this._observer?.disconnect();
         this._observer = null;
+        this._observedSentinel = null;
     }
 
     // ---- Data ----
@@ -403,7 +444,7 @@ class SpotifyLibrary extends LitElement {
     }
 
     _renderRow(item, type) {
-        const img = getItemImage(item, type);
+        const img = getItemImage(item, type, IMG_THUMB);
         const isArtist = type === 'artist';
         let sub;
         if (isArtist) sub = 'Artist';
@@ -468,7 +509,7 @@ class SpotifyLibrary extends LitElement {
 
         this.dispatchEvent(new CustomEvent('open-context-menu', {
             detail: {
-                header: { image: getItemImage(item, type), name: item.name, subtitle: type === 'playlist' ? 'Playlist' : 'Album' },
+                header: { image: getItemImage(item, type, IMG_THUMB), name: item.name, subtitle: type === 'playlist' ? 'Playlist' : 'Album' },
                 items,
                 anchor,
                 onAction: (id) => actions[id]?.(),

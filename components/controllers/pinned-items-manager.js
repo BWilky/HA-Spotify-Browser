@@ -1,3 +1,5 @@
+import { pickImage, IMG_CARD } from '../../utils.js';
+
 // Liked Songs artwork: the same purple gradient + white heart the Liked Songs
 // view uses (linear-gradient(135deg, #4a35d6, #8d7bf0)), inlined as an SVG data
 // URI so it can be used anywhere an image URL is expected (pills, cards, editor).
@@ -246,7 +248,7 @@ export class PinnedItemsManager {
                 name: displayName,
                 title: displayName,
                 subtitle: item.subtitle || item.description || '',
-                image: item.image || item.images?.[0]?.url || item.album?.images?.[0]?.url || null,
+                image: item.image || pickImage(item.images, IMG_CARD) || pickImage(item.album?.images, IMG_CARD) || null,
                 uri: item.uri
             };
 
@@ -316,7 +318,7 @@ export class PinnedItemsManager {
                     data = res.result || res;
                     title = data.name;
                     subtitle = 'Artist';
-                    image = data.images?.[0]?.url;
+                    image = pickImage(data.images, IMG_CARD) || undefined;
                 }
             } else if (type === 'album') {
                 const res = await api.fetchSpotifyPlus('get_album', { album_id: id }, true);
@@ -324,7 +326,7 @@ export class PinnedItemsManager {
                     data = res.result || res;
                     title = data.name;
                     subtitle = data.artists ? data.artists.map(a => a.name).join(', ') : 'Album';
-                    image = data.images?.[0]?.url;
+                    image = pickImage(data.images, IMG_CARD) || undefined;
                 }
             } else if (type === 'playlist') {
                 const res = await api.fetchSpotifyPlus('get_playlist', { playlist_id: id }, true);
@@ -332,7 +334,7 @@ export class PinnedItemsManager {
                     data = res.result || res;
                     title = data.name;
                     subtitle = data.description || (data.owner ? `By ${data.owner.display_name}` : 'Playlist');
-                    image = data.images?.[0]?.url;
+                    image = pickImage(data.images, IMG_CARD) || undefined;
                 }
             } else if (type === 'track') {
                 const res = await api.fetchSpotifyPlus('get_track', { track_id: id }, true);
@@ -342,7 +344,7 @@ export class PinnedItemsManager {
                     const artistName = data.artists ? data.artists.map(a => a.name).join(', ') : '';
                     const albumName = data.album ? data.album.name : '';
                     subtitle = artistName ? `${artistName} • ${albumName}` : albumName;
-                    image = data.album?.images?.[0]?.url;
+                    image = pickImage(data.album?.images, IMG_CARD) || undefined;
                 }
             }
 

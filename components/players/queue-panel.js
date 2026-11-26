@@ -110,6 +110,13 @@ export class SpotifyQueuePanel extends LitElement {
         this._tab = 'queue';
     }
 
+    // Skip rendering while the sheet is closed (hass/state change about once a
+    // second during playback). The `visible` flip itself always renders, so
+    // the slide plays and opening shows the current queue.
+    shouldUpdate(changedProps) {
+        return this.visible || changedProps.has('visible') || !this.hasUpdated;
+    }
+
     // Animated bars while playing (shared icon), frozen bars while paused.
     _eqIcon() {
         return this.state?.isPlaying

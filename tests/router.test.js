@@ -138,3 +138,92 @@ test('header-scroll is relayed only from the page currently shown', (t) => {
     artistPage.dispatchEvent(new CustomEvent('header-scroll', { detail: { alpha: 0, title: 'Artist', textAlpha: 0 } }));
     assert.deepEqual(relayed, ['Playlist', 'Artist']);
 });
+
+// A cached page that records every hass it is handed.
+function fakeHassPage() {
+    return { seen: [], set hass(h) { this.seen.push(h); }, requestUpdate() {} };
+}
+
+test('hass goes only to the page on screen', () => {
+    const router = makeRouter();
+    const home = fakeHassPage();
+    const playlist = fakeHassPage();
+    router.pageCache.set('home', home);
+    router.pageCache.set('playlist:1', playlist);
+    router.currentPageId = 'playlist:1';
+
+    const hass = { states: {} };
+    router.updateDependencies({ hass });
+
+    assert.deepEqual(playlist.seen, [hass]);
+    assert.deepEqual(home.seen, []);
+    assert.equal(router.hass, hass);
+});
+
+test('hass is stored even when no page is on screen yet', () => {
+    const router = makeRouter();
+    const hass = { states: {} };
+    router.updateDependencies({ hass });
+    assert.equal(router.hass, hass);
+});
+
+test('a cached page receives the latest hass when navigated back to', () => {
+    const router = makeRouter();
+    const home = fakeHassPage();
+    const playlist = fakeHassPage();
+    router.pageCache.set('home', home);
+    router.pageCache.set('playlist:1', playlist);
+    router.currentPageId = 'home';
+
+    const first = { states: {} };
+    router.updateDependencies({ hass: first });
+    router.navigateTo('playlist:1');
+
+    // Two ticks arrive while home is hidden behind the playlist.
+    const second = { states: {} };
+    const latest = { states: {} };
+    router.updateDependencies({ hass: second });
+    router.updateDependencies({ hass: latest });
+    assert.deepEqual(home.seen, [first]);
+
+    router.goBack();
+    assert.deepEqual(home.seen, [first, latest]);
+
+    // ...and from then on it is the one that follows hass again.
+    const after = { states: {} };
+    router.updateDependencies({ hass: after });
+    assert.deepEqual(home.seen, [first, latest, after]);
+    assert.deepEqual(playlist.seen, [first, second, latest]);
+});
+
+test('a newly created page is given the stored hass', (t) => {
+    const prevDocument = globalThis.document;
+    globalThis.document = { createElement: () => fakeElement() };
+    t.after(() => { globalThis.document = prevDocument; });
+
+    const router = makeRouter();
+    const hass = { states: {} };
+    router.updateDependencies({ hass });
+    router.navigateTo('album:9');
+
+    assert.equal(router.pageCache.get('album:9').hass, hass);
+});
+
+test('api, config and pinned still reach every cached page', () => {
+    const router = makeRouter();
+    const home = fakeHassPage();
+    const playlist = fakeHassPage();
+    router.pageCache.set('home', home);
+    router.pageCache.set('playlist:1', playlist);
+    router.currentPageId = 'playlist:1';
+
+    const api = {}, config = { browser: {} }, pinned = {};
+    router.updateDependencies({ api, config, pinned });
+
+    for (const page of [home, playlist]) {
+        assert.equal(page.api, api);
+        assert.equal(page.config, config);
+        assert.equal(page.pinned, pinned);
+        assert.deepEqual(page.seen, []);
+    }
+});

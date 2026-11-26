@@ -20,8 +20,12 @@ export class Router extends EventTarget {
 
     updateDependencies({ hass, api, config, pinned }) {
         if (hass) {
+            // Only the page on screen follows hass (it changes ~1/s while music
+            // plays, and each assignment runs that page's update cycle). A
+            // cached page is handed the stored hass when navigateTo shows it.
             this.hass = hass;
-            this.pageCache.forEach(page => page.hass = hass);
+            const currentPage = this.pageCache.get(this.currentPageId);
+            if (currentPage) currentPage.hass = hass;
         }
         if (api) {
             this.api = api;
@@ -58,7 +62,9 @@ export class Router extends EventTarget {
             // LRU: Move to end (newest)
             this.pageCache.delete(pageId);
             this.pageCache.set(pageId, newPage);
-            // If reusing a component, update its data/config just in case
+            // If reusing a component, update its data/config just in case.
+            // hass above all: the page saw none of it while hidden.
+            if (this.hass) newPage.hass = this.hass;
             if (newPage.requestUpdate) newPage.requestUpdate();
             // Update data on existing page if needed (implementation specific)
             if (pageId === 'search') {

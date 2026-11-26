@@ -1,10 +1,15 @@
-import { LitElement, html, css, repeat } from "../../lit.js";
+import { LitElement, html, css, repeat, guard } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
-import { fireHaptic } from '../../utils.js';
+import { fireHaptic, pickImage, IMG_THUMB } from '../../utils.js';
 import { renderTrackRowTemplate } from '../media-templates.js';
 import { heartToggleIcon, playIcon, pauseIcon, menuIcon, reorderLinesIcon, minusCircleIcon } from '../common/icons.js';
 import { ListDragController } from '../controllers/list-drag-controller.js';
+
+// Spotify's check endpoints accept at most 50 ids per call.
+const LIKE_CHECK_CHUNK = 50;
+// Stable empty list, so "no tracks yet" doesn't look like a new array each render.
+const NO_ITEMS = [];
 
 export class SpotifyPlaylistView extends LitElement {
     static get properties() {
@@ -489,9 +494,8 @@ export class SpotifyPlaylistView extends LitElement {
 
     connectedCallback() {
         super.connectedCallback();
-        // Check following status if data available
-        this._checkFollowStatus();
-        this._checkPinStatus();
+        // Follow/pin status is checked from updated() when data arrives; the
+        // first update always carries 'data', so checking here doubled it.
     }
 
 
@@ -518,6 +522,30 @@ export class SpotifyPlaylistView extends LitElement {
         return true;
     }
 
+    /**
+     * Derived list values, recomputed only when their inputs change (render
+     * runs on every hero/follow/pin/player-state change too).
+     */
+    willUpdate() {
+        const allItems = this.data?.tracks?.items || NO_ITEMS;
+        if (allItems !== this._durationItems) {
+            this._durationItems = allItems;
+            this._totalMs = allItems.reduce((s, it) => s + ((it.track || it)?.duration_ms || 0), 0);
+        }
+        // Genre filter (Liked Songs only). _trackGenres is filled in place, and
+        // every fill is followed by _rebuildGenrePills assigning a new
+        // _genrePills array, so that identity doubles as its change signal.
+        const genre = this.data?.type === 'likedsongs' ? this._activeGenre : null;
+        if (allItems !== this._filterItems || genre !== this._filterGenre || this._genrePills !== this._filterPills) {
+            this._filterItems = allItems;
+            this._filterGenre = genre;
+            this._filterPills = this._genrePills;
+            this._trackItems = genre
+                ? allItems.filter(it => (this._trackGenres[(it.track || it)?.id] || []).includes(genre))
+                : allItems;
+        }
+    }
+
     updated(changedProperties) {
         if (changedProperties.has('data')) {
             // The router reuses this element across pages — never carry an
@@ -527,13 +555,31 @@ export class SpotifyPlaylistView extends LitElement {
                 this._workingItems = null;
                 this._origItems = null;
             }
-            this._checkFollowStatus();
-            this._checkPinStatus();
-            this._checkTrackLikes();
-            if (this.data?.type === 'likedsongs') this._enrichGenres();
-            if (this.data?.type === 'album') {
-                this._checkAlbumLike();
-                this._fetchArtistInfo();
+            // The parent swaps `data` for every background track page and
+            // load-more. Id-scoped checks run only when the page identity
+            // changes or when what they depend on first becomes available.
+            const prev = changedProperties.get('data');
+            const data = this.data;
+            const identityChanged = !prev || !data || prev.id !== data.id || prev.type !== data.type;
+            // A reload of the same page (refresh(): placeholder with no tracks)
+            // starts over too, so an explicit refresh re-reads the likes.
+            if (identityChanged || !data?.tracks?.items) this._likeChecked = new Set();
+            const loaded = !!data && !data.isLoading && (identityChanged || !!prev?.isLoading);
+            // Follow: needs isOwner (known once loaded) and the parent's follow
+            // fetch to settle (followPending true -> false).
+            if (data?.type === 'playlist' && !data.isLoading && !data.followPending
+                && (loaded || !!prev?.followPending)) {
+                this._checkFollowStatus();
+            }
+            if (identityChanged) this._checkPinStatus();
+            // Likes + genres: only when the track list itself changed.
+            const itemsChanged = identityChanged || prev?.tracks?.items !== data?.tracks?.items;
+            if (itemsChanged) this._checkTrackLikes();
+            if (itemsChanged && data?.type === 'likedsongs') this._enrichGenres();
+            if (data?.type === 'album') {
+                if (identityChanged) this._checkAlbumLike();
+                // Needs data.artists, which arrives with the loaded album.
+                if (identityChanged || prev?.artists !== data.artists) this._fetchArtistInfo();
             }
             // One-shot: navigated here via "Edit Playlist" (library row menu).
             // Waits for the full track list — reorder math needs it.
@@ -568,6 +614,12 @@ export class SpotifyPlaylistView extends LitElement {
         // and delete lives in the header menu instead.
         if (this.data.isOwner) {
             this._isFollowing = false;
+            return;
+        }
+
+        // The parent context-view already fetched it while loading.
+        if (typeof this.data.isFollowing === 'boolean') {
+            this._isFollowing = this.data.isFollowing;
             return;
         }
 
@@ -796,17 +848,13 @@ export class SpotifyPlaylistView extends LitElement {
         const isLiked = data.type === 'likedsongs';
         const isAlbum = data.type === 'album';
 
-        // Filter the track list by the active genre pill (Liked Songs only).
-        const allItems = data.tracks?.items || [];
-        const trackItems = (isLiked && this._activeGenre)
-            ? allItems.filter(it => (this._trackGenres[(it.track || it)?.id] || []).includes(this._activeGenre))
-            : allItems;
+        // Filtered by the active genre pill (Liked Songs only); see willUpdate.
+        const trackItems = this._trackItems;
 
         // Native mobile text stack: description, owner row, "saves • duration".
         const descLine = !isLiked ? (data.description || '') : '';
         const ownerName = !isLiked ? (data.owner?.display_name || '') : '';
-        const totalMs = allItems.reduce((s, it) => s + ((it.track || it)?.duration_ms || 0), 0);
-        const durStr = this._formatDuration(totalMs);
+        const durStr = this._formatDuration(this._totalMs);
         const saves = data.followers?.total;
         const savesStr = (saves != null) ? `${new Intl.NumberFormat().format(saves)} saves` : '';
         const metaLine = [savesStr, durStr].filter(Boolean).join(' • ');
@@ -913,15 +961,20 @@ export class SpotifyPlaylistView extends LitElement {
                         <div class="track-list">
                             ${(() => {
                     const playingId = this._getPlayingTrackId();
+                    // guard: skip the whole list unless something a row
+                    // renders changed — the rows read only the (filtered)
+                    // items, the playing track id, the like map and the page
+                    // type (album index column). Handlers read `this` at
+                    // click time, so reused closures stay correct.
                     // Keyed rows let Lit reuse existing row DOM when pages are
                     // appended (load-more). Key includes the index because a
                     // playlist may legally contain the same track twice, and
                     // repeat() requires unique keys.
-                    return repeat(
+                    return guard([trackItems, playingId, this._trackLikes, data.type], () => repeat(
                         trackItems,
                         (item, index) => `${(item.track || item)?.id || 'na'}:${index}`,
                         (item, index) => this.renderTrackRow(item.track || item, index + 1, playingId)
-                    );
+                    ));
                 })()}
                             ${isLiked && this._activeGenre && trackItems.length === 0
                 ? html`<div style="padding: 32px 16px; text-align: center; color: var(--spf-text-sub);">No liked songs match this filter yet.</div>`
@@ -998,17 +1051,31 @@ export class SpotifyPlaylistView extends LitElement {
         }));
     }
 
+    /**
+     * Like state for tracks not yet checked on this page, at most 50 ids per
+     * call. Ids are marked when requested (so an overlapping data swap doesn't
+     * re-request them) and unmarked again if their call fails.
+     */
     async _checkTrackLikes() {
         if (!this.api || !this.data?.tracks?.items) return;
-        const ids = this.data.tracks.items
+        if (!this._likeChecked) this._likeChecked = new Set();
+        const seen = this._likeChecked;
+        const ids = [...new Set(this.data.tracks.items
             .map(item => (item.track || item)?.id)
-            .filter(Boolean);
+            .filter(id => id && !seen.has(id)))];
         if (ids.length === 0) return;
 
-        const results = await this.api.checkTrackFavorites(ids);
-        if (results && typeof results === 'object') {
-            this._trackLikes = { ...this._trackLikes, ...results };
-        }
+        const chunks = [];
+        for (let i = 0; i < ids.length; i += LIKE_CHECK_CHUNK) chunks.push(ids.slice(i, i + LIKE_CHECK_CHUNK));
+        await Promise.all(chunks.map(async (chunk) => {
+            chunk.forEach(id => seen.add(id));
+            const results = await this.api.checkTrackFavorites(chunk);
+            if (results && typeof results === 'object' && Object.keys(results).length) {
+                this._trackLikes = { ...this._trackLikes, ...results };
+            } else {
+                chunk.forEach(id => seen.delete(id));
+            }
+        }));
     }
 
     /**
@@ -1241,6 +1308,8 @@ export class SpotifyPlaylistView extends LitElement {
                 composed: true
             }));
         } else {
+            // Keep the (cached) page data in step: a rebuilt view reads it.
+            this.data.isFollowing = optimisticState;
             this.dispatchEvent(new CustomEvent('show-toast', {
                 detail: { message: `${optimisticState ? 'Added to' : 'Removed from'} your library.` },
                 bubbles: true,
@@ -1584,7 +1653,7 @@ export class SpotifyPlaylistView extends LitElement {
     _renderEditRow(entry, index) {
         const track = entry.item?.track || entry.item;
         const images = track?.album?.images;
-        const artUrl = (images && (images[0]?.url || images[images.length - 1]?.url)) || '';
+        const artUrl = (images && (pickImage(images, IMG_THUMB) || images[images.length - 1]?.url)) || '';
         return html`
             <div class="edit-row ${this._drag.rowClass(index)}">
                 <button class="edit-remove" title="Remove" ?disabled=${this._saving}
@@ -1628,7 +1697,7 @@ export class SpotifyPlaylistView extends LitElement {
         if (!this.api) return;
         try {
             const res = await this.api.fetchSpotifyPlus('get_artist', { artist_id: artist.id });
-            const img = res?.result?.images?.[0]?.url;
+            const img = pickImage(res?.result?.images, IMG_THUMB);
             if (img && this._artistInfo?.id === artist.id) {
                 this._artistInfo = { ...this._artistInfo, image: img };
             }
