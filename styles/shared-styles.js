@@ -308,7 +308,8 @@ export const sharedStyles = css`
         .header { padding: var(--spf-safe-top, 0px) 12px 0 12px !important; }
         .header-left, .header-right { gap: 8px !important; }
 
-        /* Mobile Bottom Nav and Mini Player styles */
+        /* Mobile Bottom Nav (the mini-player's styles live in its own
+           element, components/players/mini-player.js) */
         .mobile-bottom-nav {
             position: absolute;
             bottom: 0;
@@ -347,136 +348,6 @@ export const sharedStyles = css`
         }
         .nav-tab.active {
             color: #ffffff;
-        }
-        .mobile-mini-player {
-            position: absolute;
-            bottom: calc(60px + var(--spf-safe-bottom, 0px) + 8px);
-            left: 8px;
-            right: 8px;
-            height: 62px;
-            background: rgba(40, 40, 40, 0.95);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            border-radius: 8px;
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
-            display: flex;
-            align-items: center;
-            padding: 8px 8px 8px 10px;
-            z-index: 9999;
-            cursor: pointer;
-            box-sizing: border-box;
-            gap: 10px;
-            overflow: hidden;
-        }
-        .mini-player-art {
-            width: 44px;
-            height: 44px;
-            border-radius: 4px;
-            background-size: cover;
-            background-position: center;
-            background-color: var(--spf-skeleton-bg);
-            flex-shrink: 0;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        }
-        .mini-player-info {
-            flex: 1;
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            gap: 3px;
-        }
-        .mini-player-title {
-            font-size: var(--spf-text-base, 13.5px);
-            font-weight: 700;
-            color: #ffffff;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            line-height: 1.2;
-        }
-        .mini-player-sep { color: #b3b3b3; }
-        .mini-player-artist-inline { color: #b3b3b3; font-weight: 500; }
-        .mini-player-artist {
-            font-size: var(--spf-text-xs, 11px);
-            color: #b3b3b3;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            line-height: 1.2;
-        }
-        .mini-player-device-line {
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            cursor: pointer;
-            color: var(--spf-brand, #1ed760);
-            font-size: var(--spf-text-sm, 12px);
-            font-weight: 700;
-            line-height: 1.2;
-            min-width: 0;
-        }
-        .mini-player-device-line svg {
-            width: 14px; height: 14px; fill: currentColor; flex-shrink: 0;
-        }
-        .mini-player-device-line span {
-            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        }
-        .mini-player-device-btn {
-            background: transparent;
-            border: none;
-            color: #ffffff;
-            width: 38px;
-            height: 38px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            padding: 0;
-            flex-shrink: 0;
-            border-radius: 50%;
-            transition: transform 0.1s ease, color 0.15s ease;
-        }
-        .mini-player-device-btn.connected { color: var(--spf-brand, #1ed760); }
-        .mini-player-device-btn:active { transform: scale(0.9); }
-        .mini-player-device-btn svg { width: 22px; height: 22px; }
-        .mini-player-play-btn {
-            background: transparent;
-            border: none;
-            color: #ffffff;
-            width: 32px;
-            height: 32px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            padding: 0;
-            flex-shrink: 0;
-            border-radius: 50%;
-            transition: transform 0.1s ease;
-        }
-        .mini-player-play-btn:active {
-            transform: scale(0.9);
-        }
-        .mini-player-play-btn svg {
-            width: 24px;
-            height: 24px;
-            fill: currentColor;
-        }
-        .mini-player-progress {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 2px;
-            background: rgba(255, 255, 255, 0.1);
-        }
-        .mini-player-progress-bar {
-            height: 100%;
-            background: var(--spf-brand, #1ed760);
-            width: 0%;
-            transition: width 0.5s linear;
         }
 
         /* Ensure view containers are padded above mini player and bottom nav */

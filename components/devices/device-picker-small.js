@@ -1,4 +1,5 @@
 import { LitElement, html, css } from "../../lit.js";
+import { listIcon } from '../common/icons.js';
 
 export class SpotifyDevicePickerSmall extends LitElement {
     static get properties() {
@@ -125,7 +126,7 @@ export class SpotifyDevicePickerSmall extends LitElement {
                     <div class="more-devices-row" @click=${this._openManager}>
                         <div class="device-name">More devices...</div>
                         <div class="device-icon">
-                            <svg width="20" height="20" viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h18V5H3zm0 6h12v-2H3v2z"/></svg>
+                            ${listIcon(20)}
                         </div>
                     </div>
                 `}

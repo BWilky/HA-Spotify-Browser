@@ -104,8 +104,8 @@ for (const vp of [{ name: 'desktop', width: 1400, height: 900 }, { name: 'mobile
 
   // 5c. Mobile-only surfaces: mini-player present, open full-screen now-playing.
   if (vp.name === 'mobile') {
-    P.mobile_layout = await page.evaluate(() => { const a = document.querySelector('spotify-browser-app'); const sr = a.shadowRoot; const np = sr.querySelector('spotify-now-playing-mobile'); return { isDesktop: a._isDesktop, miniPlayer: !!sr.querySelector('.mini-player-art'), nowPlayingEl: !!np }; });
-    await page.evaluate(() => { const a = document.querySelector('spotify-browser-app'); const mp = a.shadowRoot.querySelector('.mini-player-art'); if (mp) mp.click(); });
+    P.mobile_layout = await page.evaluate(() => { const deep = (root, sel) => { for (const el of root.querySelectorAll('*')) { if (el.matches(sel)) return el; if (el.shadowRoot) { const r = deep(el.shadowRoot, sel); if (r) return r; } } return null; }; const a = document.querySelector('spotify-browser-app'); const sr = a.shadowRoot; const np = sr.querySelector('spotify-now-playing-mobile'); return { isDesktop: a._isDesktop, miniPlayer: !!deep(sr, '.mini-player-art'), nowPlayingEl: !!np }; });
+    await page.evaluate(() => { const deep = (root, sel) => { for (const el of root.querySelectorAll('*')) { if (el.matches(sel)) return el; if (el.shadowRoot) { const r = deep(el.shadowRoot, sel); if (r) return r; } } return null; }; const mp = deep(document.querySelector('spotify-browser-app').shadowRoot, '.mini-player-art'); if (mp) mp.click(); });
     await sleep(1200);
     P.now_playing_open = await page.evaluate(() => { const np = document.querySelector('spotify-browser-app').shadowRoot.querySelector('spotify-now-playing-mobile'); return np ? { visible: !!np.visible, hasArt: !!np.shadowRoot.querySelector('img, [style*="background-image"]') } : null; });
     await page.screenshot({ path: path.join(outDir, `${label}-${vp.name}-5-nowplaying.png`) });
@@ -233,6 +233,26 @@ for (const vp of [{ name: 'desktop', width: 1400, height: 900 }, { name: 'mobile
     return out;
   }, vp.name === 'desktop');
   await page.evaluate(() => window.__setHass(window.__makeHass(9))); await sleep(1500);
+
+  // Escape with stacked overlays: only the top one should close per press.
+  {
+    const flags = (names) => page.evaluate((names) => { const a = document.querySelector('spotify-browser-app'); return Object.fromEntries(names.map(n => [n, !!a[n]])); }, names);
+    const set = (name, v) => page.evaluate(([name, v]) => { document.querySelector('spotify-browser-app')[name] = v; }, [name, v]);
+    const pair = ['_playlistPickerVisible', '_playlistDialogVisible'];
+    await set(pair[0], true); await sleep(500); await set(pair[1], true); await sleep(700);
+    const esc = {};
+    await page.keyboard.press('Escape'); await sleep(600); esc.after_first_escape = await flags(pair);
+    await page.keyboard.press('Escape'); await sleep(600); esc.after_second_escape = await flags(pair);
+    await set(pair[0], false); await set(pair[1], false); await sleep(300);
+    await set('_accountSheetVisible', true); await sleep(700);
+    await page.keyboard.press('Escape'); await sleep(600); esc.account_sheet_after_escape = await flags(['_accountSheetVisible']);
+    await set('_accountSheetVisible', false);
+    await set('_reorderVisible', true); await sleep(700);
+    await page.keyboard.press('Escape'); await sleep(600); esc.reorder_after_escape = await flags(['_reorderVisible']);
+    await set('_reorderVisible', false); await sleep(300);
+    esc.overlay_still_open = await page.evaluate(() => !!document.querySelector('spotify-browser-app')._isOpen);
+    P.escape = esc;
+  }
 
   // 6. Track change while open (expected to fetch).
   m = await mark();

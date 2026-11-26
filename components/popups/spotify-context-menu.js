@@ -2,6 +2,7 @@ import { LitElement, html, css, svg } from "../../lit.js";
 import '../bottom-sheet.js';
 import { heartToggleIcon } from '../common/icons.js';
 import { popoverPosition } from '../../utils.js';
+import { registerOverlay } from '../controllers/overlay-stack.js';
 
 /**
  * Menu glyphs: a local thin-stroke set mirroring the Spotify app's menu
@@ -45,6 +46,10 @@ export const MENU_ICONS = {
  *   .items    [{ id, label, icon, danger? }]
  *   .anchor   { left, top, right, bottom } — trigger's viewport rect
  * Emits `action` (detail: item id) and `close`.
+ *
+ * Escape: the desktop popover registers in the shared overlay stack, so it is
+ * the top overlay and Escape closes only it. The mobile variant is a
+ * <spotify-bottom-sheet>, which registers itself — never both.
  */
 class SpotifyContextMenu extends LitElement {
     static get properties() {
@@ -141,7 +146,7 @@ class SpotifyContextMenu extends LitElement {
         this.header = null;
         this.items = [];
         this.anchor = null;
-        this._onKeyDown = this._onKeyDown.bind(this);
+        this._unregister = null;
     }
 
     get _isDesktop() {
@@ -149,27 +154,33 @@ class SpotifyContextMenu extends LitElement {
     }
 
     updated(changed) {
-        if (changed.has('visible')) {
-            if (this.visible) {
-                // Capture phase so this runs before an underlying sheet's
-                // Escape handler; preventDefault tells that sheet to stay open.
-                window.addEventListener('keydown', this._onKeyDown, true);
-                if (this._isDesktop) this._placePopover();
-            } else {
-                window.removeEventListener('keydown', this._onKeyDown, true);
-            }
+        if (changed.has('visible') && this.visible && this._renderedPopover) this._placePopover();
+        this._syncOverlay();
+    }
+
+    /**
+     * Only the desktop popover registers here; the mobile sheet registers
+     * itself. Follows what was actually rendered, so a resize across the
+     * breakpoint while open swaps the registration rather than doubling it.
+     */
+    _syncOverlay() {
+        const want = this.visible && this._renderedPopover && this.isConnected;
+        if (want && !this._unregister) {
+            this._unregister = registerOverlay(() => this._close());
+        } else if (!want && this._unregister) {
+            this._unregister();
+            this._unregister = null;
         }
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        if (this.hasUpdated) this._syncOverlay();
     }
 
     disconnectedCallback() {
         super.disconnectedCallback();
-        window.removeEventListener('keydown', this._onKeyDown, true);
-    }
-
-    _onKeyDown(e) {
-        if (e.key !== 'Escape') return;
-        e.preventDefault();
-        this._close();
+        this._syncOverlay();
     }
 
     _close() {
@@ -231,8 +242,10 @@ class SpotifyContextMenu extends LitElement {
     }
 
     render() {
+        this._renderedPopover = false;
         if (this._isDesktop) {
             if (!this.visible) return '';
+            this._renderedPopover = true;
             return html`
                 <div class="pop-overlay" @click=${(e) => { if (e.target === e.currentTarget) this._close(); }}>
                     <div class="menu-card" role="menu">

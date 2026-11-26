@@ -1,4 +1,5 @@
 import { LitElement, html, css } from "../lit.js";
+import { overlayStack } from "./controllers/overlay-stack.js";
 
 /**
  * Reusable mobile bottom sheet: a backdrop + a panel that slides up from the
@@ -13,11 +14,23 @@ import { LitElement, html, css } from "../lit.js";
  * Knobs (CSS custom properties on the host):
  *   --spf-sheet-z       z-index (default 215000)
  *   --spf-sheet-max-h   max height (default 88%)
+ *   --spf-sheet-backdrop         backdrop background (default rgba(0,0,0,0.5))
+ *   --spf-sheet-backdrop-filter  backdrop-filter (default none)
+ *   --spf-sheet-modal-w          desktop-modal card width (default 480px)
+ *   --spf-sheet-pad-top / -pad-x / -pad-bottom
+ *                                panel padding (defaults 8px / 20px / 20px;
+ *                                the bottom safe-area inset is always added
+ *                                on the sheet variant)
  *
- * `closeOnEscape` (attribute `close-on-escape`): pressing Escape while open
- * emits `close`, unless something above it (the context menu) already
- * handled the key via preventDefault. Opt-in so stacked sheets don't all
- * close at once.
+ * Escape: ON by default. While visible the sheet sits in the shared overlay
+ * stack (controllers/overlay-stack.js); Escape closes only the top overlay,
+ * so stacked sheets no longer all close at once. Opt out with the
+ * `no-escape` attribute / `noEscape` property (the sheet still shields the
+ * overlays beneath it from Escape). The older `closeOnEscape` property /
+ * `close-on-escape` attribute is kept for compatibility: it now defaults to
+ * true, the attribute is a harmless no-op, and `.closeOnEscape=${false}`
+ * also opts out. Escape that something inside the sheet already handled
+ * (preventDefault) or that ends an IME composition is ignored.
  *
  * `desktopModal` (attribute `desktop-modal`): at >=769px the panel renders as
  * a centered popup card (fade/scale, no grip, no drag-dismiss) instead of a
@@ -32,6 +45,7 @@ export class SpotifyBottomSheet extends LitElement {
             visible: { type: Boolean, reflect: true },
             desktopModal: { type: Boolean, reflect: true, attribute: 'desktop-modal' },
             closeOnEscape: { type: Boolean, attribute: 'close-on-escape' },
+            noEscape: { type: Boolean, attribute: 'no-escape' },
         };
     }
 
@@ -46,7 +60,9 @@ export class SpotifyBottomSheet extends LitElement {
 
             .backdrop {
                 position: absolute; inset: 0;
-                background: rgba(0,0,0,0.5);
+                background: var(--spf-sheet-backdrop, rgba(0,0,0,0.5));
+                backdrop-filter: var(--spf-sheet-backdrop-filter, none);
+                -webkit-backdrop-filter: var(--spf-sheet-backdrop-filter, none);
                 opacity: 0; visibility: hidden;
                 transition: opacity 0.32s ease, visibility 0s linear 0.35s;
             }
@@ -69,7 +85,8 @@ export class SpotifyBottomSheet extends LitElement {
                 background: #181818;
                 border-radius: 16px 16px 0 0;
                 box-sizing: border-box;
-                padding: 8px 20px calc(20px + var(--spf-safe-bottom, 0px));
+                padding: var(--spf-sheet-pad-top, 8px) var(--spf-sheet-pad-x, 20px)
+                    calc(var(--spf-sheet-pad-bottom, 20px) + var(--spf-safe-bottom, 0px));
                 color: #fff;
                 box-shadow: 0 -8px 40px rgba(0,0,0,0.5);
                 transform: translateY(100%);
@@ -87,10 +104,10 @@ export class SpotifyBottomSheet extends LitElement {
             @media (min-width: 769px) {
                 :host([desktop-modal]) .sheet {
                     left: 50%; right: auto; bottom: auto; top: 50%;
-                    width: min(480px, 92%);
+                    width: min(var(--spf-sheet-modal-w, 480px), 92%);
                     max-height: min(var(--spf-sheet-max-h, 88%), 85%);
                     border-radius: 16px;
-                    padding: 8px 20px 20px;
+                    padding: var(--spf-sheet-pad-top, 8px) var(--spf-sheet-pad-x, 20px) var(--spf-sheet-pad-bottom, 20px);
                     box-shadow: 0 25px 60px rgba(0,0,0,0.8);
                     border: 1px solid rgba(255,255,255,0.1);
                     transform: translate(-50%, -48%) scale(0.97);
@@ -130,8 +147,15 @@ export class SpotifyBottomSheet extends LitElement {
         super();
         this.visible = false;
         this.desktopModal = false;
-        this.closeOnEscape = false;
-        this._onKeyDown = this._onKeyDown.bind(this);
+        this.closeOnEscape = true;
+        this.noEscape = false;
+        // Stable identity: re-opening moves this same entry to the top.
+        this._overlayEntry = {
+            close: () => {
+                if (this.noEscape || !this.closeOnEscape) return false;
+                this._close();
+            },
+        };
         this._onDown = this._onDown.bind(this);
         this._onMove = this._onMove.bind(this);
         this._onUp = this._onUp.bind(this);
@@ -144,21 +168,28 @@ export class SpotifyBottomSheet extends LitElement {
     }
 
     updated(changed) {
-        if (changed.has('visible') || changed.has('closeOnEscape')) {
-            window.removeEventListener('keydown', this._onKeyDown);
-            if (this.visible && this.closeOnEscape) window.addEventListener('keydown', this._onKeyDown);
+        if (changed.has('visible')) this._syncOverlay();
+    }
+
+    /** In the overlay stack exactly while visible and connected. */
+    _syncOverlay() {
+        if (this.visible && this.isConnected) {
+            if (!this._inStack) { overlayStack.push(this._overlayEntry); this._inStack = true; }
+        } else if (this._inStack) {
+            overlayStack.remove(this._overlayEntry);
+            this._inStack = false;
         }
     }
 
-    _onKeyDown(e) {
-        if (e.key !== 'Escape' || e.defaultPrevented) return;
-        e.preventDefault();
-        this._close();
+    connectedCallback() {
+        super.connectedCallback();
+        // Moved in the DOM while open: re-register (disconnect removed it).
+        if (this.hasUpdated) this._syncOverlay();
     }
 
     disconnectedCallback() {
         super.disconnectedCallback();
-        window.removeEventListener('keydown', this._onKeyDown);
+        this._syncOverlay();
         // If removed mid-drag, drop the window listeners added in _onDown.
         this._dragging = false;
         window.removeEventListener('pointermove', this._onMove);

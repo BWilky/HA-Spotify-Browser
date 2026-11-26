@@ -1,11 +1,12 @@
 import { LitElement, html } from "./lit.js";
 
 import { SpotifyApi, classifyPlaybackError } from './api.js';
-import { parseDeviceItems, normalizeDevice, fireHaptic, playbackProgress, setDebug, debugLog, pickImage, IMG_THUMB } from './utils.js';
+import { parseDeviceItems, normalizeDevice, fireHaptic, setDebug, debugLog, pickImage, IMG_THUMB } from './utils.js';
 import { sharedStyles } from './styles/shared-styles.js';
 import { Router } from './router.js';
 import './components/spotify-header.js';
 import './components/players/sidebar/index.js';
+import './components/players/mini-player.js';
 import './components/players/now-playing-mobile.js';
 import './components/players/connect-panel.js';
 import './components/players/queue-panel.js';
@@ -63,11 +64,11 @@ class SpotifyBrowserApp extends LitElement {
             _pinnedItems: { type: Array, state: true },
             _deviceManagerVisible: { type: Boolean, state: true },
             _showRevealButton: { type: Boolean, state: true },
-            _playerState: { type: Object, state: true },
             _nowPlayingVisible: { type: Boolean, state: true },
             _connectPanelVisible: { type: Boolean, state: true },
             _connectLoading: { type: Boolean, state: true },
             _mobileQueueVisible: { type: Boolean, state: true },
+            _editSessionOnScreen: { type: Boolean, state: true }, // the page on screen is a playlist in edit mode
         };
     }
 
@@ -114,14 +115,15 @@ class SpotifyBrowserApp extends LitElement {
         this._deviceManagerVisible = false;
         this._showRevealButton = false;
         this._queueInitDone = false;
-        this._playerState = null;
         this._nowPlayingVisible = false;
         this._pendingNowPlaying = false;
         this._pendingNowPlayingTimer = null;
+        this._trackWaitOn = null; // PlayerController the now-playing deep link is waiting on
+        this._maybeShowPendingNowPlaying = this._maybeShowPendingNowPlaying.bind(this);
         this._connectPanelVisible = false;
         this._connectLoading = false;
         this._mobileQueueVisible = false;
-        this._onPlayerStateChange = this._onPlayerStateChange.bind(this);
+        this._editSessionOnScreen = false;
         this._onDragStart = this._onDragStart.bind(this);
         this._onDragMove = this._onDragMove.bind(this);
         this._onDragEnd = this._onDragEnd.bind(this);
@@ -138,75 +140,81 @@ class SpotifyBrowserApp extends LitElement {
         this._isDesktop = window.matchMedia('(min-width: 769px)').matches;
     }
 
-    // Optimized shouldUpdate to prevent unnecessary re-renders from unrelated HASS updates
+    /**
+     * `hass` is replaced on every Home Assistant state change (about once a
+     * second during playback). A hass-only change never renders the root:
+     * nothing in the root template reads hass (the surfaces that show player
+     * state subscribe to the PlayerController; pages get hass from the router;
+     * see _propagateHass for the one child that is handed it). What a new hass
+     * has to reach is fanned out from here instead, without a render.
+     */
     shouldUpdate(changedProperties) {
-        // If hass changed, check if it matters for us
         if (changedProperties.has('hass')) {
             const oldHass = changedProperties.get('hass');
-            const newHass = this.hass;
 
-            // The services read entities this gate never looks at, so they get
-            // the new hass on EVERY change — here, not in updated(), which only
-            // runs for the ticks the gate lets through.
+            // Pointer swaps, on EVERY change: the services read entities the
+            // gate below never looks at.
             this._syncServiceHass();
 
-            // If oldHass is missing, always update (first load)
-            if (!oldHass || !newHass) return true;
+            // The first hass always renders: updated() creates the api and the
+            // managers from it (and does the first fan-out).
+            if (!oldHass || !this.hass) return true;
 
-            // 1. Check Player Entity Change
-            if (this.config && this.config.entity) {
-                const oldState = oldHass.states[this.config.entity];
-                const newState = newHass.states[this.config.entity];
-                if (oldState !== newState) return true;
-            }
+            // The real work, only when an entity we follow changed.
+            if (this._hassChangeMatters(oldHass, this.hass)) this._propagateHass();
 
-            // 1b. Check the Sonos speakers. Local Sonos playback never engages
-            // Spotify Connect, so the SpotifyPlus entity above sits idle while
-            // the speaker's own media_player carries every track/play/volume
-            // change.
-            const sonos = this.config?.sonos;
-            if (sonos?.enabled) {
-                // The speaker driving playback now: the bridge's remembered
-                // target, which is what playerController.playbackEntityId()
-                // resolves to. Not that resolver itself: it can scan every
-                // media_player (name auto-detect) and rewrites the bridge's
-                // memory — too much for a per-tick gate.
-                const target = this.sonosBridge?.targetEntity;
-                if (target && oldHass.states[target] !== newHass.states[target]) return true;
-
-                // Mapped speakers: one starting to play is how the bridge
-                // adopts a target (prefer_sonos, recovery after a reload).
-                for (const entry of sonos.device_map || []) {
-                    if (entry.entity && oldHass.states[entry.entity] !== newHass.states[entry.entity]) return true;
-                }
-            }
-
-            // 2. Check the storage sensor — the actual backend for pinned
-            // items and per-device settings, so pin/device edits from another
-            // browser re-render here.
-            const storageSensor = this.config?.storage?.sensor;
-            if (storageSensor && oldHass.states[storageSensor] !== newHass.states[storageSensor]) {
-                return true;
-            }
-
-            // 3. Check for Connect Devices Scan (if using a scan interval or sensor)
-            // If the user uses a specific sensor for devices list, check it here as well.
-
-            // IF ONLY HASS CHANGED AND NO RELEVANT ENTITIES CHANGED, BLOCK UPDATE
-            if (changedProperties.size === 1) {
-                return false;
-            }
+            // Checked AFTER the fan-out on purpose: a reactive property set on
+            // the root while it ran is in this same map and gets its render.
+            if (changedProperties.size === 1) return false;
         }
 
         return true;
     }
 
     /**
+     * Whether a hass change touches an entity the app follows: the player
+     * entity, the Sonos speakers, or the storage sensor. Everything else in
+     * Home Assistant changing is none of our business.
+     */
+    _hassChangeMatters(oldHass, newHass) {
+        // 1. The player entity.
+        if (this.config && this.config.entity) {
+            if (oldHass.states[this.config.entity] !== newHass.states[this.config.entity]) return true;
+        }
+
+        // 1b. The Sonos speakers. Local Sonos playback never engages Spotify
+        // Connect, so the SpotifyPlus entity above sits idle while the
+        // speaker's own media_player carries every track/play/volume change.
+        const sonos = this.config?.sonos;
+        if (sonos?.enabled) {
+            // The speaker driving playback now: the bridge's remembered
+            // target, which is what playerController.playbackEntityId()
+            // resolves to. Not that resolver itself: it can scan every
+            // media_player (name auto-detect) and rewrites the bridge's
+            // memory — too much for a per-tick gate.
+            const target = this.sonosBridge?.targetEntity;
+            if (target && oldHass.states[target] !== newHass.states[target]) return true;
+
+            // Mapped speakers: one starting to play is how the bridge
+            // adopts a target (prefer_sonos, recovery after a reload).
+            for (const entry of sonos.device_map || []) {
+                if (entry.entity && oldHass.states[entry.entity] !== newHass.states[entry.entity]) return true;
+            }
+        }
+
+        // 2. The storage sensor — the actual backend for pinned items and
+        // per-device settings, so pin/device edits from another browser reach
+        // the home page and the device manager.
+        const storageSensor = this.config?.storage?.sensor;
+        if (storageSensor && oldHass.states[storageSensor] !== newHass.states[storageSensor]) return true;
+
+        return false;
+    }
+
+    /**
      * Hand the current hass to the services whose updateHass/setHass is a plain
-     * pointer swap. Called from shouldUpdate so it runs on every hass change,
-     * including the ticks the render gate drops. PlayerController.updateHass
-     * (derives state, can fetch the queue) and router.updateDependencies
-     * (re-renders the page on screen) do real work, so they stay in updated().
+     * pointer swap. Called from shouldUpdate on every hass change, including
+     * the ones _hassChangeMatters dismisses.
      */
     _syncServiceHass() {
         if (!this.hass) return;
@@ -215,6 +223,30 @@ class SpotifyBrowserApp extends LitElement {
         if (this.deviceManager) this.deviceManager.updateHass(this.hass);
         if (this.sonosBridge) this.sonosBridge.setHass(this.hass);
         if (this.pinnedManager) this.pinnedManager.updateHass(this.hass);
+    }
+
+    /**
+     * Fan the current hass out to what does real work with it — for the hass
+     * changes that matter (from shouldUpdate) and for the first hass (from
+     * updated()), never by way of a root render:
+     *  - PlayerController derives and announces the player state; every
+     *    surface showing it subscribes and re-renders itself. It keeps
+     *    deriving while closed (inactive: no fetching), so the now-playing
+     *    deep link has a track to show.
+     *  - the router hands hass to the page on screen. Pages need it only
+     *    while open; the open branch of updated() catches the router up.
+     *  - the device manager sheet re-reads its saved devices when the storage
+     *    entity changes, and only looks while open (its template binding
+     *    supplies the current hass on any root render, e.g. the one opening it).
+     */
+    _propagateHass() {
+        if (!this.hass) return;
+        if (this.playerController) this.playerController.updateHass(this.hass);
+        if (this.router && this._isOpen) this.router.updateDependencies({ hass: this.hass });
+        if (this._deviceManagerVisible) {
+            const manager = this.shadowRoot?.querySelector('spotify-popup-devicemanager');
+            if (manager) manager.hass = this.hass;
+        }
     }
 
     firstUpdated(changedProperties) {
@@ -231,11 +263,6 @@ class SpotifyBrowserApp extends LitElement {
         this._mediaQuery = window.matchMedia('(min-width: 769px)');
         this._onMediaQueryChange = (e) => {
             this._isDesktop = e.matches;
-            if (this._isDesktop) {
-                this._stopMiniPlayerProgressTimer();
-            } else if (this._isOpen && this._playerState?.isPlaying) {
-                this._startMiniPlayerProgressTimer();
-            }
         };
         try {
             this._mediaQuery.addEventListener('change', this._onMediaQueryChange);
@@ -318,8 +345,14 @@ class SpotifyBrowserApp extends LitElement {
 
             this._currentPageId = pageId;
             this._currentPageData = data;
+            // The header steps aside only for the page that is being edited:
+            // leaving it brings the header back, returning hides it again.
+            this._syncEditSessionOnScreen();
             this.requestUpdate();
         });
+
+        // A playlist edit session started or ended on some page (forwarded by Router).
+        this.router.addEventListener('edit-session-changed', () => this._syncEditSessionOnScreen());
 
         // Listen for scroll updates from context views (forwarded by Router)
         this.router.addEventListener('header-scroll', (e) => {
@@ -337,10 +370,7 @@ class SpotifyBrowserApp extends LitElement {
 
     disconnectedCallback() {
         super.disconnectedCallback();
-        if (this.playerController) {
-            this.playerController.removeEventListener('state-changed', this._onPlayerStateChange);
-        }
-        this._stopMiniPlayerProgressTimer();
+        this._stopAwaitingTrack();
         if (this._onOrientation) window.removeEventListener('orientationchange', this._onOrientation);
         if (this._onViewportResize) {
             window.visualViewport?.removeEventListener('resize', this._onViewportResize);
@@ -441,15 +471,10 @@ class SpotifyBrowserApp extends LitElement {
         this._initApi();
         this._ensureManagers();
 
-        if (changedProperties.has('hass') && this.hass) {
-            // The pointer-only services already have this hass (_syncServiceHass,
-            // from shouldUpdate). These two do real work, so they run only for
-            // the ticks the gate let through. The controller keeps deriving
-            // player state while closed (it is inactive then: no fetching), so
-            // the now-playing deep link has a track to show; pages need hass
-            // only on screen, and the open branch below catches the router up.
-            if (this.playerController) this.playerController.updateHass(this.hass);
-            if (this.router && this._isOpen) this.router.updateDependencies({ hass: this.hass });
+        // The first hass is the only one that gets here by rendering (see
+        // shouldUpdate); later ones are fanned out without a root render.
+        if (changedProperties.has('hass') && this.hass && !changedProperties.get('hass')) {
+            this._propagateHass();
         }
 
         if (changedProperties.has('api') && this.api) {
@@ -525,9 +550,6 @@ class SpotifyBrowserApp extends LitElement {
                 this.playerController?.setActive(true);
                 this._refreshAfterReturn();
 
-                // The mini-player progress tick is not run while closed.
-                if (this._playerState?.isPlaying && !this._isDesktop) this._startMiniPlayerProgressTimer();
-
                 // The storage-corruption prompt is raised at boot, usually
                 // while closed (no popups element to host it) — show it now.
                 this._showStorageCorruptPrompt();
@@ -545,9 +567,8 @@ class SpotifyBrowserApp extends LitElement {
                 this._closeAllPopups(); // ANY close dismisses every popup/sheet
                 this._stopIdleWatch();
                 // Nothing is on screen: stop the controller's fetching (queue,
-                // recents, liked state, art) and the mini-player progress tick.
+                // recents, liked state, art).
                 this.playerController?.setActive(false);
-                this._stopMiniPlayerProgressTimer();
                 this._restoreViewport(); // hand the keyboard/viewport behavior back to HA
                 this.style.removeProperty('--spf-app-height');
                 this.shadowRoot?.querySelector('.browser-wrapper')?.classList.remove('kb-open');
@@ -582,27 +603,55 @@ class SpotifyBrowserApp extends LitElement {
             this._queueVisible = true;
         } else if (opts.nowPlaying) {
             this._pendingNowPlaying = true;
-            this._maybeShowPendingNowPlaying();
             // On a cold open, playback state may not have arrived yet. Give it a
             // moment; if nothing is playing, drop the request rather than popping
             // an empty view (or popping it later once playback starts).
             clearTimeout(this._pendingNowPlayingTimer);
             this._pendingNowPlayingTimer = setTimeout(() => {
                 this._pendingNowPlaying = false;
+                this._stopAwaitingTrack();
             }, 2500);
+            this._maybeShowPendingNowPlaying();
         }
     }
 
-    /** Honour a pending "open to Now Playing" request once playback state exists. */
+    /**
+     * Honour a pending "open to Now Playing" request once playback state
+     * exists. With no track yet (cold open) it waits, one-shot, for the first
+     * player state that has one; the grace timer in open() ends the wait.
+     */
     _maybeShowPendingNowPlaying() {
-        if (!this._pendingNowPlaying || !this._playerState?.track) return;
+        if (!this._pendingNowPlaying) {
+            this._stopAwaitingTrack(); // the request was dropped (grace over, or closed)
+            return;
+        }
+        if (!this.playerController?.state?.track) {
+            this._awaitFirstTrack();
+            return;
+        }
         this._pendingNowPlaying = false;
         clearTimeout(this._pendingNowPlayingTimer);
+        this._stopAwaitingTrack();
         // Defer the visible flip two frames so the surface mounts in its closed
         // (translateY(100%)) state first and the slide-up transition runs.
         requestAnimationFrame(() => requestAnimationFrame(() => {
             this._nowPlayingVisible = true;
         }));
+    }
+
+    /** Re-check the pending deep link on each player state until it resolves. */
+    _awaitFirstTrack() {
+        const pc = this.playerController;
+        // No controller yet: _initApi() re-checks once it has created one.
+        if (!pc || this._trackWaitOn === pc) return;
+        this._stopAwaitingTrack();
+        this._trackWaitOn = pc;
+        pc.addEventListener('state-changed', this._maybeShowPendingNowPlaying);
+    }
+
+    _stopAwaitingTrack() {
+        this._trackWaitOn?.removeEventListener('state-changed', this._maybeShowPendingNowPlaying);
+        this._trackWaitOn = null;
     }
 
     /**
@@ -680,10 +729,12 @@ class SpotifyBrowserApp extends LitElement {
         }
 
         const headerScroll = this._headerScrollProps();
-        // Deliberately the full-size cover although the slot is small: the
-        // full-screen now-playing view shows this same image, and having it
-        // loaded here is what lets that view slide up with its art in place.
-        const miniPlayerArt = pickImage(this._playerState?.track?.album?.images);
+        // Pages that bring their own top bar get no app header: mobile search
+        // and library, and — on every layout — a playlist while it is being
+        // edited (the editor's Cancel / title / Save bar is the chrome then;
+        // the header's buttons would sit on top of it).
+        const pageOwnsTopBar = this._editSessionOnScreen
+            || (!this._isDesktop && (this._currentPageId === 'search' || this._currentPageId === 'library'));
 
         return html`
             <div class="backdrop ${this._entered ? 'open' : ''}" @click=${() => this._animateClose()}></div>
@@ -698,7 +749,7 @@ class SpotifyBrowserApp extends LitElement {
                 @open-playlist-dialog=${this._handleOpenPlaylistDialog}
                 @playlist-changed=${this._handlePlaylistChanged}
             >
-                ${!this._isDesktop && (this._currentPageId === 'search' || this._currentPageId === 'library') ? '' : html`
+                ${pageOwnsTopBar ? '' : html`
                 <spotify-header
                     .minimal=${!this._isDesktop}
                     @pointerdown=${!this._isDesktop ? this._onDragStart : null}
@@ -733,13 +784,13 @@ class SpotifyBrowserApp extends LitElement {
                 </div>
 
                 <spotify-sidebar-player
-                    .hass=${this.hass}
                     .api=${this.api}
                     .config=${this.config}
                     .visible=${this._queueVisible}
                     .deviceManager=${this.deviceManager}
                     .playerController=${this.playerController}
                     @navigate=${this._handleNavigate}
+                    @device-selected=${(e) => this._transferTo(e.detail)}
                     @open-manager=${() => {
                 this._queueVisible = false; // Close queue when opening manager? Maybe.
                 this._devicePopupVisible = false;
@@ -765,30 +816,22 @@ class SpotifyBrowserApp extends LitElement {
                     .visible=${this._deviceManagerVisible}
                     @close-dialog=${() => {
                 this._deviceManagerVisible = false;
-                if (this._pendingDeviceResolution) {
-                    this._pendingDeviceResolution(null);
-                    this._pendingDeviceResolution = null;
-                }
+                this._releasePendingDevicePick();
             }}
                 ></spotify-popup-devicemanager>
 
-                <spotify-popups
-                    id="popups"
+                <!-- Device picker: stacked between the alert and the toasts of
+                     spotify-popups (see styles/spotify-popups.styles.js). -->
+                <spotify-popup-devices
+                    style="--spf-sheet-z: 229500;"
                     .devices=${this._devices}
                     .config=${this.config}
-                    .deviceVisible=${this._devicePopupVisible}
-                    .canManageDevices=${!!this.deviceManager}
+                    .readonly=${!this.deviceManager}
                     .showRevealButton=${this._showRevealButton}
-                    .blur=${this.config.appearance.animations.blur}
+                    .visible=${this._devicePopupVisible}
                     @close-popups=${() => {
                 this._devicePopupVisible = false;
-                // Release a dangling resolver so a backdrop-dismissed pick
-                // doesn't get resolved by the next unrelated device selection
-                // (which would replay a stale URI). Cancel => no pending play.
-                if (this._pendingDeviceResolution) {
-                    this._pendingDeviceResolution(null);
-                    this._pendingDeviceResolution = null;
-                }
+                this._releasePendingDevicePick();
             }}
                     @device-selected=${this._handleDeviceSelected}
                     @toggle-hidden-devices=${this._handleToggleHiddenDevices}
@@ -797,6 +840,11 @@ class SpotifyBrowserApp extends LitElement {
                 this._devicePopupVisible = false;
                 this._deviceManagerVisible = true;
             }}
+                ></spotify-popup-devices>
+
+                <spotify-popups
+                    id="popups"
+                    .blur=${this.config.appearance.animations.blur}
                 ></spotify-popups>
 
                 <spotify-context-menu
@@ -833,47 +881,20 @@ class SpotifyBrowserApp extends LitElement {
                     @account-selected=${this._handleAccountSelected}
                 ></spotify-account-panel>
 
-                ${!this._isDesktop && this._playerState && this._playerState.track ? html`
-                    <div class="mobile-mini-player" @click=${this._handleMiniPlayerClick}>
-                        <div class="mini-player-art" style="${miniPlayerArt ? `background-image: url('${miniPlayerArt}')` : ''}"></div>
-                        <div class="mini-player-info">
-                            <div class="mini-player-title">
-                                ${this._playerState.track?.name || 'Unknown Track'}
-                                ${this._playerState.track?.artists?.length ? html`<span class="mini-player-sep"> • </span><span class="mini-player-artist-inline">${this._playerState.track.artists.map(a => a.name).join(', ')}</span>` : ''}
-                            </div>
-                            ${this._playerState.activeDevice ? html`
-                                <div class="mini-player-device-line" @click=${this._handleMiniDeviceClick}>
-                                    <svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>
-                                    <span>${this._playerState.activeDevice}</span>
-                                </div>
-                            ` : ''}
-                        </div>
-                        <button class="mini-player-device-btn ${this._playerState.activeDevice ? 'connected' : ''}" @click=${this._handleMiniDeviceClick} aria-label="Connect to a device">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                                <rect x="6" y="2" width="12" height="20" rx="2.5"/>
-                                <circle cx="12" cy="6.5" r="1.2" fill="currentColor" stroke="none"/>
-                                <circle cx="12" cy="14.5" r="3.2"/>
-                            </svg>
-                        </button>
-                        <button class="mini-player-play-btn" @click=${this._handleMiniPlayerPlayPause}>
-                            <svg viewBox="0 0 24 24">
-                                <path fill="currentColor" d="${this._playerState.isPlaying ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z'}"/>
-                            </svg>
-                        </button>
-                        <div class="mini-player-progress">
-                            <div class="mini-player-progress-bar" id="mini-player-progress-bar"></div>
-                        </div>
-                    </div>
-                ` : ''}
+                <spotify-mini-player
+                    .playerController=${this.playerController}
+                    .config=${this.config}
+                    .active=${this._isOpen && !this._isDesktop}
+                    @open-now-playing=${() => { this._nowPlayingVisible = true; }}
+                    @open-devices=${() => this._openConnectPanel()}
+                ></spotify-mini-player>
 
                 ${!this._isDesktop ? html`
                     <spotify-now-playing-mobile
                         .visible=${this._nowPlayingVisible}
-                        .hass=${this.hass}
                         .config=${this.config}
                         .api=${this.api}
                         .playerController=${this.playerController}
-                        .state=${this._playerState}
                         @close=${() => this._nowPlayingVisible = false}
                         @open-devices=${() => this._openConnectPanel()}
                         @open-queue=${() => this._openMobileQueue()}
@@ -882,20 +903,17 @@ class SpotifyBrowserApp extends LitElement {
                     <spotify-connect-panel
                         .visible=${this._connectPanelVisible}
                         .devices=${this._devices}
-                        .state=${this._playerState}
+                        .playerController=${this.playerController}
                         .loading=${this._connectLoading}
                         .volumeStep=${this.config.devices?.volume?.step ?? 2}
                         @close=${() => this._connectPanelVisible = false}
-                        @device-selected=${this._handleConnectDeviceSelected}
+                        @device-selected=${(e) => { this._connectPanelVisible = false; this._transferTo(e.detail); }}
                         @volume-change=${(e) => this.api?.setVolume(e.detail)}
                         @open-manager=${() => { this._connectPanelVisible = false; this._deviceManagerVisible = true; }}
                     ></spotify-connect-panel>
 
                     <spotify-queue-panel
                         .visible=${this._mobileQueueVisible}
-                        .hass=${this.hass}
-                        .config=${this.config}
-                        .state=${this._playerState}
                         .playerController=${this.playerController}
                         @close=${() => this._mobileQueueVisible = false}
                     ></spotify-queue-panel>
@@ -1010,8 +1028,9 @@ class SpotifyBrowserApp extends LitElement {
         if (status === 'corrupted' && !this._storageCorruptPrompted) {
             this._storageCorruptPrompted = true;
             // The alert lives in <spotify-popups>, which only exists while the
-            // overlay is open — and this normally runs at boot, with it closed.
-            // Park the prompt; the open branch of updated() shows it.
+            // overlay is open — and this normally runs at boot, with it closed
+            // (where _alert() drops what it is given). Park the prompt; the
+            // open branch of updated() shows it.
             this._storageCorruptPending = true;
             this._showStorageCorruptPrompt();
         }
@@ -1020,20 +1039,17 @@ class SpotifyBrowserApp extends LitElement {
     /** Show the parked storage-corruption prompt once the overlay (and its popups) exists. */
     _showStorageCorruptPrompt() {
         if (!this._storageCorruptPending || !this._isOpen) return;
-        if (!this.shadowRoot?.getElementById('popups')) return;
+        if (!this._popupsEl()) return; // stays parked until there is somewhere to show it
         this._storageCorruptPending = false;
         // It may have waited a long time for the overlay to open — don't offer
         // a reset for a store that has been repaired (another browser) since.
         if (this.storageManager.checkStatus() !== 'corrupted') return;
-        this._handleShowAlert({
-            detail: {
-                id: 'storage-corruption',
-                title: 'Storage Error',
-                message: 'Persistent storage data appears to be corrupted. Reset checks and saved items to defaults?',
-                confirmText: 'Reset Data',
-                cancelText: 'Ignore',
-                onConfirm: () => this.storageManager.resetStorage()
-            }
+        this._alert({
+            title: 'Storage Error',
+            message: 'Persistent storage data appears to be corrupted. Reset checks and saved items to defaults?',
+            confirmText: 'Reset Data',
+            cancelText: 'Ignore',
+            onConfirm: () => this.storageManager.resetStorage()
         });
     }
 
@@ -1046,29 +1062,25 @@ class SpotifyBrowserApp extends LitElement {
             this._handleDeviceResolution.bind(this),
             this.config.devices.volume,
             // Notification Callback
-            (msg) => {
-                const popups = this.shadowRoot.getElementById('popups');
-                if (popups) popups.showToast(msg);
-            },
+            (msg) => this._toast(msg),
             // Error Callback
             (err) => {
-                const popups = this.shadowRoot.getElementById('popups');
                 // Known failures get a specific, actionable message. Only reopen
                 // the picker when re-picking could actually help (not for the
                 // Cast-token setup problem).
                 const info = classifyPlaybackError(err);
                 if (info) {
-                    if (popups) popups.showToast(info.message, info.duration);
+                    this._toast(info.message, info.duration);
                     if (info.reopenPicker) this._openDevicePicker();
                     return;
                 }
                 const errCode = err.code || '';
                 const errMsg = err.message || '';
                 if (errCode === 'service_validation_error' || errMsg.includes('Validation error')) {
-                    if (popups) popups.showToast("Device unavailable. Please select a player.");
+                    this._toast("Device unavailable. Please select a player.");
                     this._openDevicePicker();
-                } else if (popups) {
-                    popups.showToast(`Error: ${errMsg}`);
+                } else {
+                    this._toast(`Error: ${errMsg}`);
                 }
             }
         );
@@ -1076,10 +1088,7 @@ class SpotifyBrowserApp extends LitElement {
         // Sonos integration bridge (no-op unless config.sonos.enabled). Shared by
         // the API (offset_position routing) and the PlayerController (queue routing).
         this.sonosBridge = new SonosBridge(this.hass, this.config.sonos);
-        this.sonosBridge.onDegraded = (msg) => {
-            const popups = this.shadowRoot?.getElementById('popups');
-            if (popups) popups.showToast(msg, 6000);
-        };
+        this.sonosBridge.onDegraded = (msg) => this._toast(msg, 6000);
         this.api.setSonosBridge(this.sonosBridge);
         if (this.deviceManager) this.api.setDeviceManager(this.deviceManager);
 
@@ -1091,12 +1100,11 @@ class SpotifyBrowserApp extends LitElement {
         // open; the open/close branches of updated() flip this afterwards.
         this.playerController.setActive(this._isOpen);
 
-        // Listen to state changes
-        this.playerController.addEventListener('state-changed', this._onPlayerStateChange);
-        this._playerState = this.playerController.state;
-
-        // Initial Sync
+        // Initial Sync. Nothing here mirrors the player state: every surface
+        // that shows it subscribes to the controller itself.
         if (this.hass) this.playerController.updateHass(this.hass);
+        // A now-playing deep link may be waiting for a controller with a track.
+        this._maybeShowPendingNowPlaying();
 
         this._turnOnOffPlayers();
 
@@ -1145,14 +1153,13 @@ class SpotifyBrowserApp extends LitElement {
         this._deviceManagerVisible = false; // Ensure manager is closed
         this._devicePopupVisible = true; // Open Picker
 
-        const popups = this.shadowRoot.getElementById('popups');
-        if (popups && options.refresh) popups.showToast("Scanning for devices...");
+        if (options.refresh) this._toast("Scanning for devices...");
 
         try {
             await this._scanDevices(options);
         } catch (e) {
             console.error("[App] Failed to load devices for picker", e);
-            if (popups) popups.showToast("Failed to scan devices.");
+            this._toast("Failed to scan devices.");
         }
     }
 
@@ -1182,8 +1189,7 @@ class SpotifyBrowserApp extends LitElement {
             this._deviceManagerVisible = false;
             this._devicePopupVisible = true;
             this._pendingDeviceResolution = resolve;
-            const popups = this.shadowRoot.getElementById('popups');
-            if (popups) popups.showToast("Scanning for devices...");
+            this._toast("Scanning for devices...");
 
             // Background sync
             this._scanDevices({ refresh: true }).catch(e => {
@@ -1192,34 +1198,64 @@ class SpotifyBrowserApp extends LitElement {
         });
     }
 
+    /** A device was picked in the desktop picker. */
     _handleDeviceSelected(e) {
+        const device = e.detail;
+        this._devicePopupVisible = false;
+        this._deviceManagerVisible = false;
+
         if (this._pendingDeviceResolution) {
-            // Resolve the pending promise (API is waiting)
-            this._pendingDeviceResolution(e.detail);
+            // The api is waiting on this pick (a launch with no device): hand
+            // it over instead of transferring.
+            const resolve = this._pendingDeviceResolution;
             this._pendingDeviceResolution = null;
-            this._deviceManagerVisible = false;
-            this._devicePopupVisible = false; // Close picker
-
-            const popups = this.shadowRoot.getElementById('popups');
-            if (popups) popups.showToast(`Connecting to ${e.detail.name}...`);
-        } else {
-            // Standard Transfer (Active Playback) — or replay of a launch that
-            // just failed on another device (api.transferPlayback decides).
-            this._devicePopupVisible = false;
-            this._deviceManagerVisible = false;
-
-            const popups = this.shadowRoot.getElementById('popups');
-            const replaying = this.api.hasPendingPlay();
-            if (popups) popups.showToast(replaying
-                ? `Starting playback on ${e.detail.name}...`
-                : `Transferring playback to ${e.detail.name}`);
-            this.playerController?.beginTransferHold();
-            this.api.transferPlayback(e.detail).then(res => {
-                if (!res.success && !res.reported && popups) {
-                    popups.showToast(`Transfer to ${e.detail.name} failed`);
-                }
-            });
+            resolve(device);
+            this._toast(`Connecting to ${device.name}...`);
+            return;
         }
+        // This picker has always transferred to whatever was picked, the
+        // device shown as active included — kept.
+        this._transferTo(device, { evenIfActive: true });
+    }
+
+    /**
+     * Release a device pick the api is still waiting on (picker dismissed,
+     * overlay closed). Resolving with null means "no device, no pending
+     * play": the api call neither hangs nor is answered by a later,
+     * unrelated selection.
+     */
+    _releasePendingDevicePick() {
+        const resolve = this._pendingDeviceResolution;
+        if (!resolve) return;
+        this._pendingDeviceResolution = null;
+        resolve(null);
+    }
+
+    /** Same test the Connect sheet applies before it emits a selection. */
+    _isActiveDevice(device) {
+        return !!device.isActive || device.name === this.playerController?.state?.activeDevice;
+    }
+
+    /**
+     * The one transfer flow, for every surface where the user picks a device
+     * (desktop picker, mobile Connect sheet, desktop sidebar dropdown):
+     * announce it, hold the displayed track while it settles, transfer, and
+     * report a failure the api did not already report. api.transferPlayback
+     * decides between a plain transfer and replaying a launch that just
+     * failed elsewhere. Picking the device that is already active does
+     * nothing — unless such a replay is pending, or `evenIfActive` is passed.
+     */
+    async _transferTo(device, { evenIfActive = false } = {}) {
+        if (!device || !this.api) return;
+        const replaying = this.api.hasPendingPlay();
+        if (!evenIfActive && !replaying && this._isActiveDevice(device)) return;
+
+        this._toast(replaying
+            ? `Starting playback on ${device.name}...`
+            : `Transferring playback to ${device.name}`);
+        this.playerController?.beginTransferHold();
+        const res = await this.api.transferPlayback(device);
+        if (res && !res.success && !res.reported) this._toast(`Transfer to ${device.name} failed`);
     }
 
     async _handleMenuItemClick(e) {
@@ -1253,8 +1289,7 @@ class SpotifyBrowserApp extends LitElement {
      *    refresh().
      */
     _refreshCurrentPage() {
-        const popups = this.shadowRoot.getElementById('popups');
-        if (popups) popups.showToast("Refreshing...");
+        this._toast("Refreshing...");
 
         // An explicit refresh must not be served from the api's short-lived
         // catalog cache (artist/album/track objects).
@@ -1271,9 +1306,8 @@ class SpotifyBrowserApp extends LitElement {
         } else if (page?.refresh) {
             // refresh() rebuilds the page from scratch — never under an open
             // playlist edit session, which would silently drop unsaved changes.
-            const editing = page.shadowRoot?.querySelector('spotify-playlist-view')?._editMode;
             // Library: `true` also re-reads the albums/artists buckets.
-            if (!editing) page.refresh(pageId === 'library' ? true : undefined);
+            if (!this.router.isEditing(pageId)) page.refresh(pageId === 'library' ? true : undefined);
         }
 
         // Now-playing, queue and recents.
@@ -1294,10 +1328,7 @@ class SpotifyBrowserApp extends LitElement {
         this.api = null;
         // Device ids aren't meaningful across accounts — drop cached capabilities.
         if (this.deviceManager) this.deviceManager.clearVolumeCapabilities();
-        if (this.playerController) {
-            this.playerController.removeEventListener('state-changed', this._onPlayerStateChange);
-            this.playerController.destroy();
-        }
+        if (this.playerController) this.playerController.destroy();
         this.playerController = null;
         this._initApi();
 
@@ -1407,25 +1438,24 @@ class SpotifyBrowserApp extends LitElement {
     async _removeTrackFromPlaylist(track, context) {
         const playlistId = context?.playlistId;
         if (!playlistId || !track?.uri || !this.api) return;
-        const popups = this.shadowRoot.getElementById('popups');
 
         const doRemove = async () => {
             const res = await this.api.removePlaylistItems(playlistId, [track.uri], context?.snapshotId);
             if (res.success) {
-                if (popups) popups.showToast(`Removed "${track.name}" from playlist`);
+                this._toast(`Removed "${track.name}" from playlist`);
                 this._handlePlaylistChanged({ detail: { playlistId, action: 'items' } });
-            } else if (popups) {
-                popups.showToast("Couldn't remove track from playlist");
+            } else {
+                this._toast("Couldn't remove track from playlist");
             }
         };
 
         if ((context.uriCount || 1) > 1) {
-            if (popups) popups.showAlert(
-                'Remove all copies?',
-                `"${track.name}" appears ${context.uriCount} times in this playlist. Spotify removes every copy at once.`,
-                doRemove,
-                'Remove All'
-            );
+            this._alert({
+                title: 'Remove all copies?',
+                message: `"${track.name}" appears ${context.uriCount} times in this playlist. Spotify removes every copy at once.`,
+                onConfirm: doRemove,
+                confirmText: 'Remove All'
+            });
             return;
         }
         doRemove();
@@ -1489,8 +1519,7 @@ class SpotifyBrowserApp extends LitElement {
     async _navigateToTrackArtist(track) {
         const name = track?.artists?.[0]?.name || track?.artist?.split(',')[0]?.trim();
         if (!name) {
-            const popups = this.shadowRoot.getElementById('popups');
-            if (popups) popups.showToast("Artist not found");
+            this._toast("Artist not found");
             return;
         }
         try {
@@ -1564,17 +1593,66 @@ class SpotifyBrowserApp extends LitElement {
         this._ctxMenuVisible = true;
     }
 
+    /**
+     * Playlist edit sessions vs the app header. While a playlist is in edit
+     * mode its editor draws the page's top bar, so the app header is not
+     * rendered for that page (see render()). The view announces every start
+     * and end of a session, the router records which page it belongs to
+     * (router.isEditing), and this derives "is the page ON SCREEN being
+     * edited" on every session change and every route change. Derived, not
+     * toggled, so no exit path can leave the header missing:
+     *  - save / cancel / failed save / a reset by the view: the view reports it;
+     *  - navigating away or Back: the route change re-derives (the session
+     *    stays open on the cached page, unsaved edits intact, and the header
+     *    steps aside again on return);
+     *  - closing the overlay: every open re-establishes the route.
+     */
+    _syncEditSessionOnScreen() {
+        const editing = !!this.router?.isEditing();
+        // Entering: the header (and its dropdown) is about to go away.
+        if (editing && !this._editSessionOnScreen) this._menuVisible = false;
+        this._editSessionOnScreen = editing;
+    }
+
+    /* --- Toasts and alerts: the one channel ---
+     * The bubbling `show-toast` / `show-alert` events from views, the api and
+     * Sonos-bridge callbacks and the root's own messages all go through
+     * _toast() / _alert(). Both render in <spotify-popups>, which exists only
+     * while the overlay is open: raised while closed they are dropped (and
+     * return false). The one message that must survive that, the
+     * storage-corruption prompt, parks itself (_showStorageCorruptPrompt).
+     */
+
+    _popupsEl() {
+        return this.shadowRoot?.getElementById('popups') || null;
+    }
+
+    /** Show a toast (default 3 s). Returns whether there was anywhere to show it. */
+    _toast(message, duration) {
+        const popups = this._popupsEl();
+        if (!popups) return false;
+        popups.showToast(message, duration);
+        return true;
+    }
+
+    /**
+     * Show the alert / confirm dialog. options: { title, message, onConfirm,
+     * confirmText = 'OK', cancelText = 'Cancel' (null: no cancel button),
+     * size = 'medium' }. Returns whether there was anywhere to show it.
+     */
+    _alert({ title, message, onConfirm, confirmText, cancelText, size } = {}) {
+        const popups = this._popupsEl();
+        if (!popups) return false;
+        popups.showAlert(title, message, onConfirm, confirmText, cancelText, size);
+        return true;
+    }
+
     _handleShowToast(e) {
-        const popups = this.shadowRoot.getElementById('popups');
-        if (popups) popups.showToast(e.detail.message, e.detail.duration);
+        this._toast(e.detail.message, e.detail.duration);
     }
 
     _handleShowAlert(e) {
-        const popups = this.shadowRoot.getElementById('popups');
-        if (popups) {
-            const { title, message, onConfirm, confirmText, cancelText, size } = e.detail;
-            popups.showAlert(title, message, onConfirm, confirmText, cancelText, size);
-        }
+        this._alert(e.detail);
     }
 
     /**
@@ -1632,13 +1710,12 @@ class SpotifyBrowserApp extends LitElement {
         const uri = e.detail;
         if (!this.pinnedManager || !this.api) return;
 
-        const popups = this.shadowRoot.getElementById('popups');
-        if (popups) popups.showToast("Fetching item details...");
+        this._toast("Fetching item details...");
 
         const result = await this.pinnedManager.addByUri(this.api, uri);
 
         if (result.success) {
-            if (popups) popups.showToast("Item pinned successfully");
+            this._toast("Item pinned successfully");
             // Refresh items for the dialog
             this.pinnedManager.getItems().then(items => {
                 this._pinnedItems = items;
@@ -1646,20 +1723,23 @@ class SpotifyBrowserApp extends LitElement {
             this._refreshHomePinned();
         } else {
             console.error("Failed to add custom URI:", result.error);
-            if (popups) popups.showAlert("Failed to add item", result.error || "Unknown error (Check logs)", null, 'OK', null, 'medium');
+            this._alert({
+                title: "Failed to add item",
+                message: result.error || "Unknown error (Check logs)",
+                cancelText: null, // OK only
+            });
         }
     }
 
     async _handleResetPinnedItems() {
         if (!this.pinnedManager) return;
 
-        const popups = this.shadowRoot.getElementById('popups');
-        if (popups) popups.showToast("Resetting pinned items...");
+        this._toast("Resetting pinned items...");
 
         const result = await this.pinnedManager.reset();
 
         if (result.success) {
-            if (popups) popups.showToast("Pinned items reset to default.");
+            this._toast("Pinned items reset to default.");
             // Refresh
             this.pinnedManager.getItems().then(items => {
                 this._pinnedItems = items;
@@ -1667,7 +1747,7 @@ class SpotifyBrowserApp extends LitElement {
             this._refreshHomePinned();
         } else {
             console.error("Reset failed", result.error);
-            if (popups) popups.showToast("Reset failed: " + result.error);
+            this._toast("Reset failed: " + result.error);
         }
     }
 
@@ -1691,8 +1771,7 @@ class SpotifyBrowserApp extends LitElement {
             this._refreshHomePinned();
             op.then(res => {
                 if (!res.success) {
-                    const popups = this.shadowRoot.getElementById('popups');
-                    if (popups) popups.showToast("Failed to remove item: " + (res.error || 'Unknown'));
+                    this._toast("Failed to remove item: " + (res.error || 'Unknown'));
                 } else {
                     this._refreshHomePinned();
                 }
@@ -1708,45 +1787,6 @@ class SpotifyBrowserApp extends LitElement {
         }
     }
 
-    _onPlayerStateChange(e) {
-        this._playerState = e.detail;
-        this._maybeShowPendingNowPlaying();
-        if (this._isOpen && this._playerState?.isPlaying && !this._isDesktop) {
-            this._startMiniPlayerProgressTimer();
-        } else {
-            this._stopMiniPlayerProgressTimer();
-        }
-    }
-
-    _startMiniPlayerProgressTimer() {
-        this._stopMiniPlayerProgressTimer();
-        this._miniPlayerProgressTimer = setInterval(() => this._updateMiniPlayerProgress(), 1000);
-        this._updateMiniPlayerProgress();
-    }
-
-    _stopMiniPlayerProgressTimer() {
-        if (this._miniPlayerProgressTimer) {
-            clearInterval(this._miniPlayerProgressTimer);
-            this._miniPlayerProgressTimer = null;
-        }
-    }
-
-    _updateMiniPlayerProgress() {
-        if (this._isDesktop || !this.hass || !this.config?.entity) return;
-        // The entity driving playback: the Sonos speaker during local Sonos
-        // playback (the SpotifyPlus entity sits idle then), else config.entity.
-        const stateObj = this.playerController?.playbackStateObj() || this.hass.states[this.config.entity];
-        if (!stateObj) return;
-
-        const progressBar = this.shadowRoot.getElementById('mini-player-progress-bar');
-        if (!progressBar) return;
-
-        // Same computation as the sidebar and the full-screen view.
-        const { position, duration } = playbackProgress(stateObj, this._playerState?.track);
-        const percent = duration ? (position / duration) * 100 : 0;
-        progressBar.style.width = `${percent}%`;
-    }
-
     _handleNavTabClick(pageId) {
         if (!this.router) return;
         // Tapping the tab you're already on does nothing.
@@ -1756,17 +1796,6 @@ class SpotifyBrowserApp extends LitElement {
         } else {
             this.router.navigateTo(pageId);
         }
-    }
-
-    _handleMiniPlayerClick(e) {
-        if (e.target.closest('.mini-player-play-btn') || e.target.closest('.mini-player-device-btn')) return;
-        this._nowPlayingVisible = true;
-    }
-
-    _handleMiniDeviceClick(e) {
-        e.stopPropagation();
-        fireHaptic('light');
-        this._openConnectPanel();
     }
 
     /** Open the mobile Queue sheet (over the now-playing view) and refresh data. */
@@ -1787,20 +1816,6 @@ class SpotifyBrowserApp extends LitElement {
         } finally {
             this._connectLoading = false;
         }
-    }
-
-    /** Transfer playback to the chosen device from the Connect sheet. */
-    async _handleConnectDeviceSelected(e) {
-        const device = e.detail;
-        this._connectPanelVisible = false;
-        const popups = this.shadowRoot.getElementById('popups');
-        const replaying = this.api?.hasPendingPlay();
-        if (popups) popups.showToast(replaying
-            ? `Starting playback on ${device.name}...`
-            : `Transferring playback to ${device.name}`);
-        this.playerController?.beginTransferHold();
-        const res = await this.api?.transferPlayback(device);
-        if (res && !res.success && !res.reported && popups) popups.showToast(`Transfer to ${device.name} failed`);
     }
 
     /* --- Drag-to-close (mobile, iPhone-panel style) --- */
@@ -1894,10 +1909,7 @@ class SpotifyBrowserApp extends LitElement {
         this._queueVisible = !!(this._isDesktop && this.config?.queue?.open_on_desktop);
         // A device-picker promise may be awaiting a selection — release it so
         // the api call it gates doesn't hang across the close.
-        if (this._pendingDeviceResolution) {
-            this._pendingDeviceResolution(null);
-            this._pendingDeviceResolution = null;
-        }
+        this._releasePendingDevicePick();
     }
 
     /* Slide the panel down then close (mobile iOS-panel dismiss). */
@@ -1992,14 +2004,6 @@ class SpotifyBrowserApp extends LitElement {
         this.playerController?.refreshRecent();
         // Home is cached across opens; refresh its library sections (throttled).
         this.router?.pageCache.get('home')?.refreshSections?.();
-    }
-
-    _handleMiniPlayerPlayPause(e) {
-        e.stopPropagation();
-        fireHaptic('medium');
-        if (this.playerController) {
-            this.playerController.pause();
-        }
     }
 }
 

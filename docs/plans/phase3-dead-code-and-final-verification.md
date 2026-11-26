@@ -127,7 +127,26 @@ Found during Wave 1, not fixed:
 - In playlist edit mode the app header's buttons (back arrow, close) sit on top of the editor's Cancel / Save bar. Present before the refactor too.
 - `api.js` inconsistencies recorded by the characterization tests: some commands use `callService` and others `callWS`; an empty id list is sent as `ids: ''`; `checkArtistsFollowing` / `checkAlbumFavorites` return raw response shapes while `checkTrackFavorites` normalizes.
 
+**Wave 2 — done.**
+- `<spotify-mini-player>` element; the root no longer mirrors player state and no longer re-renders on Home Assistant updates (harness: 10 root renders per 10 player ticks → 0). Mobile now-playing, queue sheet, Connect sheet and sidebar subscribe through `PlayerStateController`. Closes open bug 2.
+- One toast/alert channel in the root (`_toast` / `_alert`); `spotify-popups` is toasts + alert only and the device picker is rendered by the root.
+- One overlay stack (`components/controllers/overlay-stack.js`): Escape closes only the top surface and is on by default for every sheet, the desktop context menu and alerts. Closes open bug 8. The reorder dialog is rebuilt on `<spotify-bottom-sheet>` and `ListDragController`.
+- One device row (`components/devices/device-row.js`) for the picker and the Connect sheet (which now shows custom device icons); one transfer flow (`_transferTo`) that the desktop sidebar dropdown also uses, so desktop transfers get toasts and failure reports. Closes open bug 6.
+- One `VolumeController` for the sidebar and the Connect sheet; both honour `devices.volume.rate_control` and `optimistic`. Closes open bug 7.
+- The app header is not rendered while a playlist edit session is on screen, so it no longer covers the editor's Cancel / Save.
+- The playlist create sheet can no longer be dismissed while a create is in flight.
+
+Behaviour changes in Wave 2 to check on a device:
+- Connect sheet volume: updates every 200 ms while dragging (it used to send only when the finger paused), holds the chosen value for 3 s, -/+ taps are throttled with the last one always sent.
+- Desktop sidebar device dropdown closes immediately on selection and no longer marks the device active before Home Assistant confirms.
+- Reorder dialog: a bottom sheet with a grip on phones; 16px corner radius on desktop (was 12px); Escape in its add-URI field cancels the field rather than closing the dialog.
+- Picking the already-active device in the sidebar dropdown or Connect sheet does nothing; the desktop picker still transfers to whatever is picked.
+- An alert is layered under the desktop device picker (unchanged from before; one number to flip if unwanted).
+
+Still open after Wave 2: bug 1 (duplicate fetches on open), bug 3 (track-menu image size), bug 9 (progress jump, suspected), bug 10 (malformed device icon in the sidebar — it is a music note drawn over a playlist glyph; needs a decision between the per-type device icon and the cast icon), and the `api.js` inconsistencies listed under Wave 1. `heldVolume` in utils.js is now unused by app code.
+
+Deliberately not done: moving the keyboard/viewport lock, idle auto-close and drag-to-close code out of the root, and collapsing the fourteen popup visibility flags. Both are iOS-sensitive or wide-reaching and cannot be checked without a device.
+
 **Remaining waves**
-- Wave 2 — app shell: mini-player element and a single player-state subscription (open bugs 1, 2), one toast/alert channel, one device row and transfer path (bug 6), overlay stack with consistent Escape (bug 8), shared volume controller (bug 7), track-menu payload helper (bug 3), the edit-mode header overlap above.
-- Wave 3 — views: shared scroll / like / pin controllers, one list-row template, loader map.
+- Wave 3 — views: shared scroll / like / pin controllers, one list-row template, loader map, track-menu payload helper (bug 3).
 - Wave 4 — organization: CSS split, folder layout, type-checking config.

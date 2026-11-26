@@ -1,19 +1,23 @@
-
 import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { popupsStyles } from '../styles/spotify-popups.styles.js';
-import './devices/index.js';
+import { registerOverlay } from './controllers/overlay-stack.js';
 
+/**
+ * The app's transient feedback layer: toasts and the one alert / confirm
+ * dialog. Nothing is passed in as content — the app root calls `showToast` /
+ * `showAlert` (its `_toast` / `_alert` are the only callers).
+ *
+ * Property: `blur` (backdrop blur behind the alert; the app's animation
+ * setting).
+ *
+ * While an alert is up it sits in the shared overlay stack, so Escape
+ * dismisses the alert (the same as its Cancel button) instead of closing a
+ * sheet underneath it.
+ */
 class SpotifyPopups extends LitElement {
     static get properties() {
         return {
-            devices: { type: Array },
-            config: { type: Object },
-            deviceVisible: { type: Boolean },
-            canManageDevices: { type: Boolean },
-            showRevealButton: { type: Boolean }, // New Prop
-
-            // New Props
             blur: { type: Boolean },
             _toasts: { type: Array },
             _alert: { type: Object }, // { title, message, confirmText, cancelText, onConfirm, size }
@@ -26,44 +30,49 @@ class SpotifyPopups extends LitElement {
 
     constructor() {
         super();
-        this.devices = [];
-        this.config = {};
-        this.deviceVisible = false;
-        this.canManageDevices = false;
-        this.showRevealButton = false;
         this.blur = true;
         this._toasts = [];
         this._alert = null;
+        this._toastSeq = 0;
+        this._unregisterAlert = null;
+    }
+
+    connectedCallback() {
+        super.connectedCallback();
+        this._syncAlertOverlay();
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        this._syncAlertOverlay();
     }
 
     /* --- Public Methods --- */
     showToast(message, duration = 3000) {
-        const id = Date.now();
+        const id = ++this._toastSeq;
         this._toasts = [...this._toasts, { id, message, hiding: false }];
-        this.requestUpdate();
         setTimeout(() => this._hideToast(id), duration);
     }
 
     showAlert(title, message, onConfirm, confirmText = 'OK', cancelText = 'Cancel', size = 'medium') {
         this._alert = { title, message, onConfirm, confirmText, cancelText, size };
-        this.requestUpdate();
+        // A second alert replaces the first; re-registering also puts the
+        // alert back on top of anything opened since.
+        this._syncAlertOverlay(true);
     }
 
     _hideToast(id) {
-        const index = this._toasts.findIndex(t => t.id === id);
-        if (index > -1) {
-            this._toasts[index].hiding = true;
-            this.requestUpdate();
-            setTimeout(() => {
-                this._toasts = this._toasts.filter(t => t.id !== id);
-                this.requestUpdate();
-            }, 300);
-        }
+        if (!this._toasts.some(t => t.id === id)) return;
+        this._toasts = this._toasts.map(t => t.id === id ? { ...t, hiding: true } : t);
+        setTimeout(() => {
+            this._toasts = this._toasts.filter(t => t.id !== id);
+        }, 300);
     }
 
+    /** Cancel button, and Escape (through the overlay stack). */
     _closeAlert() {
         this._alert = null;
-        this.requestUpdate();
+        this._syncAlertOverlay();
     }
 
     _confirmAlert() {
@@ -71,28 +80,28 @@ class SpotifyPopups extends LitElement {
         this._closeAlert();
     }
 
+    /**
+     * In the overlay stack exactly while an alert is shown and this element is
+     * in the document. `renew` drops the current registration first, so a new
+     * alert never leaves a stale entry behind.
+     */
+    _syncAlertOverlay(renew = false) {
+        const wanted = !!this._alert && this.isConnected;
+        if (this._unregisterAlert && (renew || !wanted)) {
+            this._unregisterAlert();
+            this._unregisterAlert = null;
+        }
+        if (wanted && !this._unregisterAlert) {
+            this._unregisterAlert = registerOverlay(() => this._closeAlert());
+        }
+    }
+
     render() {
         return html`
             <div>
-                ${this.renderDevicePopup()}
                 ${this.renderAlert()}
                 ${this.renderToasts()}
             </div>
-        `;
-    }
-
-    /* --- Specific Popups --- */
-    renderDevicePopup() {
-        // Always mounted: the sheet animates on `visible` and brings its own backdrop.
-        return html`
-            <spotify-popup-devices
-                .devices=${this.devices}
-                .config=${this.config}
-                .readonly=${!this.canManageDevices}
-                .showRevealButton=${this.showRevealButton}
-                .visible=${this.deviceVisible}
-                @close-popups=${(e) => { e.stopPropagation(); this.dispatchEvent(new CustomEvent('close-popups')); }}
-            ></spotify-popup-devices>
         `;
     }
 

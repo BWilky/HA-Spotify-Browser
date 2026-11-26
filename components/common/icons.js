@@ -87,6 +87,29 @@ export const pinIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill
 /** Person silhouette, 24px (account panel avatar fallback). */
 export const personIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>`;
 
+/* --- Device UI icons ------------------------------------------------------ */
+// Unsized and with no fill attribute: each device UI sizes and colours them
+// from its own CSS (e.g. `.row-type svg`, `.act svg`).
+
+/** Cast / Spotify Connect glyph (device row type line). */
+export const castIcon = html`<svg viewBox="0 0 24 24"><path d="M1 18v3h3c0-1.66-1.34-3-3-3zm0-4v2c2.76 0 5 2.24 5 5h2c0-3.87-3.13-7-7-7zm0-4v2c4.97 0 9 4.03 9 9h2c0-6.08-4.93-11-11-11zm20-7H3c-1.1 0-2 .9-2 2v3h2V5h18v14h-7v2h7c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"/></svg>`;
+
+/** Circular-arrow refresh (device picker footer, device manager rescan). */
+export const refreshIcon = html`<svg viewBox="0 0 24 24"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>`;
+
+const LIST_PATH = 'M3 17v2h6v-2H3zM3 5v2h18V5H3zm0 6h12v-2H3v2z';
+
+/**
+ * Sort/list lines ("Manage devices" / "More devices..."). Unsized by default;
+ * pass a size for the variant that carries width/height attributes (the
+ * sidebar device dropdown's footer, 20px).
+ */
+export function listIcon(size = null) {
+    return size
+        ? html`<svg width="${size}" height="${size}" viewBox="0 0 24 24"><path d="${LIST_PATH}"/></svg>`
+        : html`<svg viewBox="0 0 24 24"><path d="${LIST_PATH}"/></svg>`;
+}
+
 /* --- Device type icons --------------------------------------------------- */
 const DEVICE_TABLET_ICON = html`<svg viewBox="0 0 24 24"><path d="M21 4H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-2 14H5V6h14v12z"/></svg>`;
 

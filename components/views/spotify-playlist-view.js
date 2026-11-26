@@ -458,6 +458,24 @@ export class SpotifyPlaylistView extends LitElement {
             }
         }
 
+        // Tell the app when an edit session starts or ends, whatever flipped
+        // _editMode (enter, the editor's done, the reset above): while one is
+        // open the editor's bar is the page's top bar and the app header
+        // steps aside. After the render, so the app reacts to what is on
+        // screen.
+        if (changedProperties.has('_editMode')
+            && !!changedProperties.get('_editMode') !== !!this._editMode) {
+            this.dispatchEvent(new CustomEvent('edit-session-changed', {
+                detail: { active: !!this._editMode, playlistId: this.data?.id || null },
+                bubbles: true,
+                composed: true
+            }));
+            // Back in the list: it was re-rendered from the top, so the header
+            // state from before the session (scrolled: opaque, titled) is
+            // stale. Report the real one for the returning header.
+            if (!this._editMode) this.updateHeaderState();
+        }
+
         // Optimistic-track handoff: once HASS reports the track we optimistically
         // marked as playing, drop the optimistic flag and let real state drive.
         if (this._optimisticPlayingTrackId && changedProperties.has('currentTrackId')) {

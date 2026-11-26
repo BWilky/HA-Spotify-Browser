@@ -8,6 +8,10 @@ export class Router extends EventTarget {
         this.currentPageId = null;
 
         this.pageCache = new Map();
+        // Pages with a playlist edit session open (see isEditing). By element
+        // and held weakly: a page dropped from the cache, or rebuilt under the
+        // same id, is never mistaken for one that is being edited.
+        this._editingPages = new WeakSet();
         this.maxCacheSize = this.config.browser?.cache_size || 10; // Matches ConfigParser default
 
         // Dependencies needed for page creation
@@ -200,6 +204,18 @@ export class Router extends EventTarget {
                 this.dispatchEvent(new CustomEvent('header-scroll', { detail: e.detail }));
             });
 
+            // A playlist edit session started or ended on this page. Heard here,
+            // on the page itself, so it is recorded even while the page is not
+            // attached to the app (overlay closed while a save was in flight).
+            contextView.addEventListener('edit-session-changed', (e) => {
+                const active = !!e.detail?.active;
+                if (active) this._editingPages.add(contextView);
+                else this._editingPages.delete(contextView);
+                this.dispatchEvent(new CustomEvent('edit-session-changed', {
+                    detail: { pageId: contextView.pageId, active }
+                }));
+            });
+
             contextView.addEventListener('navigate', (e) => this.navigateTo(e.detail.pageId, e.detail.data));
             // In-page back buttons (section views, lists) dispatch 'back'
             contextView.addEventListener('back', () => this.goBack());
@@ -268,6 +284,16 @@ export class Router extends EventTarget {
                 oldPage.classList.add('page-hidden');
             }, 300);
         }
+    }
+
+    /**
+     * Whether a cached page (default: the one on screen) has a playlist edit
+     * session open. While it does, the page draws its own top bar (the
+     * editor's Cancel / Save) and must not be rebuilt under the user.
+     */
+    isEditing(pageId = this.currentPageId) {
+        const page = this.pageCache.get(pageId);
+        return !!page && this._editingPages.has(page);
     }
 
     /** Whether the page renders a hero header (transparent app header, hero layout). */

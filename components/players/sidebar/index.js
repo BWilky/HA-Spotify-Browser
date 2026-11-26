@@ -1,21 +1,31 @@
 import { LitElement, html, css } from "../../../lit.js";
 import { sharedStyles } from '../../../styles/shared-styles.js';
 import { queueSidebarStyles } from '../../../styles/spotify-queue.styles.js';
+import { PlayerStateController } from '../../controllers/player-state-controller.js';
 
 import './nowplaying.js';
 import './queue.js';
 
+/**
+ * Desktop sidebar: the now-playing block, the queue / recently-played list
+ * and the tab bar.
+ *
+ * Driven by the app: `visible`, `api`, `config`, `deviceManager` and
+ * `playerController`. Player state is read through PlayerStateController (the
+ * sidebar subscribes itself and re-renders on a state change only while
+ * visible); nothing here takes `hass`. A device picked in the now-playing
+ * block's dropdown leaves this element as a bubbling, composed
+ * `device-selected` event (detail: the device) for the app to transfer to.
+ */
 export class SpotifySidebarPlayer extends LitElement {
     static get properties() {
         return {
-            hass: { type: Object },
             api: { type: Object },
             config: { type: Object },
             visible: { type: Boolean, reflect: true },
             playerController: { type: Object },
             deviceManager: { type: Object },
 
-            _state: { type: Object, state: true },
             _activeTab: { type: String, state: true },
             _isVolumeOverlayOpen: { type: Boolean, state: true }
         };
@@ -109,31 +119,18 @@ export class SpotifySidebarPlayer extends LitElement {
         super();
         this._activeTab = 'queue';
         this._isVolumeOverlayOpen = false;
-        this._onStateChange = this._onStateChange.bind(this);
-    }
-
-    connectedCallback() {
-        super.connectedCallback();
-        if (this.playerController) {
-            this.playerController.addEventListener('state-changed', this._onStateChange);
-            this._state = this.playerController.state;
-        }
-    }
-
-    disconnectedCallback() {
-        super.disconnectedCallback();
-        if (this.playerController) {
-            this.playerController.removeEventListener('state-changed', this._onStateChange);
-        }
+        // Player state: subscribes to the controller (and follows a replaced
+        // one), re-rendering on a state change only while the sidebar shows.
+        this._player = new PlayerStateController(this, { isActive: () => !!this.visible });
     }
 
     /**
-     * Skip rendering while the sidebar is off screen: `hass` is replaced about
-     * once a second during playback, and each render also re-renders the
-     * now-playing header and track list. `visible` is true whenever the
-     * sidebar is shown, including docked open on desktop. The `visible` flip
-     * itself always renders (slide + current data), and a new playerController
-     * always gets through so updated() can move the state-changed listener.
+     * Skip rendering while the sidebar is off screen: each render also
+     * re-renders the now-playing header and track list. `visible` is true
+     * whenever the sidebar is shown, including docked open on desktop. The
+     * `visible` flip itself always renders (slide + the state as it is then),
+     * and a new playerController always gets through so the subscription
+     * moves to it.
      */
     shouldUpdate(changedProperties) {
         return this.visible
@@ -143,24 +140,9 @@ export class SpotifySidebarPlayer extends LitElement {
     }
 
     updated(changedProperties) {
-        if (changedProperties.has('playerController')) {
-            const oldCtrl = changedProperties.get('playerController');
-            if (oldCtrl) oldCtrl.removeEventListener('state-changed', this._onStateChange);
-            if (this.playerController) {
-                this.playerController.addEventListener('state-changed', this._onStateChange);
-                this._state = this.playerController.state;
-                this.requestUpdate();
-            }
-        }
-
         if (changedProperties.has('visible') && this.visible) {
             this._refreshCurrentTab();
         }
-    }
-
-    _onStateChange(e) {
-        this._state = e.detail;
-        this.requestUpdate();
     }
 
     _refreshCurrentTab() {
@@ -188,23 +170,20 @@ export class SpotifySidebarPlayer extends LitElement {
     }
 
     render() {
-        const track = this._state?.track;
-        const queue = this._state?.queue || [];
-        const recent = this._state?.recentTracks || [];
+        const state = this._player.state;
+        const track = state?.track;
+        const queue = state?.queue || [];
+        const recent = state?.recentTracks || [];
 
-        // Determine Context Label
+        // Context label, off the SpotifyPlus entity's attributes.
         let contextLabel = "Up Next";
-        if (this.config && this.hass) {
-            const stateObj = this.hass.states[this.config.entity];
-            const spAttributes = stateObj?.attributes || {};
-            const contextUri = spAttributes.sp_context_uri || spAttributes.media_playlist;
-
-            if (contextUri) {
-                if (contextUri.includes(':playlist:')) contextLabel = "Next From Playlist";
-                else if (contextUri.includes(':album:')) contextLabel = "Next From Album";
-                else if (contextUri.includes(':artist:')) contextLabel = "Next From Artist";
-                else if (contextUri.includes(':collection')) contextLabel = "Next From Liked";
-            }
+        const spAttributes = this.playerController?.sourceAttributes?.() || {};
+        const contextUri = spAttributes.sp_context_uri || spAttributes.media_playlist;
+        if (contextUri) {
+            if (contextUri.includes(':playlist:')) contextLabel = "Next From Playlist";
+            else if (contextUri.includes(':album:')) contextLabel = "Next From Album";
+            else if (contextUri.includes(':artist:')) contextLabel = "Next From Artist";
+            else if (contextUri.includes(':collection')) contextLabel = "Next From Liked";
         }
 
         return html`
@@ -212,16 +191,15 @@ export class SpotifySidebarPlayer extends LitElement {
                 <div class="queue-header-wrapper">
                     <!-- Mobile Drag Handle could go here -->
                     <spotify-sidebar-nowplaying
-                        .hass=${this.hass}
                         .config=${this.config}
                         .api=${this.api}
                         .deviceManager=${this.deviceManager}
                         .playerController=${this.playerController}
                         .visible=${this.visible}
                         .track=${track}
-                        .isPlaying=${this._state?.isPlaying}
-                        .isShuffle=${this._state?.isShuffle}
-                        .isLiked=${this._state?.isLiked}
+                        .isPlaying=${state?.isPlaying}
+                        .isShuffle=${state?.isShuffle}
+                        .isLiked=${state?.isLiked}
                         @volume-overlay-toggle=${(e) => this._isVolumeOverlayOpen = e.detail.visible}
                     ></spotify-sidebar-nowplaying>
                 </div>

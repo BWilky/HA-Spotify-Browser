@@ -3,6 +3,7 @@ import { fireHaptic } from "../../utils.js";
 import { artFallbackStyles } from '../../styles/shared-styles.js';
 import { playingBarsIcon, menuIcon } from '../common/icons.js';
 import { renderQueueRow } from './queue-row.js';
+import { PlayerStateController } from '../controllers/player-state-controller.js';
 import '../bottom-sheet.js';
 
 /**
@@ -14,17 +15,15 @@ import '../bottom-sheet.js';
  * Reorder/Edit, shuffle, repeat and the sleep timer are intentionally omitted —
  * the SpotifyPlus API can't drive them. Tapping a row plays that track.
  *
- * Driven by the app: `state` (PlayerController state: track/isPlaying/queue/
- * recentTracks), `playerController` (actions + refresh), `hass`/`config` (to read
- * the playing context name). Emits `close`.
+ * Driven by the app: `visible` and `playerController` (state, actions,
+ * refresh, the playing context name). It subscribes itself to the controller
+ * through PlayerStateController and re-renders on a state change only while
+ * open. Emits `close`.
  */
 export class SpotifyQueuePanel extends LitElement {
     static get properties() {
         return {
             visible: { type: Boolean, reflect: true },
-            hass: { type: Object },
-            config: { type: Object },
-            state: { type: Object },
             playerController: { type: Object },
             _tab: { type: String, state: true },
         };
@@ -108,25 +107,34 @@ export class SpotifyQueuePanel extends LitElement {
         super();
         this.visible = false;
         this._tab = 'queue';
+        // Player state, re-rendering only while the sheet is open.
+        this._player = new PlayerStateController(this, { isActive: () => !!this.visible });
     }
 
-    // Skip rendering while the sheet is closed (hass/state change about once a
-    // second during playback). The `visible` flip itself always renders, so
-    // the slide plays and opening shows the current queue.
+    /** The current PlayerController state (read at render time, never stored). */
+    get _state() {
+        return this._player.state;
+    }
+
+    // Skip rendering while the sheet is closed. The `visible` flip itself
+    // always renders — with the state as it is then, so whatever changed while
+    // closed shows on open — and a new playerController always gets through so
+    // the subscription moves to it.
     shouldUpdate(changedProps) {
-        return this.visible || changedProps.has('visible') || !this.hasUpdated;
+        return this.visible || changedProps.has('visible')
+            || changedProps.has('playerController') || !this.hasUpdated;
     }
 
     // Animated bars while playing (shared icon), frozen bars while paused.
     _eqIcon() {
-        return this.state?.isPlaying
+        return this._state?.isPlaying
             ? html`<span class="eq">${playingBarsIcon(16)}</span>`
             : html`<span class="eq"><svg viewBox="0 0 24 24"><rect x="3" y="10" width="4" height="11" rx="1"/><rect x="10" y="5" width="4" height="16" rx="1"/><rect x="17" y="13" width="4" height="8" rx="1"/></svg></span>`;
     }
 
+    /** Name of the playing context, off the SpotifyPlus entity (as before). */
     _context() {
-        const attrs = this.hass?.states?.[this.config?.entity]?.attributes || {};
-        return attrs.media_playlist || '';
+        return this.playerController?.sourceAttributes?.().media_playlist || '';
     }
 
     _close() { this.dispatchEvent(new CustomEvent('close', { bubbles: true, composed: true })); }
@@ -174,8 +182,8 @@ export class SpotifyQueuePanel extends LitElement {
             onClick: () => now ? null : this._playTrack(track),
             titleIcon: now ? this._eqIcon() : null,
             trailing: now ? html`
-                <button class="np-toggle" @click=${this._togglePlay} aria-label="${this.state?.isPlaying ? 'Pause' : 'Play'}">
-                    <svg viewBox="0 0 24 24"><path d="${this.state?.isPlaying ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z'}"/></svg>
+                <button class="np-toggle" @click=${this._togglePlay} aria-label="${this._state?.isPlaying ? 'Pause' : 'Play'}">
+                    <svg viewBox="0 0 24 24"><path d="${this._state?.isPlaying ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z'}"/></svg>
                 </button>
             ` : html`
                 <button class="row-menu-btn" @click=${(e) => this._trackMenu(e, track)} aria-label="More options">
@@ -186,8 +194,8 @@ export class SpotifyQueuePanel extends LitElement {
     }
 
     _renderQueueTab() {
-        const np = this.state?.track;
-        const queue = this.state?.queue || [];
+        const np = this._state?.track;
+        const queue = this._state?.queue || [];
         return html`
             ${np ? this._row(np, { now: true }) : ''}
             ${queue.length
@@ -197,7 +205,7 @@ export class SpotifyQueuePanel extends LitElement {
     }
 
     _renderRecentTab() {
-        const recent = this.state?.recentTracks || [];
+        const recent = this._state?.recentTracks || [];
         if (!recent.length) return html`<div class="empty">No recently played tracks.</div>`;
         return html`${recent.map(item => this._row(item.track || item))}`;
     }

@@ -227,3 +227,89 @@ test('api, config and pinned still reach every cached page', () => {
         assert.deepEqual(page.seen, []);
     }
 });
+
+/* --- Playlist edit sessions (the app header steps aside for the page being edited) --- */
+
+function editEvent(active) {
+    return new CustomEvent('edit-session-changed', { detail: { active, playlistId: '2' } });
+}
+
+test('an edit session is recorded for its page and relayed with the page id', (t) => {
+    const prevDocument = globalThis.document;
+    globalThis.document = { createElement: () => fakeElement() };
+    t.after(() => { globalThis.document = prevDocument; });
+
+    const router = makeRouter();
+    router.container = {};
+    const relayed = [];
+    router.addEventListener('edit-session-changed', (e) => relayed.push([e.detail.pageId, e.detail.active]));
+
+    router.navigateTo('playlist:2');
+    const page = router.pageCache.get('playlist:2');
+    assert.equal(router.isEditing(), false);
+
+    page.dispatchEvent(editEvent(true));
+    assert.equal(router.isEditing(), true);
+    assert.equal(router.isEditing('playlist:2'), true);
+
+    page.dispatchEvent(editEvent(false)); // save, cancel, failed save, reset
+    assert.equal(router.isEditing(), false);
+    assert.deepEqual(relayed, [['playlist:2', true], ['playlist:2', false]]);
+});
+
+test('isEditing follows the page on screen: away it is false, back it is true again', (t) => {
+    const prevDocument = globalThis.document;
+    globalThis.document = { createElement: () => fakeElement() };
+    t.after(() => { globalThis.document = prevDocument; });
+
+    const router = makeRouter();
+    router.container = {};
+    router.navigateTo('playlist:2');
+    router.pageCache.get('playlist:2').dispatchEvent(editEvent(true));
+
+    router.navigateTo('artist:1');
+    assert.equal(router.isEditing(), false);           // the header returns on the new page
+    assert.equal(router.isEditing('playlist:2'), true); // the session itself is still open
+
+    router.goBack();
+    assert.equal(router.isEditing(), true);
+});
+
+test('a session that ends while its page is off screen is not left behind', (t) => {
+    const prevDocument = globalThis.document;
+    globalThis.document = { createElement: () => fakeElement() };
+    t.after(() => { globalThis.document = prevDocument; });
+
+    const router = makeRouter();
+    router.container = {};
+    router.navigateTo('playlist:2');
+    const page = router.pageCache.get('playlist:2');
+    page.dispatchEvent(editEvent(true));
+    router.navigateTo('home');
+
+    page.dispatchEvent(editEvent(false)); // e.g. a save that finished after leaving
+    router.goBack();
+    assert.equal(router.isEditing(), false);
+});
+
+test('a page rebuilt under the same id does not inherit a dropped page\'s edit session', (t) => {
+    const prevDocument = globalThis.document;
+    globalThis.document = { createElement: () => fakeElement() };
+    t.after(() => { globalThis.document = prevDocument; });
+
+    const router = makeRouter();
+    router.container = {};
+    router.navigateTo('playlist:2');
+    router.pageCache.get('playlist:2').dispatchEvent(editEvent(true));
+
+    router.clearCache(); // account switch
+    assert.equal(router.isEditing('playlist:2'), false);
+    router.navigateTo('playlist:2');
+    assert.equal(router.isEditing(), false);
+
+    router.pageCache.get('playlist:2').dispatchEvent(editEvent(true));
+    router.navigateTo('home');
+    router.dropPage('playlist:2'); // the playlist was deleted
+    router.navigateTo('playlist:2');
+    assert.equal(router.isEditing(), false);
+});

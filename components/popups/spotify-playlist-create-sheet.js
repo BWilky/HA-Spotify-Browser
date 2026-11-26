@@ -170,7 +170,13 @@ export class SpotifyPlaylistCreateSheet extends LitElement {
 
     render() {
         return html`
-            <spotify-bottom-sheet .visible=${this.visible} desktop-modal>
+            <spotify-bottom-sheet .visible=${this.visible} desktop-modal ?no-escape=${this._saving}
+                @close=${(e) => {
+                    // Route the sheet's own close (backdrop, drag, Escape) through
+                    // _close(), which refuses while a create is in flight.
+                    e.stopPropagation();
+                    this._close();
+                }}>
                 <div class="body">
                     <div class="close-row">
                         <button class="close-btn" aria-label="Close" @click=${this._close}>

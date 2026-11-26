@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "../../../lit.js";
 import { parseDeviceItems, normalizeDevice, parseSpotifyUri, formatTime, IMG_THUMB } from "../../../utils.js";
 import { NowPlayingController } from "../../controllers/now-playing-controller.js";
+import { VolumeController } from "../../controllers/volume-controller.js";
 import "../../common/spotify-slider.js";
 import "../../devices/index.js";
 
@@ -311,12 +312,13 @@ export class SpotifySidebarNowPlaying extends LitElement {
             renderProgress: (p) => this._renderProgress(p),
             watch: ['volume', 'deviceId', 'activeDevice'],
         });
+        // Rate limiting + optimistic hold (devices.volume.rate_control /
+        // .optimistic), shared with the mobile Connect sheet.
+        this._vol = new VolumeController(this, {
+            send: (pct) => this._sendVolume(pct / 100),
+            getConfig: () => this.config?.devices?.volume,
+        });
         this._volumeTimeout = null;
-        this._lastVolumeUpdate = 0;
-        this._pendingVolume = null;
-        this._volumeThrottleTimer = null;
-        this._localVolume = null;
-        this._ignoreUpdatesUntil = 0;
         this._devices = [];
         this._devicesVisible = false;
         this._loadingDevices = false;
@@ -325,16 +327,11 @@ export class SpotifySidebarNowPlaying extends LitElement {
 
     disconnectedCallback() {
         super.disconnectedCallback(); // the progress ticker stops with the controller
+        // (the VolumeController clears its own timers)
         if (this._volumeTimeout) clearTimeout(this._volumeTimeout);
-        if (this._volumeThrottleTimer) clearTimeout(this._volumeThrottleTimer);
         if (this._deviceTimeout) clearTimeout(this._deviceTimeout);
-        if (this._overlayCloseTimer) clearTimeout(this._overlayCloseTimer);
-        if (this._volumeHoldTimer) clearTimeout(this._volumeHoldTimer);
-        this._volumeHoldTimer = null;
         this._volumeTimeout = null;
-        this._volumeThrottleTimer = null;
         this._deviceTimeout = null;
-        this._overlayCloseTimer = null;
     }
 
     _renderProgress({ position, duration, held }) {
@@ -446,70 +443,30 @@ export class SpotifySidebarNowPlaying extends LitElement {
         }
     }
 
-    async _transferPlayback(device) {
-        if (!this.api) return;
-        // Optimistic update
-        this._devices = this._devices.map(d => ({ ...d, isActive: d.id === device.id }));
-        this.requestUpdate();
-
-        this.playerController?.beginTransferHold();
-        await this.api.transferPlayback(device);
-
-        // Close the overlay shortly after transfer
-        if (this._overlayCloseTimer) clearTimeout(this._overlayCloseTimer);
-        this._overlayCloseTimer = setTimeout(() => {
-            this._overlayCloseTimer = null;
-            if (this._devicesVisible) this.toggleDeviceOverlay();
-        }, 500);
+    /**
+     * A device picked in the dropdown: close the dropdown and hand the choice
+     * to the app, which runs its one transfer flow ("Transferring…" toast,
+     * failure report, transfer hold). The dropdown's own composed event is
+     * stopped here and re-sent from this element, so an ancestor sees exactly
+     * one `device-selected`; `detail` is the device object unchanged (the same
+     * DeviceManager.getMergedDevices shape the Connect sheet sends).
+     */
+    _onDeviceSelected(e) {
+        e.stopPropagation();
+        if (this._devicesVisible) this.toggleDeviceOverlay();
+        this.dispatchEvent(new CustomEvent('device-selected', {
+            detail: e.detail, bubbles: true, composed: true
+        }));
     }
 
-    async onVolumeChange(e) {
-        if (!this.api) return;
-        const vol = e.detail.value / 100;
+    /** Volume 0..1 to the active player (same path for every send). */
+    _sendVolume(vol) {
+        if (this.playerController) return this.playerController.setVolume(vol);
+        return this.api?.setVolume(vol);
+    }
 
-        // Check for rate control (default enabled)
-        const rateControlFn = this.config?.devices?.volume?.rate_control !== false;
-
-        // Check for optimistic update (default enabled)
-        const optimistic = this.config?.devices?.volume?.optimistic !== false;
-
-        if (optimistic) {
-            this._localVolume = e.detail.value;
-            this._ignoreUpdatesUntil = Date.now() + 3000;
-            this.requestUpdate();
-            // This component no longer re-renders on every Home Assistant
-            // tick, so nothing would drop the held value once the hold ends:
-            // render once then, to show whatever the speaker settled on.
-            if (this._volumeHoldTimer) clearTimeout(this._volumeHoldTimer);
-            this._volumeHoldTimer = setTimeout(() => {
-                this._volumeHoldTimer = null;
-                this.requestUpdate();
-            }, 3050);
-        }
-
-        if (rateControlFn) {
-            // Rate Control: Limit updates to avoid spamming the device
-            const now = Date.now();
-            if (this._lastVolumeUpdate && (now - this._lastVolumeUpdate < 200)) {
-                // If throttled, save pending value to apply later
-                this._pendingVolume = vol;
-
-                if (!this._volumeThrottleTimer) {
-                    this._volumeThrottleTimer = setTimeout(() => {
-                        this._volumeThrottleTimer = null;
-                        if (this._pendingVolume !== null) {
-                            this.api.setVolume(this._pendingVolume);
-                            this._lastVolumeUpdate = Date.now();
-                            this._pendingVolume = null;
-                        }
-                    }, 200);
-                }
-                return;
-            }
-            this._lastVolumeUpdate = now;
-        }
-
-        this.playerController?.setVolume(vol);
+    onVolumeChange(e) {
+        this._vol.input(e.detail.value);
         this._resetVolumeTimeout();
     }
 
@@ -627,14 +584,9 @@ export class SpotifySidebarNowPlaying extends LitElement {
     }
 
     renderFloatingVolume() {
-        // PlayerController volume: read off the entity driving playback.
-        let volume = this.playerController?.state?.volume || 0;
-
-        // Optimistic Override
-        const optimistic = this.config?.devices?.volume?.optimistic !== false;
-        if (optimistic && this._ignoreUpdatesUntil && Date.now() < this._ignoreUpdatesUntil && this._localVolume !== null) {
-            volume = this._localVolume;
-        }
+        // PlayerController volume (read off the entity driving playback),
+        // or the user's level while the optimistic hold is live.
+        const volume = this._vol.displayed(this.playerController?.state?.volume || 0);
 
         // The Sonos entity has no sp_device_id attribute, so a Sonos target
         // resolves to null here — unknown means volume-capable.
@@ -670,7 +622,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 .devices=${this._devices}
                 .visible=${this._devicesVisible}
                 .loading=${this._loadingDevices}
-                @device-selected=${(e) => this._transferPlayback(e.detail)}
+                @device-selected=${this._onDeviceSelected}
             ></spotify-device-picker-small>
         `;
     }

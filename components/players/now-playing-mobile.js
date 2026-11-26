@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic, getVibrantColor, formatTime } from '../../utils.js';
 import { NowPlayingController } from '../controllers/now-playing-controller.js';
+import { PlayerStateController } from '../controllers/player-state-controller.js';
 
 /**
  * Full-screen mobile "Now Playing" view, styled after the iOS Spotify app.
@@ -14,7 +15,6 @@ export class SpotifyNowPlayingMobile extends LitElement {
             config: { type: Object },
             api: { type: Object },
             playerController: { type: Object },
-            state: { type: Object },
         };
     }
 
@@ -209,10 +209,11 @@ export class SpotifyNowPlayingMobile extends LitElement {
         this.visible = false;
         this._swiping = false;
         this._committing = false;
-        // `hass` is still assigned by the app but deliberately not a declared
-        // property: everything shown here comes from the PlayerController
-        // (re-rendered via `state`), so a Home Assistant tick no longer
-        // re-renders the sheet.
+        // Everything shown here comes from the PlayerController. The sheet
+        // subscribes itself (re-rendering on a state change only while open),
+        // so neither a Home Assistant tick nor the app has to push state in.
+        this._player = new PlayerStateController(this, { isActive: () => !!this.visible });
+        this._seenState = null; // the player state the last update rendered
         this._np = new NowPlayingController(this, {
             interval: 500,
             isActive: () => !!this.visible,
@@ -230,16 +231,24 @@ export class SpotifyNowPlayingMobile extends LitElement {
     }
 
     /**
-     * Skip rendering while the sheet is closed: `state` can change about once
-     * a second during playback. The `visible` flip itself always renders (so the
-     * slide plays and opening shows current data); changes that arrived while
-     * closed are not replayed, so updated() re-derives them on open.
+     * Skip rendering while the sheet is closed. The `visible` flip itself
+     * always renders (so the slide plays and opening shows current data);
+     * changes that arrived while closed are not replayed, so updated()
+     * re-derives them on open. A new playerController always gets through so
+     * the subscription moves to it.
      */
     shouldUpdate(changedProps) {
-        return this.visible || changedProps.has('visible') || !this.hasUpdated;
+        return this.visible || changedProps.has('visible')
+            || changedProps.has('playerController') || !this.hasUpdated;
     }
 
     updated(changedProps) {
+        // Player state objects are replaced, never mutated: a new identity
+        // since the last update is "the state changed".
+        const state = this._player.state;
+        const stateChanged = state !== this._seenState;
+        this._seenState = state;
+
         // The progress ticker follows `visible` (see NowPlayingController).
         if (changedProps.has('visible') && this.visible) {
             // Re-verify the like state for the current track each time the
@@ -248,13 +257,13 @@ export class SpotifyNowPlayingMobile extends LitElement {
             if (id) this.playerController?.checkTrackFavorites(id);
         }
         // On open too: the track may have changed while closed (see shouldUpdate).
-        if (changedProps.has('state') || (changedProps.has('visible') && this.visible)) {
+        if (stateChanged || (changedProps.has('visible') && this.visible)) {
             this._updateAccent(this._np.artUrl());
         }
         // After an optimistic skip re-renders with the new track centered, snap
         // the carousel back to 0 (no transition) so the swap is seamless — the
         // image that just slid to center is the same one now in the center slot.
-        if (this._committing && changedProps.has('state')) {
+        if (this._committing && stateChanged) {
             this._committing = false;
             this._fired = false;
             if (this._commitTimer) { clearTimeout(this._commitTimer); this._commitTimer = null; }

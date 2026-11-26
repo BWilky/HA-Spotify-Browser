@@ -1,16 +1,30 @@
 import { LitElement, html, css } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { trashIcon } from './common/icons.js';
+import './bottom-sheet.js';
+import { ListDragController } from './controllers/list-drag-controller.js';
 
+/** Liked Songs and config pins are locked: not draggable, not removable. */
+const isLocked = (item) => !!item?.fixed || item?.id === 'user-library';
+
+/**
+ * Pinned-items reorder dialog. Built on <spotify-bottom-sheet desktop-modal>
+ * (shared backdrop, transitions, Escape via the overlay stack; a draggable
+ * sheet on phones, a centred card at >=769px) and ListDragController for the
+ * row drag. Row drags never dismiss the sheet: the sheet only starts a
+ * dismiss drag from its own grip area, never from slotted content.
+ *
+ * Props: .items, .visible, .allowBlur
+ * Events (non-bubbling unless noted): close, reorder (detail: items),
+ *   delete-item (detail: id), add-custom-uri (detail: uri),
+ *   reset-pinned-items, show-alert (bubbles, composed).
+ */
 class SpotifyReorderDialog extends LitElement {
     static get properties() {
         return {
             items: { type: Array },
             visible: { type: Boolean },
             allowBlur: { type: Boolean },
-            _draggedItemIndex: { type: Number, state: true },
-            _dropTargetIndex: { type: Number, state: true },
-            _dropPosition: { type: String, state: true },
             _showUriInput: { type: Boolean, state: true },
             _uriInputValue: { type: String, state: true },
         };
@@ -20,55 +34,30 @@ class SpotifyReorderDialog extends LitElement {
         return [
             sharedStyles,
             css`
+                /* No box of its own (sharedStyles' :host is a 0x0 absolute
+                   z-index box): the sheet is the overlay, stacked as before. */
                 :host {
-                    display: block;
-                    position: fixed;
-                    top: 0;
-                    left: 0;
-                    width: 100%;
-                    height: 100%;
-                    z-index: 200000;
-                    pointer-events: none;
-                    font-family: var(--spf-font-family, sans-serif);
+                    display: contents;
+                    --spf-sheet-z: 200000;
+                    --spf-sheet-modal-w: 500px;
+                    --spf-sheet-backdrop: rgba(0, 0, 0, 0.9);
+                    /* Header/list/footer bring their own full-bleed spacing. */
+                    --spf-sheet-pad-x: 0px;
+                    --spf-sheet-pad-bottom: 0px;
                 }
-
-                /* Backdrop & Container */
-                .dialog-backdrop {
-                    position: absolute;
-                    width: 100%;
-                    height: 100%;
-                    background: rgba(0, 0, 0, 0.9);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    opacity: 0;
-                    pointer-events: none;
-                    transition: opacity 0.2s ease;
+                @media (min-width: 769px) {
+                    :host { --spf-sheet-pad-top: 0px; }
                 }
-                
-                .dialog-backdrop.visible {
-                    opacity: 1;
-                    pointer-events: auto;
-                }
-
-                .dialog-backdrop.blur {
-                    background: rgba(0, 0, 0, 0.7);
-                    backdrop-filter: blur(12px);
-                    -webkit-backdrop-filter: blur(12px);
+                spotify-bottom-sheet.blur {
+                    --spf-sheet-backdrop: rgba(0, 0, 0, 0.7);
+                    --spf-sheet-backdrop-filter: blur(12px);
                 }
 
                 .dialog-content {
-                    background: var(--spf-bg-alt, #181818);
-                    border-radius: 12px;
-                    width: 90%;
-                    max-width: 500px;
-                    max-height: 80vh;
                     display: flex;
                     flex-direction: column;
-                    box-shadow: 0 25px 60px rgba(0,0,0,0.8);
-                    border: 1px solid rgba(255,255,255,0.1);
-                    position: relative;
-                    overflow: hidden;
+                    flex: 1;
+                    min-height: 0;
                 }
 
                 /* Header */
@@ -78,6 +67,11 @@ class SpotifyReorderDialog extends LitElement {
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
+                }
+
+                /* Phones: the sheet's grip already spaces the top. */
+                @media (max-width: 768px) {
+                    .dialog-header { padding-top: 4px; }
                 }
 
                 .dialog-title {
@@ -90,6 +84,7 @@ class SpotifyReorderDialog extends LitElement {
                 /* Body & List */
                 .dialog-body {
                     flex: 1;
+                    min-height: 0;
                     overflow-y: auto;
                     padding: 10px 0;
                     -webkit-overflow-scrolling: touch;
@@ -220,88 +215,33 @@ class SpotifyReorderDialog extends LitElement {
         super();
         this.items = [];
         this.visible = false;
-        this._draggedItemIndex = null;
-        this._dropTargetIndex = null;
-        this._cachedRects = [];
+        this._drag = new ListDragController(this, {
+            itemSelector: '.reorder-item',
+            isDraggable: (index) => !isLocked(this.items[index]),
+            onDrop: (from, to, pos) => this._reorderItems(from, to, pos),
+        });
     }
 
     // --- REORDER LOGIC ---
 
-    _handlePointerDown(e, index) {
-        if (e.button !== 0 && e.pointerType === 'mouse') return;
+    _onRowPointerDown(e, index) {
         if (e.target.closest('button')) return; // Ignore drag if clicking a button
-        // Liked Songs and config pins are locked — they can't be dragged.
-        if (this.items[index]?.fixed || this.items[index]?.id === 'user-library') return;
-
-        const target = e.currentTarget;
-        target.setPointerCapture(e.pointerId);
-        this._draggedItemIndex = index;
-
-        // Take layout snapshot for 120fps comparison
-        const list = this.shadowRoot.querySelector('.reorder-list');
-        const items = Array.from(list.querySelectorAll('.reorder-item'));
-        this._cachedRects = items.map((item, idx) => {
-            const rect = item.getBoundingClientRect();
-            return {
-                index: idx,
-                top: rect.top,
-                bottom: rect.bottom,
-                midpoint: rect.top + (rect.height / 2)
-            };
-        });
-    }
-
-    _handlePointerMove(e) {
-        if (this._draggedItemIndex === null) return;
-        const pointerY = e.clientY;
-
-        let foundIndex = null;
-        let position = null;
-
-        for (const rect of this._cachedRects) {
-            if (pointerY >= rect.top && pointerY <= rect.bottom) {
-                foundIndex = rect.index;
-                position = pointerY < rect.midpoint ? 'before' : 'after';
-                break;
-            }
-        }
-
-        // Only update if target changed to prevent redundant renders
-        if (this._dropTargetIndex !== foundIndex || this._dropPosition !== position) {
-            this._dropTargetIndex = foundIndex;
-            this._dropPosition = position;
-        }
-    }
-
-    _handlePointerUp(e) {
-        if (this._draggedItemIndex === null) return;
-
-        if (this._dropTargetIndex !== null && this._draggedItemIndex !== this._dropTargetIndex) {
-            this._reorderItems(this._draggedItemIndex, this._dropTargetIndex, this._dropPosition);
-        }
-
-        this._resetDragState(e);
-    }
-
-    _resetDragState(e) {
-        this._draggedItemIndex = null;
-        this._dropTargetIndex = null;
-        this._dropPosition = null;
-        this._cachedRects = [];
-        if (e?.target) e.target.releasePointerCapture(e.pointerId);
+        this._drag.start(e, index, this.shadowRoot.querySelector('.reorder-list'));
     }
 
     _reorderItems(from, to, pos) {
-        const newItems = [...this.items];
-        const [movedItem] = newItems.splice(from, 1);
-        let targetIdx = (pos === 'after') ? to + 1 : to;
-        if (from < targetIdx) targetIdx--;
+        let newItems = ListDragController.applyMove(this.items, from, to, pos);
         // Keep Liked Songs and config pins locked at the top — nothing can be
-        // dropped among them.
+        // dropped among them: clamp below the leading locked run (counted
+        // without the moved row, which is never locked).
+        const rest = [...this.items];
+        const [movedItem] = rest.splice(from, 1);
         let lockedCount = 0;
-        while (lockedCount < newItems.length && (newItems[lockedCount]?.fixed || newItems[lockedCount]?.id === 'user-library')) lockedCount++;
-        if (targetIdx < lockedCount) targetIdx = lockedCount;
-        newItems.splice(targetIdx, 0, movedItem);
+        while (lockedCount < rest.length && isLocked(rest[lockedCount])) lockedCount++;
+        if (newItems.indexOf(movedItem) < lockedCount) {
+            rest.splice(lockedCount, 0, movedItem);
+            newItems = rest;
+        }
         this.items = newItems;
         this._dispatchUpdate();
     }
@@ -313,6 +253,16 @@ class SpotifyReorderDialog extends LitElement {
         this.dispatchEvent(new CustomEvent('add-custom-uri', { detail: this._uriInputValue }));
         this._showUriInput = false;
         this._uriInputValue = '';
+    }
+
+    _onUriKeyDown(e) {
+        if (e.key === 'Enter') this._handleAddUri();
+        // Escape in the URI field cancels the field, not the dialog
+        // (preventDefault tells the overlay stack it was handled).
+        else if (e.key === 'Escape' && !e.isComposing) {
+            e.preventDefault();
+            this._showUriInput = false;
+        }
     }
 
     /* --- ACTIONS --- */
@@ -356,10 +306,11 @@ class SpotifyReorderDialog extends LitElement {
     _close() { this.dispatchEvent(new CustomEvent('close')); }
 
     render() {
+        // The sheet's own `close` (backdrop, Escape, drag-dismiss) bubbles and
+        // is composed; swallow it and emit this dialog's plain `close`.
         return html`
-            <div class="dialog-backdrop ${this.visible ? 'visible' : ''} ${this.allowBlur ? 'blur' : ''}"
-                 @click=${(e) => { if (e.target === e.currentTarget) this._close() }}>
-                
+            <spotify-bottom-sheet desktop-modal class=${this.allowBlur ? 'blur' : ''} .visible=${this.visible}
+                @close=${(e) => { e.stopPropagation(); this._close(); }}>
                 <div class="dialog-content">
                     <div class="dialog-header">
                         <h2 class="dialog-title">Reorder Pinned Items</h2>
@@ -372,20 +323,16 @@ class SpotifyReorderDialog extends LitElement {
                         ${this.items.length === 0
                 ? html`<div style="text-align:center; padding:40px; color:#b3b3b3;">No pinned items found.</div>`
                 : html`
-                                <ul class="reorder-list" 
-                                    @pointermove=${this._handlePointerMove} 
-                                    @pointerup=${this._handlePointerUp}
-                                    @pointercancel=${this._handlePointerUp}>
+                                <ul class="reorder-list"
+                                    @pointermove=${(e) => this._drag.move(e)}
+                                    @pointerup=${(e) => this._drag.end(e)}
+                                    @pointercancel=${(e) => this._drag.end(e)}>
                                     ${this.items.map((item, index) => {
-                    // Liked Songs (#0) and config pins are locked: not draggable, not removable.
-                    const locked = !!item.fixed || item.id === 'user-library';
+                    const locked = isLocked(item);
                     const lockedLabel = item.id === 'user-library' ? 'Always pinned' : 'Pinned in card config';
                     return html`
-                                        <li class="reorder-item ${locked ? 'locked' : ''}
-                                            ${this._draggedItemIndex === index ? 'dragging ghost' : ''}
-                                            ${this._dropTargetIndex === index && this._dropPosition === 'before' ? 'drop-before' : ''}
-                                            ${this._dropTargetIndex === index && this._dropPosition === 'after' ? 'drop-after' : ''}"
-                                            @pointerdown=${(e) => this._handlePointerDown(e, index)}
+                                        <li class="reorder-item ${locked ? 'locked' : ''} ${this._drag.rowClass(index)}"
+                                            @pointerdown=${(e) => this._onRowPointerDown(e, index)}
                                         >
                                             <div class="handle">
                                                 ${locked
@@ -420,7 +367,7 @@ class SpotifyReorderDialog extends LitElement {
                                     style="flex:1; background:rgba(255,255,255,0.1); border:none; border-radius:4px; padding:0 12px; color:#fff; height:40px;"
                                     .value=${this._uriInputValue || ''}
                                     @input=${e => this._uriInputValue = e.target.value}
-                                    @keydown=${e => e.key === 'Enter' && this._handleAddUri()}
+                                    @keydown=${this._onUriKeyDown}
                                 >
                                 <button class="btn-base" style="background:var(--spf-brand); color:#000; padding:0 16px;" @click=${this._handleAddUri}>Add</button>
                                 <button class="btn-base" style="background:transparent; color:#fff; padding:0 16px;" @click=${() => this._showUriInput = false}>Cancel</button>
@@ -438,7 +385,7 @@ class SpotifyReorderDialog extends LitElement {
                         `}
                     </div>
                 </div>
-            </div>
+            </spotify-bottom-sheet>
         `;
     }
 }
