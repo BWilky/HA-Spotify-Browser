@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "../../../lit.js";
 import { sharedStyles } from '../../../styles/shared-styles.js';
-import { queueListStyles } from '../../../styles/spotify-queue.styles.js';
+import { queueListStyles } from './queue.styles.js';
 import { msToTime } from '../../../utils.js';
 import { renderQueueRow } from '../queue-row.js';
 import { menuIcon } from '../../common/icons.js';
@@ -24,7 +24,27 @@ export class SpotifySidebarTrackList extends LitElement {
         // Undo sharedStyles' :host (absolute, 0x0, z-index). pointer-events is
         // deliberately NOT set here: it must inherit, so the sidebar's .blurred
         // state can block row taps.
-        return [sharedStyles, queueListStyles, css`
+        return [sharedStyles, css`
+            /* Rules that sat in sharedStyles but can only match in this
+               element's shadow root (.queue-list, .device-refresh-btn). Kept
+               between sharedStyles and queueListStyles: their place in the
+               cascade before they moved. */
+            @media (max-width: 768px) {
+                .queue-list { background: var(--spf-bg); }
+            }
+
+            /* Re-add device refresh btn styling compatible with new popup */
+            .device-refresh-btn {
+                margin-top: 16px; background: transparent;
+                border: 1px solid var(--spf-border);
+                color: var(--spf-text-main); padding: 8px 20px;
+                border-radius: 20px; cursor: pointer;
+                font-size: var(--spf-text-sm, 12px); font-weight: 700;
+                text-transform: uppercase; letter-spacing: 1px;
+                transition: all 0.2s;
+            }
+            .device-refresh-btn:hover { border-color: var(--spf-text-main); background: var(--spf-hover-white); }
+        `, queueListStyles, css`
             :host {
                 display: block;
                 position: static;

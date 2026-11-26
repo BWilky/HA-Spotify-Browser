@@ -3,6 +3,7 @@ import { LitElement, html } from "./lit.js";
 import { SpotifyApi, classifyPlaybackError } from './api.js';
 import { parseDeviceItems, normalizeDevice, fireHaptic, setDebug, debugLog, pickImage, IMG_THUMB } from './utils.js';
 import { sharedStyles } from './styles/shared-styles.js';
+import { shellStyles } from './spotify-browser-app.styles.js';
 import { Router } from './router.js';
 import './components/spotify-header.js';
 import './components/players/sidebar/index.js';
@@ -73,7 +74,8 @@ class SpotifyBrowserApp extends LitElement {
     }
 
     static get styles() {
-        return sharedStyles;
+        // shellStyles after sharedStyles: see spotify-browser-app.styles.js.
+        return [sharedStyles, shellStyles];
     }
 
     constructor() {
@@ -821,7 +823,7 @@ class SpotifyBrowserApp extends LitElement {
                 ></spotify-popup-devicemanager>
 
                 <!-- Device picker: stacked between the alert and the toasts of
-                     spotify-popups (see styles/spotify-popups.styles.js). -->
+                     spotify-popups (see components/spotify-popups.styles.js). -->
                 <spotify-popup-devices
                     style="--spf-sheet-z: 229500;"
                     .devices=${this._devices}

@@ -1,5 +1,22 @@
 import { css } from "../lit.js";
 
+/*
+ * Where stylesheets live:
+ *  - styles/ holds only what more than one component adopts: this file
+ *    (sharedStyles: the :host theme/typography tokens every component that
+ *    adopts it relies on, plus the primitives several components render;
+ *    artFallbackStyles), list-row.styles.js, spotify-context-view.styles.js
+ *    and fonts.js (document-level @font-face).
+ *  - A sheet with a single consumer lives next to that component as
+ *    <component-file-name>.styles.js (spotify-browser-app.styles.js for the
+ *    root's app frame, components/spotify-header.styles.js,
+ *    components/players/sidebar/queue.styles.js, ...).
+ *  - Each component's own remaining CSS stays inline in its static styles.
+ * Every component has its own shadow root: a rule here only reaches elements
+ * rendered in the shadow root of a component that adopts the sheet, and the
+ * order of a static styles array is cascade order.
+ */
+
 /**
  * Default artwork placeholder: a muted music note on the card-gray background,
  * shown wherever Spotify supplies no image (empty playlists, failed loads).
@@ -88,209 +105,22 @@ export const sharedStyles = css`
         -webkit-touch-callout: default;
     }
 
-    /* --- Global Backdrop --- */
-    .backdrop {
-        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-        background: rgba(0, 0, 0, 0.6);
-        opacity: 0; pointer-events: none; 
-        transition: opacity 0.3s ease;
-        z-index: 9998; 
-        backdrop-filter: blur(4px);
-    }
-    .backdrop.open { opacity: 1; pointer-events: auto; }
-
-    /* --- Main Browser Shell --- */
-    .browser-wrapper {
-        position: fixed;
-        background: var(--spf-bg); 
-        color: var(--spf-text-main);
-        display: flex; flex-direction: column;
-        transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        z-index: 9999;
-        overflow: hidden;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.5);
-        box-sizing: border-box;
-    }
+    /* What is left here of the old desktop/mobile layout blocks after the app
+       shell's rules moved to spotify-browser-app.styles.js and the header/sidebar ones to
+       their components. Nothing renders .mobile-drag-handle, .grid-layout or
+       a spotify-queue element today. */
 
     /* ================= DESKTOP STYLES ================= */
     @media (min-width: 769px) {
-        .browser-wrapper {
-            top: 50%; left: 50%;
-            /* On touch tablets the height is locked in px at open time (see
-               _captureAppHeight) so the keyboard overlays the window; pointer-fine
-               desktops fall back to live 85vh. */
-            width: 85vw; max-width: 1200px; height: var(--spf-app-height, 85vh);
-            border-radius: 16px;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.6);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
-            
-            /* Base State (Hidden) varies by animation */
-            pointer-events: none;
-            opacity: 0; 
-        }
-
-        /* --- FADE (Default) --- */
-        .browser-wrapper.anim-fade {
-            transform: translate(-50%, -45%) scale(0.95);
-            transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .browser-wrapper.open.anim-fade {
-            transform: translate(-50%, -50%) scale(1);
-            opacity: 1; pointer-events: auto;
-        }
-
-        /* --- SLIDE (Legacy-ish) --- */
-        .browser-wrapper.anim-slide {
-            transform: translate(-50%, 100vh); /* Start off-screen bottom */
-            opacity: 1; /* Visible, just off screen */
-            transition: transform 0.5s cubic-bezier(0.19, 1, 0.22, 1);
-        }
-        .browser-wrapper.open.anim-slide {
-            transform: translate(-50%, -50%);
-            opacity: 1; pointer-events: auto;
-        }
-
-        /* --- NONE --- */
-        .browser-wrapper.anim-none {
-            transform: translate(-50%, -50%); /* Just center it */
-            transition: none !important;
-            display: none; /* Hide when closed */
-        }
-        .browser-wrapper.open.anim-none {
-            display: flex;
-            opacity: 1; pointer-events: auto;
-        }
-
-        /* --- NO BLUR (Opaque Fallback) --- */
-        .browser-wrapper.no-blur {
-            backdrop-filter: none !important;
-            -webkit-backdrop-filter: none !important;
-            background: #121212 !important; /* Solid Opaque */
-            box-shadow: 0 20px 50px rgba(0,0,0,0.9);
-        }
-        
-        .queue-header-wrapper {
-            position: relative;
-            padding: 0 !important; /* Critical: Remove wrapper padding */
-            overflow: visible;      /* Allow floating volume to hang out */
-            background: var(--spf-bg);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-            z-index: 5;
-        }
-        
-        .page-container {
-            transition: margin-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-        .browser-wrapper.queue-open .page-container { margin-right: 350px; }
-        
-        .browser-wrapper.is-dragging .page-container {
-            transition: none !important;
-        }
-        
         .mobile-drag-handle { display: none; }
-
-        /* While the on-screen keyboard is up (kb-open, toggled by JS), anchor the
-           floating window to the top at its full pre-keyboard height so the
-           keyboard overlays the lower edge instead of shrinking/reflowing it. */
-        .browser-wrapper.open.kb-open {
-            top: 0 !important;
-            height: var(--spf-app-height, 85vh) !important;
-            transform: translateX(-50%) !important;
-            border-radius: 0 0 16px 16px;
-            transition: none !important;
-        }
     }
 
     /* ================= MOBILE STYLES ================= */
     @media (max-width: 768px) {
-        .browser-wrapper {
-            /* Anchored to the top with a height locked at open time, so the
-               on-screen keyboard overlays the panel instead of resizing it. */
-            top: 0; left: 0; width: 100%; height: var(--spf-app-height, 100%);
-            max-width: none; max-height: none;
-            border-radius: 0;
-            margin-top: 0;
-            border: none;
-
-            /* Base Mobile Hidden State */
-            pointer-events: none;
-        }
-
-        /* --- MOBILE FADE (Slide-up panel with fade) --- */
-        .browser-wrapper.anim-fade {
-            transform: translateY(100%);
-            opacity: 0;
-            transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
-        }
-        .browser-wrapper.open.anim-fade {
-            transform: translateY(0);
-            opacity: 1; pointer-events: auto;
-        }
-
-        /* --- MOBILE SLIDE --- */
-        .browser-wrapper.anim-slide {
-            transform: translateY(100%);
-            opacity: 1; 
-            transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-        .browser-wrapper.open.anim-slide {
-            transform: translateY(0);
-            pointer-events: auto;
-        }
-        
-        /* --- MOBILE NONE --- */
-        .browser-wrapper.anim-none {
-            display: none;
-            transform: translateY(0);
-        }
-        .browser-wrapper.open.anim-none {
-            display: block; opacity: 1; pointer-events: auto;
-        }
-
         /* Fix Queue Mobile - Slide OVER header (z-index 120 > 110) */
         spotify-queue {
             z-index: 200000 !important;
         }
-
-        .queue-panel {
-            top: 0 !important;
-            padding-top: 0;
-            height: 100% !important;
-        }
-
-        .queue-panel::before {
-            content: '';
-            position: absolute;
-            bottom: 0; left: 0; width: 100%; height: 200vh; 
-            background: rgba(0, 0, 0, 0.3);
-            backdrop-filter: blur(12px);
-            -webkit-backdrop-filter: blur(12px);
-            z-index: -1; 
-            pointer-events: none; 
-            opacity: var(--blur-opacity);
-            transition: opacity 0.3s ease;
-        }
-        
-        .browser-wrapper.queue-open .queue-panel::before {
-            pointer-events: auto;
-        }
-        
-        .queue-panel.is-dragging::before {
-            transition: none !important;
-        }
-
-        .queue-header-wrapper {
-            border-radius: 20px 20px 0 0;
-            border-top: 1px solid var(--spf-border);
-            padding-bottom: 8px;
-            background: var(--spf-bg); 
-            box-shadow: 0 -10px 40px rgba(0,0,0,0.5); 
-            padding-top: 12px; 
-            overflow: hidden;
-        }
-
-        .queue-list { background: var(--spf-bg); }
 
         .mobile-drag-handle {
             display: block !important;
@@ -299,56 +129,9 @@ export const sharedStyles = css`
             border-radius: 2px;
             margin: 16px auto 4px auto; 
         }
-        
-        .browser-wrapper.queue-open .page-container { margin-right: 0 !important; }
-        .search-container.active { width: auto !important; flex: 1; margin-right: 8px; }
+
         .hero-title { font-size: 2rem !important; }
         .grid-layout { grid-template-columns: repeat(2, 1fr) !important; gap: 12px; }
-        
-        .header { padding: var(--spf-safe-top, 0px) 12px 0 12px !important; }
-        .header-left, .header-right { gap: 8px !important; }
-
-        /* Mobile Bottom Nav (the mini-player's styles live in its own
-           element, components/players/mini-player.js) */
-        .mobile-bottom-nav {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: calc(60px + var(--spf-safe-bottom, 0px));
-            padding-bottom: var(--spf-safe-bottom, 0px);
-            background: rgba(18, 18, 18, 0.95);
-            backdrop-filter: blur(24px);
-            -webkit-backdrop-filter: blur(24px);
-            border-top: 1px solid var(--spf-border-subtle, rgba(255,255,255,0.05));
-            display: flex;
-            justify-content: space-around;
-            align-items: center;
-            z-index: 10000;
-            box-sizing: border-box;
-        }
-        .nav-tab {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            color: #b3b3b3;
-            font-size: var(--spf-text-xs, 11px);
-            font-weight: 500;
-            cursor: pointer;
-            gap: 4px;
-            flex: 1;
-            height: 100%;
-            transition: color 0.2s ease;
-        }
-        .nav-tab svg {
-            width: 22px;
-            height: 22px;
-            fill: currentColor;
-        }
-        .nav-tab.active {
-            color: #ffffff;
-        }
 
         /* Ensure view containers are padded above mini player and bottom nav */
         .scroll-content {
@@ -362,76 +145,8 @@ export const sharedStyles = css`
         }
     }
 
-    /* --- Header --- */
-    .header {
-        position: absolute; top: 0; left: 0; right: 0;
-        height: calc(64px + var(--spf-safe-top));
-        padding-top: var(--spf-safe-top);
-        display: flex; justify-content: space-between; align-items: center;
-        padding-left: 24px; padding-right: 24px; padding-bottom: 0;
-        background: rgba(18, 18, 18, 1);
-        z-index: 110; 
-        transition: border-bottom 0.3s ease;
-        box-sizing: border-box;
-    }
-    
-    .header-center-title {
-        position: absolute; left: 50%; transform: translateX(-50%);
-        font-weight: 700; font-size: var(--spf-text-lg, 17px); color: var(--spf-text-main);
-        opacity: 0; transition: opacity 0.2s ease;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-        max-width: 40%; pointer-events: none; z-index: 120; 
-    }
+    /* --- Page content --- */
 
-    .header-left, .header-right { display: flex; align-items: center; gap: 16px; }
-    .spotify-logo { width: 32px; height: 32px; fill: var(--spf-text-main); }
-    
-    .nav-btn {
-        background: var(--spf-btn-bg); border: none; color: var(--spf-text-main);
-        width: 32px; height: 32px; border-radius: 50%;
-        display: flex; align-items: center; justify-content: center;
-        cursor: pointer; transition: background 0.2s; flex-shrink: 0;
-    }
-    @media (hover: hover) { .nav-btn:hover { background: var(--spf-hover-white); } }
-    .nav-btn:active { background: var(--spf-active-white); }
-    .nav-btn svg { pointer-events: none; } 
-    
-    /* --- Search Box --- */
-    .search-container {
-        display: flex; align-items: center; justify-content: center; 
-        background: var(--spf-btn-bg); 
-        border-radius: 50%; width: 40px; height: 40px;
-        padding: 0; overflow: hidden;
-        transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-    }
-    @media (hover: hover) { .search-container:not(.active):hover { background: var(--spf-hover-white); } }
-    
-    .search-container.active {
-        width: 240px; background: var(--spf-text-main); border-radius: 20px;
-        padding: 0 8px; justify-content: flex-start; 
-    }
-    .search-icon-btn {
-        width: 40px; height: 40px; 
-        background: none; border: none; color: var(--spf-text-main);
-        cursor: pointer; padding: 0; margin: 0;
-        display: flex; align-items: center; justify-content: center;
-        flex-shrink: 0; position: relative; z-index: 2; 
-    }
-    .search-icon-btn svg { transform: translate(1px, 1px); }
-    .search-container.active .search-icon-btn { color: #000; width: 32px; }
-
-    .search-input {
-        background: transparent !important; border: none; outline: none;
-        color: #000; font-size: var(--spf-text-base, 13.5px); opacity: 0; width: 0; min-width: 0; 
-        padding: 0; margin: 0; pointer-events: none; position: relative; z-index: 1; 
-        transition: opacity 0.2s, width 0.3s ease; line-height: 40px; 
-    }
-    .search-container.active .search-input { 
-        opacity: 1; width: 100%; margin-left: 4px; pointer-events: auto; 
-    }
-    
-    /* --- Page & Transitions --- */
-    
     .scroll-content {
         position: relative;
         z-index: 1;
@@ -441,28 +156,7 @@ export const sharedStyles = css`
         padding-bottom: 100px; 
     }
 
-    .page-container { position: relative; flex: 1; overflow: hidden; background: var(--spf-bg); box-sizing: border-box; }
-    .page {
-        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-        overflow-y: auto; overflow-x: hidden;
-        background: var(--spf-bg);
-        transition: transform 0.3s ease, opacity 0.3s ease;
-        padding-top: calc(64px + var(--spf-safe-top)); box-sizing: border-box;
-        
-        /* GPU Acceleration Hints */
-        will-change: transform, opacity;
-        backface-visibility: hidden;
-        transform: translateZ(0); 
-    }
-    .page.has-hero { padding-top: 0 !important; }
-    .page.has-hero-header { padding-top: 0; }
-    /* Mobile search/library own their own top bar (no app header), so drop the page inset. */
     @media (max-width: 768px) {
-        .page.search-page { padding-top: 0 !important; }
-        /* Home's header is shrunk to just the collapse arrow + avatar, so its
-           content clears a much smaller bar (matches the header rule). */
-        .page.home-page { padding-top: calc(52px + var(--spf-safe-top)) !important; }
-
         /* Tighter side margins to match the native app (was 24px). */
         .scroll-content { padding-left: 16px; padding-right: 16px; }
         /* Keep horizontal carousels bleeding exactly to the screen edge. */
@@ -481,102 +175,6 @@ export const sharedStyles = css`
         .track-name { font-size: var(--spf-text-base, 13.5px); }
         .track-artist { font-size: var(--spf-text-sm, 12px); }
     }
-    .page-hidden { display: none; }
-    
-    .slide-in-right { animation: slideInRight 0.3s forwards; }
-    .slide-out-left { animation: slideOutLeft 0.3s forwards; }
-    .slide-in-left { animation: slideInLeft 0.3s forwards; }
-    .slide-out-right { animation: slideOutRight 0.3s forwards; }
-    .fade-in { animation: fadeIn 0.3s forwards; }
-
-    @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
-    @keyframes slideOutLeft { from { transform: translateX(0); } to { transform: translateX(-30%); opacity: 0; } }
-    @keyframes slideInLeft { from { transform: translateX(-30%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-    @keyframes slideOutRight { from { transform: translateX(0); } to { transform: translateX(100%); } }
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-
-
-
-    /* --- Device Popup --- */
-    /* --- Generic Popup & Dialog --- */
-    .popup-backdrop {
-        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(0,0,0,0.6); backdrop-filter: blur(8px);
-        z-index: 200000; /* Must be > header (100002) */
-        display: none; align-items: center; justify-content: center;
-        opacity: 0; pointer-events: none; transition: opacity 0.3s;
-    }
-    .popup-backdrop.visible { opacity: 1; pointer-events: auto; display: flex; }
-    
-    .popup-backdrop.no-blur {
-        backdrop-filter: none !important;
-        -webkit-backdrop-filter: none !important;
-        background: rgba(0,0,0,0.9); /* Darker overlay if no glass */
-    }
-    
-    .popup-content {
-        background: var(--spf-bg); width: 90%; max-width: 400px;
-        border-radius: 16px; padding: 24px;
-        box-shadow: 0 10px 40px rgba(0,0,0,0.8);
-        display: flex; flex-direction: column; gap: 16px;
-        position: relative;
-    }
-    .popup-title { margin: 0; font-size: var(--spf-text-lg, 17px); font-weight: 700; text-align: center; color: var(--spf-text-main); }
-    .popup-scroll-content { max-height: 300px; overflow-y: auto; }
-    .popup-close-btn { background: transparent; border: none; color: var(--spf-text-main); font-weight: 700; padding: 12px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; align-self: center; }
-
-    /* Alert / Confirm Specifics */
-    .alert-dialog { max-width: 320px; text-align: center; }
-    .alert-buttons { display: flex; gap: 12px; justify-content: center; margin-top: 8px; }
-    .alert-btn { flex: 1; padding: 10px; border-radius: 20px; border: 1px solid var(--spf-border); background: transparent; color: var(--spf-text-main); cursor: pointer; font-weight: 700; }
-    .alert-btn.primary { background: var(--spf-brand); color: black; border: none; }
-    
-    /* --- Toast Notification --- */
-    .toast-container {
-        position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
-        display: flex; flex-direction: column; gap: 8px; z-index: 300; pointer-events: none;
-        width: 90%; max-width: 400px;
-    }
-    .toast-message {
-        background: var(--spf-bg-card-hover); color: var(--spf-text-main);
-        padding: 12px 16px; border-radius: 8px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.5);
-        font-size: var(--spf-text-base, 13.5px); text-align: center;
-        opacity: 0; transform: translateY(20px);
-        animation: toastEnter 0.3s forwards;
-    }
-    .toast-message.hiding { animation: toastExit 0.3s forwards; }
-    
-    @keyframes toastEnter { to { opacity: 1; transform: translateY(0); } }
-    @keyframes toastExit { to { opacity: 0; transform: translateY(-10px); } }
-
-    /* Re-add device refresh btn styling compatible with new popup */
-    .device-refresh-btn {
-        margin-top: 16px; background: transparent; 
-        border: 1px solid var(--spf-border);
-        color: var(--spf-text-main); padding: 8px 20px; 
-        border-radius: 20px; cursor: pointer; 
-        font-size: var(--spf-text-sm, 12px); font-weight: 700; 
-        text-transform: uppercase; letter-spacing: 1px;
-        transition: all 0.2s;
-    }
-    .device-refresh-btn:hover { border-color: var(--spf-text-main); background: var(--spf-hover-white); }
-    
-    /* --- Dropdown Menu --- */
-    .dropdown-menu {
-        position: absolute; top: calc(60px + var(--spf-safe-top)); right: 60px;
-        background: var(--spf-bg-card-hover); border-radius: 8px;
-        width: 180px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        display: none; flex-direction: column; z-index: 30;
-    }
-    .dropdown-menu.visible { display: flex; }
-    
-    .menu-item { padding: 12px 16px; cursor: pointer; font-size: var(--spf-text-base, 13.5px); color: var(--spf-text-main); transition: background 0.2s; }
-    @media (hover: hover) { .menu-item:hover { background: var(--spf-hover-white); } }
-    .menu-item:active { background: var(--spf-active-white); }
-    .menu-item:first-child { border-radius: 8px 8px 0 0; }
-    .menu-item:last-child { border-radius: 0 0 8px 8px; }
 
     /* --- Content Components --- */
     .section-title { font-size: var(--spf-text-lg, 17px); font-weight: 700; margin-bottom: 16px; margin-top: 32px; }
@@ -673,8 +271,8 @@ export const sharedStyles = css`
 
     /* Hero & artist-pill styles live in spotify-context-view.styles.js
        (playlist/artist views are the only consumers and import it).
-       .recent-grid-layout lives in spotify-home.styles.js (home is the only
-       consumer); the scrollbar rules below still reference it. */
+       .recent-grid-layout lives in components/spotify-home.styles.js (home is
+       the only consumer); the scrollbar rules below still reference it. */
 
     /* Track Rows (also consumed by spotify-context-list, which imports only
        sharedStyles — keep these here) */
@@ -729,18 +327,15 @@ export const sharedStyles = css`
     .card-text-sk.short { width: 50%; }
     @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
 
-    .browser-wrapper.is-dragging .page-container,
-    .browser-wrapper.is-dragging .queue-panel {
-        transition: none !important;
-    }
-    
     /* ================================================= */
     /* SCROLLBAR STYLING (Floating & Hover Only)        */
     /* ================================================= */
+    /* The .page entries of these selector lists (the router's page
+       elements, root shadow root only) are in spotify-browser-app.styles.js. */
 
     /* 1. Mobile/Touch: Native Overlay (Fade on scroll) */
     @media (max-width: 768px) {
-        .queue-list, .device-list, .page, .carousel-layout, .recent-grid-layout, .scroll-content {
+        .queue-list, .device-list, .carousel-layout, .recent-grid-layout, .scroll-content {
             scrollbar-width: none; /* Hide standard bars */
             -ms-overflow-style: none;
         }
@@ -749,7 +344,7 @@ export const sharedStyles = css`
 
     /* 2. Desktop: Invisible Track + Floating Thumb */
     @media (min-width: 769px) {
-        .queue-list, .device-list, .page, .carousel-layout, .recent-grid-layout, .scroll-content {
+        .queue-list, .device-list, .carousel-layout, .recent-grid-layout, .scroll-content {
             /* Try to force overlay (Chrome/Edge feature) */
             overflow-y: overlay !important;
             
@@ -760,7 +355,7 @@ export const sharedStyles = css`
         }
 
         /* Firefox Hover */
-        .queue-list:hover, .page:hover, .device-list:hover, .scroll-content:hover {
+        .queue-list:hover, .device-list:hover, .scroll-content:hover {
             scrollbar-color: rgba(255,255,255,0.2) transparent;
         }
 
@@ -791,7 +386,6 @@ export const sharedStyles = css`
         /* Show Thumb on Container Hover */
         .queue-list:hover::-webkit-scrollbar-thumb,
         .device-list:hover::-webkit-scrollbar-thumb,
-        .page:hover::-webkit-scrollbar-thumb,
         .scroll-content:hover::-webkit-scrollbar-thumb {
             background-color: rgba(255, 255, 255, 0.25); /* Visible Grey */
         }

@@ -1,7 +1,7 @@
 import { LitElement, html } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { listRowStyles, filterPillStyles } from '../../styles/list-row.styles.js';
-import { libraryStyles } from '../../styles/spotify-library.styles.js';
+import { libraryStyles } from './spotify-library.styles.js';
 import { getItemImage, isContextPlaying, getPlayerStateObj, getLibrarySort, setLibrarySort, IMG_THUMB } from '../../utils.js';
 import { menuIcon } from '../common/icons.js';
 import { renderListRow, renderRowSkeletons, renderEmptyState, itemSubtitle, SUBTITLE_STYLE } from '../media-templates.js';

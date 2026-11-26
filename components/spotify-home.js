@@ -1,6 +1,6 @@
 import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
-import { homeStyles } from '../styles/spotify-home.styles.js';
+import { homeStyles } from './spotify-home.styles.js';
 import { renderCardTemplate, renderCardSkeletonTemplate, renderCarouselSection, itemSubtitle, SUBTITLE_STYLE } from './media-templates.js';
 import { loadConfigPins, buildPinnedRow, dedupeRecentAlbums, sectionFetchWindow, homeRefreshDue } from './controllers/home-content.js';
 import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj, playlistSortParams, IMG_THUMB } from '../utils.js';

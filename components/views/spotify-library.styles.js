@@ -1,4 +1,4 @@
-import { css } from "../lit.js";
+import { css } from "../../lit.js";
 
 // Styles for <spotify-library>. Rows, skeletons, the empty state and the
 // filter pills come from list-row.styles.js (shared with the search page);

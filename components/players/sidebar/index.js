@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "../../../lit.js";
 import { sharedStyles } from '../../../styles/shared-styles.js';
-import { queueSidebarStyles } from '../../../styles/spotify-queue.styles.js';
+import { queueSidebarStyles } from './index.styles.js';
 import { PlayerStateController } from '../../controllers/player-state-controller.js';
 
 import './nowplaying.js';
@@ -32,7 +32,56 @@ export class SpotifySidebarPlayer extends LitElement {
     }
 
     static get styles() {
-        return [sharedStyles, queueSidebarStyles, css`
+        return [sharedStyles, css`
+            /* Rules that sat in sharedStyles but can only match in this
+               element's shadow root (.queue-panel, .queue-header-wrapper).
+               Kept between sharedStyles and queueSidebarStyles: their place in
+               the cascade before they moved. */
+            @media (min-width: 769px) {
+                .queue-header-wrapper {
+                    position: relative;
+                    padding: 0 !important; /* Critical: Remove wrapper padding */
+                    overflow: visible;      /* Allow floating volume to hang out */
+                    background: var(--spf-bg);
+                    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                    z-index: 5;
+                }
+            }
+            @media (max-width: 768px) {
+                .queue-panel {
+                    top: 0 !important;
+                    padding-top: 0;
+                    height: 100% !important;
+                }
+
+                .queue-panel::before {
+                    content: '';
+                    position: absolute;
+                    bottom: 0; left: 0; width: 100%; height: 200vh;
+                    background: rgba(0, 0, 0, 0.3);
+                    backdrop-filter: blur(12px);
+                    -webkit-backdrop-filter: blur(12px);
+                    z-index: -1;
+                    pointer-events: none;
+                    opacity: var(--blur-opacity);
+                    transition: opacity 0.3s ease;
+                }
+
+                .queue-panel.is-dragging::before {
+                    transition: none !important;
+                }
+
+                .queue-header-wrapper {
+                    border-radius: 20px 20px 0 0;
+                    border-top: 1px solid var(--spf-border);
+                    padding-bottom: 8px;
+                    background: var(--spf-bg);
+                    box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+                    padding-top: 12px;
+                    overflow: hidden;
+                }
+            }
+        `, queueSidebarStyles, css`
             :host {
                 display: flex;
                 flex-direction: column;
