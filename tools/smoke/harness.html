@@ -1,0 +1,79 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>smoke</title>
+<style>html,body{margin:0;height:100%;background:#111}</style></head><body>
+<script>
+// ---- Fake Spotify data ----------------------------------------------------
+const img = (seed) => [640, 300, 64].map(w => ({ url: `https://img.test/${w}/${seed}.png`, width: w, height: w }));
+const artist = (i) => ({ id: `ar${i}`, uri: `spotify:artist:ar${i}`, name: `Artist ${i}`, type: 'artist', images: img(`ar${i}`), genres: ['indie'], followers: { total: 1000 + i } });
+const album = (i) => ({ id: `al${i}`, uri: `spotify:album:al${i}`, name: `Album ${i}`, type: 'album', album_type: 'album', images: img(`al${i}`), artists: [artist(i % 7)], release_date: '2020-01-01', total_tracks: 10 });
+const track = (i) => ({ id: `t${i}`, uri: `spotify:track:t${i}`, name: `Track ${i}`, type: 'track', duration_ms: 180000 + i * 1000, artists: [artist(i % 7)], album: album(i % 13), explicit: false });
+const playlist = (i, total = 30) => ({ id: `p${i}`, uri: `spotify:playlist:p${i}`, name: `Playlist ${i}`, type: 'playlist', description: 'desc', images: img(`p${i}`), owner: { id: 'someoneelse', display_name: 'Someone' }, public: true, collaborative: false, snapshot_id: 'snap', tracks: { total } });
+const BIG_TOTAL = 500;
+
+window.__calls = [];        // every callWS / callService
+window.__log = (kind, p) => window.__calls.push({ t: performance.now(), kind, service: p.service, domain: p.domain, data: p.service_data });
+
+function respond(service, d) {
+  const page = (make, total, lim = d.limit || 20, off = d.offset || 0) => ({ items: Array.from({ length: Math.max(0, Math.min(lim, total - off)) }, (_, k) => make(off + k)), total, offset: off, limit: lim });
+  switch (service) {
+    case 'get_playlist_favorites': return { result: page(i => playlist(i), 40), user_profile: { id: 'me', display_name: 'Me', images: img('me') } };
+    case 'get_album_favorites': return { result: page(i => ({ album: album(i) }), 40) };
+    case 'get_artists_followed': return { result: page(i => artist(i), 20) };
+    case 'get_player_recent_tracks': return { result: page(i => ({ track: track(i), played_at: new Date(Date.now() - i * 6e5).toISOString(), context: { uri: `spotify:album:al${i % 13}`, type: 'album' } }), 30) };
+    case 'get_player_queue_info': return { result: { currently_playing: track(1), queue: Array.from({ length: 20 }, (_, k) => track(k + 2)) } };
+    case 'get_playlist': {
+      const id = d.playlist_id; const total = id === 'pbig' ? BIG_TOTAL : 30;
+      const pl = { ...playlist(id.replace(/^p/, '')), id, uri: `spotify:playlist:${id}`, name: id === 'pbig' ? 'Big Playlist' : `Playlist ${id}` };
+      pl.tracks = { total, items: Array.from({ length: Math.min(100, total) }, (_, k) => ({ track: track(k), added_at: '2024-01-01T00:00:00Z' })) };
+      return { result: pl, user_profile: { id: 'me' } };
+    }
+    case 'get_playlist_items': { const off = d.offset || 0, lim = d.limit || 50; return { result: { total: BIG_TOTAL, offset: off, limit: lim, items: Array.from({ length: Math.max(0, Math.min(lim, BIG_TOTAL - off)) }, (_, k) => ({ track: track(off + k), added_at: '2024-01-01T00:00:00Z' })) } }; }
+    case 'get_artist': return { result: artist(Number(String(d.artist_id || 'ar1').replace('ar', '')) || 1) };
+    case 'get_artist_albums': return { result: page(i => album(i), 23) };
+    case 'get_artist_top_tracks': return { result: Array.from({ length: 10 }, (_, k) => track(k)) };
+    case 'get_album': { const a = album(1); a.tracks = { total: 10, items: Array.from({ length: 10 }, (_, k) => track(k)) }; return { result: a }; }
+    case 'get_album_tracks': return { result: page(i => track(i), 10) };
+    case 'get_track': return { result: track(1) };
+    case 'search_artists': return { result: page(i => artist(i), 11) };
+    case 'search_playlists': return { result: page(i => playlist(i), 11) };
+    case 'search_all': return { result: { tracks: page(i => track(i), 10), artists: page(i => artist(i), 10), albums: page(i => album(i), 10), playlists: page(i => playlist(i), 10) } };
+    case 'check_track_favorites': { const ids = String(d.ids || '').split(',').filter(Boolean); return { result: Object.fromEntries(ids.map((id, k) => [id, k % 3 === 0])) }; }
+    case 'check_playlist_followers': return { result: [false] };
+    case 'check_artists_following': { const ids = String(d.ids || '').split(',').filter(Boolean); return { result: Object.fromEntries(ids.map(id => [id, false])) }; }
+    case 'check_album_favorites': return { result: {} };
+    case 'get_spotify_connect_devices': return { result: [{ id: 'dev1', name: 'Kitchen', DeviceInfo: { DeviceId: 'dev1', RemoteName: 'Kitchen' } }] };
+    case 'get_player_devices': return { result: [{ id: 'dev1', name: 'Kitchen', type: 'Speaker', is_active: true, supports_volume: true, volume_percent: 40 }] };
+    default: return { result: { items: [], total: 0 } };
+  }
+}
+
+// ---- Fake hass --------------------------------------------------------------
+const ENTITY = 'media_player.spotify_test';
+let tick = 0;
+function makeHass(trackN = 1, extra = {}) {
+  const t = track(trackN);
+  return {
+    states: {
+      [ENTITY]: { entity_id: ENTITY, state: 'playing', last_updated: new Date().toISOString(), last_changed: new Date().toISOString(),
+        attributes: { friendly_name: 'Spotify Test', media_title: t.name, media_artist: t.artists[0].name, media_album_name: t.album.name, media_content_id: t.uri, media_content_type: 'music', media_duration: 180, media_position: 12, media_position_updated_at: new Date().toISOString(), entity_picture: t.album.images[0].url, volume_level: 0.4, is_volume_muted: false, shuffle: false, repeat: 'off', source: 'Kitchen', sp_device_id: 'dev1', sp_device_name: 'Kitchen', sp_context_uri: 'spotify:playlist:p1', media_playlist: 'Playlist 1', sp_track_id: t.id } },
+      'sensor.unrelated': { entity_id: 'sensor.unrelated', state: String(tick++), attributes: {} },
+      ...extra,
+    },
+    entities: {}, user: { is_admin: true, id: 'u1', name: 'Me' }, language: 'en', locale: { language: 'en' },
+    connection: { connected: true, sendMessagePromise: async (m) => { window.__calls.push({ t: performance.now(), kind: 'sendMessage', service: m.type, data: m }); return {}; }, subscribeEvents: async () => () => {}, addEventListener() {}, removeEventListener() {} },
+    callWS: async (p) => { window.__log('callWS', p); await new Promise(r => setTimeout(r, 15)); return { response: respond(p.service, p.service_data || {}) }; },
+    callService: async (domain, service, data) => { window.__log('callService', { domain, service, service_data: data }); return {}; },
+  };
+}
+window.__makeHass = makeHass;
+
+// ---- Fake <home-assistant> shell the extension polls for -------------------
+class FakeLovelace extends HTMLElement { constructor() { super(); this.lovelace = { config: { spotify_browser: window.__cardConfig || { entity: ENTITY } } }; } }
+customElements.define('ha-panel-lovelace', FakeLovelace);
+class FakeMain extends HTMLElement { constructor() { super(); this.attachShadow({ mode: 'open' }).appendChild(document.createElement('ha-panel-lovelace')); } }
+customElements.define('home-assistant-main', FakeMain);
+class FakeHA extends HTMLElement { constructor() { super(); this.attachShadow({ mode: 'open' }).appendChild(document.createElement('home-assistant-main')); this.hass = makeHass(1); } }
+customElements.define('home-assistant', FakeHA);
+document.body.appendChild(document.createElement('home-assistant'));
+window.__setHass = (h) => { document.querySelector('home-assistant').hass = h; };
+</script>
+</body></html>
