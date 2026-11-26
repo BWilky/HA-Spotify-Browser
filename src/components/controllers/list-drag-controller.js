@@ -13,6 +13,16 @@
  *
  * The controller calls host.requestUpdate() when its visual state changes and
  * onDrop(from, to, position) once per completed drag.
+ *
+ * A drag whose pointer capture is lost before the list sees the release (the
+ * handle was re-rendered away, so pointerup lands elsewhere) is dropped with
+ * no move. Browsers differ: Chromium fires no lostpointercapture for a
+ * removed handle (only a pointerup on whatever is under the pointer); the
+ * spec has lostpointercapture fired at the document. So while a drag
+ * runs the controller also watches the handle and its document for
+ * lostpointercapture / pointerup / pointercancel of that pointer; the list's
+ * own pointerup handler runs first in the normal case, so these only act
+ * when it never got the release.
  */
 export class ListDragController {
     constructor(host, { itemSelector, onDrop, isDraggable = null }) {
@@ -24,6 +34,9 @@ export class ListDragController {
         this.dropIndex = null;
         this.dropPosition = null;
         this._rects = [];
+        this._watch = null; // { handle, doc, pointerId } while a drag runs
+        this._onLostRelease = this._onLostRelease.bind(this);
+        host.addController?.(this);
     }
 
     get active() {
@@ -35,7 +48,13 @@ export class ListDragController {
         if (this.isDraggable && !this.isDraggable(index)) return;
         if (!listEl) return;
 
-        e.currentTarget.setPointerCapture(e.pointerId);
+        const handle = e.currentTarget;
+        try {
+            handle.setPointerCapture(e.pointerId);
+        } catch (_) {
+            return; // the pointer is already gone: no release would ever end this drag
+        }
+        this._watchRelease(handle, e.pointerId);
         this.dragIndex = index;
 
         // Layout snapshot up front: O(1) hit-testing per pointermove.
@@ -69,10 +88,7 @@ export class ListDragController {
     end(e) {
         if (this.dragIndex === null) return;
         const { dragIndex, dropIndex, dropPosition } = this;
-        this.dragIndex = null;
-        this.dropIndex = null;
-        this.dropPosition = null;
-        this._rects = [];
+        this._reset();
         if (e?.target?.releasePointerCapture) {
             try { e.target.releasePointerCapture(e.pointerId); } catch (_) { /* already released */ }
         }
@@ -80,6 +96,51 @@ export class ListDragController {
             this.onDrop(dragIndex, dropIndex, dropPosition);
         }
         this.host.requestUpdate();
+    }
+
+    /** Drop an in-progress drag without moving anything. */
+    cancel() {
+        if (this.dragIndex === null) return;
+        this._reset();
+        this.host.requestUpdate();
+    }
+
+    hostDisconnected() {
+        this._reset(); // removed mid-drag: drop the drag and the document listeners
+    }
+
+    _reset() {
+        this.dragIndex = null;
+        this.dropIndex = null;
+        this.dropPosition = null;
+        this._rects = [];
+        this._unwatchRelease();
+    }
+
+    _watchRelease(handle, pointerId) {
+        this._unwatchRelease();
+        const doc = handle.ownerDocument || null;
+        this._watch = { handle, doc, pointerId };
+        handle.addEventListener('lostpointercapture', this._onLostRelease);
+        for (const type of ['lostpointercapture', 'pointerup', 'pointercancel']) {
+            doc?.addEventListener(type, this._onLostRelease);
+        }
+    }
+
+    _unwatchRelease() {
+        const w = this._watch;
+        if (!w) return;
+        this._watch = null;
+        w.handle.removeEventListener('lostpointercapture', this._onLostRelease);
+        for (const type of ['lostpointercapture', 'pointerup', 'pointercancel']) {
+            w.doc?.removeEventListener(type, this._onLostRelease);
+        }
+    }
+
+    /** The drag's pointer was released or lost its capture and the list never saw it. */
+    _onLostRelease(e) {
+        if (!this._watch || e.pointerId !== this._watch.pointerId) return;
+        this.cancel();
     }
 
     /** CSS classes for row `index` given the current drag state. */

@@ -27,6 +27,7 @@ import { DeviceManager } from './components/devices/device-manager.js';
 import { SonosBridge } from './components/devices/sonos-bridge.js';
 import { StorageManager } from './components/controllers/storage-manager.js';
 import { PlayerController } from './components/controllers/player-controller.js';
+import { DragDismissController, slideOut } from './components/controllers/drag-dismiss-controller.js';
 import { ensureAppFonts } from './styles/fonts.js';
 
 import './components/devices/index.js'; // Registers Custom Elements
@@ -34,6 +35,10 @@ import './components/devices/index.js'; // Registers Custom Elements
 // Shared "no items" value for the context menu: a fresh [] per render is a new
 // reference every time, which re-rendered the menu on every root render.
 const NO_MENU_ITEMS = Object.freeze([]);
+
+// The mobile panel's transition when a drag-to-close is let go (spring back
+// or slide the rest of the way down).
+const PANEL_DRAG_RELEASE_TRANSITION = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
 
 class SpotifyBrowserApp extends LitElement {
     static get properties() {
@@ -127,9 +132,26 @@ class SpotifyBrowserApp extends LitElement {
         this._connectLoading = false;
         this._mobileQueueVisible = false;
         this._editSessionOnScreen = false;
-        this._onDragStart = this._onDragStart.bind(this);
-        this._onDragMove = this._onDragMove.bind(this);
-        this._onDragEnd = this._onDragEnd.bind(this);
+        // Mobile drag-to-close (iPhone-panel style): drag the header down past
+        // 140px and the panel slides the rest of the way and closes;
+        // otherwise it springs back.
+        this._panelDrag = new DragDismissController(this, {
+            canStart: () => !this._isDesktop,
+            getPanel: () => this.shadowRoot.querySelector('.browser-wrapper'),
+            getBackdrop: () => this.shadowRoot.querySelector('.backdrop'),
+            threshold: 140,
+            fadeDistance: 500,
+            releaseTransition: PANEL_DRAG_RELEASE_TRANSITION,
+            onDismiss: ({ panel, backdrop }) => slideOut(panel, backdrop, {
+                transition: PANEL_DRAG_RELEASE_TRANSITION,
+                fadeBackdrop: false,
+                settleMs: 360,
+                onSettled: () => { this._isOpen = false; },
+            }),
+            onSnapBack: ({ panel }) => {
+                setTimeout(() => { if (panel) panel.style.transition = ''; }, 320);
+            },
+        });
 
 
 
@@ -757,7 +779,7 @@ class SpotifyBrowserApp extends LitElement {
                 ${pageOwnsTopBar ? '' : html`
                 <spotify-header
                     .minimal=${!this._isDesktop}
-                    @pointerdown=${!this._isDesktop ? this._onDragStart : null}
+                    @pointerdown=${!this._isDesktop ? this._panelDrag.start : null}
                     .backButtonVisible=${this.router && this.router.history.length > 0}
                     .searchVisible=${this._currentPageId === 'search' || this._searchVisible}
                     .menuVisible=${this._menuVisible}
@@ -1850,61 +1872,6 @@ class SpotifyBrowserApp extends LitElement {
         }
     }
 
-    /* --- Drag-to-close (mobile, iPhone-panel style) --- */
-    _onDragStart(e) {
-        if (this._isDesktop) return;
-        this._dragWrapper = this.shadowRoot.querySelector('.browser-wrapper');
-        if (!this._dragWrapper) return;
-        this._dragStartY = e.clientY;
-        this._dragDelta = 0;
-        this._dragging = true;
-        this._dragWrapper.style.transition = 'none';
-        window.addEventListener('pointermove', this._onDragMove, { passive: false });
-        window.addEventListener('pointerup', this._onDragEnd);
-        window.addEventListener('pointercancel', this._onDragEnd);
-    }
-
-    _onDragMove(e) {
-        if (!this._dragging || !this._dragWrapper) return;
-        this._dragDelta = Math.max(0, e.clientY - this._dragStartY);
-        this._dragWrapper.style.transform = `translateY(${this._dragDelta}px)`;
-        const backdrop = this.shadowRoot.querySelector('.backdrop');
-        if (backdrop) backdrop.style.opacity = String(Math.max(0, 1 - this._dragDelta / 500));
-    }
-
-    _onDragEnd() {
-        if (!this._dragging) return;
-        this._dragging = false;
-        window.removeEventListener('pointermove', this._onDragMove);
-        window.removeEventListener('pointerup', this._onDragEnd);
-        window.removeEventListener('pointercancel', this._onDragEnd);
-
-        const w = this._dragWrapper;
-        const backdrop = this.shadowRoot.querySelector('.backdrop');
-        if (!w) return;
-        w.style.transition = 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
-
-        if (this._dragDelta > 140) {
-            // Past threshold: slide the rest of the way down, then close
-            w.style.transform = 'translateY(100%)';
-            let done = false;
-            const finish = () => {
-                if (done) return; done = true;
-                this._isOpen = false;
-                w.style.transform = '';
-                w.style.transition = '';
-                if (backdrop) backdrop.style.opacity = '';
-            };
-            w.addEventListener('transitionend', finish, { once: true });
-            setTimeout(finish, 360);
-        } else {
-            // Spring back
-            w.style.transform = '';
-            if (backdrop) backdrop.style.opacity = '';
-            setTimeout(() => { if (w) w.style.transition = ''; }, 320);
-        }
-    }
-
     /**
      * Dismiss every popup/sheet/overlay surface. Called from the CLOSING branch
      * of updated() so ANY close path (close button, drag-dismiss, backdrop tap,
@@ -1950,21 +1917,11 @@ class SpotifyBrowserApp extends LitElement {
         const w = this.shadowRoot.querySelector('.browser-wrapper');
         const backdrop = this.shadowRoot.querySelector('.backdrop');
         if (!w) { this._isOpen = false; return; }
-
-        w.style.transition = 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)';
-        w.style.transform = 'translateY(100%)';
-        if (backdrop) backdrop.style.opacity = '0';
-
-        let done = false;
-        const finish = () => {
-            if (done) return; done = true;
-            this._isOpen = false;
-            w.style.transform = '';
-            w.style.transition = '';
-            if (backdrop) backdrop.style.opacity = '';
-        };
-        w.addEventListener('transitionend', finish, { once: true });
-        setTimeout(finish, 420);
+        slideOut(w, backdrop, {
+            transition: 'transform 0.35s cubic-bezier(0.16, 1, 0.3, 1)',
+            settleMs: 420,
+            onSettled: () => { this._isOpen = false; },
+        });
     }
 
     /** Close the mobile sheet when the tab/app goes to background. */

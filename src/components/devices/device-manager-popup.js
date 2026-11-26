@@ -426,6 +426,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
     }
 
     _onGripDown(e, index) {
+        if (e.pointerType === 'mouse' && e.button !== 0) return; // primary button only
         if (this._editingId || this._dragIndex != null) return;
         e.preventDefault();
         const grip = e.currentTarget;

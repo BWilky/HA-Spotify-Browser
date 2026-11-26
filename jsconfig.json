@@ -46,6 +46,8 @@
     "src/router.js",
     "src/components/track-menu.js",
     "src/components/playlist-actions.js",
+    "src/components/controllers/drag-dismiss-controller.js",
+    "src/components/controllers/list-drag-controller.js",
     "src/components/controllers/home-content.js",
     "src/components/controllers/overlay-stack.js",
     "src/components/controllers/page-loaders.js",

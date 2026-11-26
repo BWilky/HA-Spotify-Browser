@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "../lit.js";
 import { overlayStack } from "./controllers/overlay-stack.js";
+import { DragDismissController, slideOut } from "./controllers/drag-dismiss-controller.js";
 
 /**
  * Reusable mobile bottom sheet: a backdrop + a panel that slides up from the
@@ -156,9 +157,23 @@ export class SpotifyBottomSheet extends LitElement {
                 this._close();
             },
         };
-        this._onDown = this._onDown.bind(this);
-        this._onMove = this._onMove.bind(this);
-        this._onUp = this._onUp.bind(this);
+        // Drag the grip down: past min(140px, 30% of the sheet) it slides out
+        // and asks the parent to close; otherwise it springs back.
+        this._drag = new DragDismissController(this, {
+            canStart: () => !this._isModal, // popup variant: no drag-dismiss
+            getPanel: () => this.shadowRoot.querySelector('.sheet'),
+            getBackdrop: () => this.shadowRoot.querySelector('.backdrop'),
+            threshold: (h) => Math.min(140, h * 0.3),
+            fadeDistance: (h) => h,
+            preventDefault: true,
+            releaseTransition: '', // restore the CSS spring
+            // Close at once; clear the inline styles once the slide is done.
+            onDismiss: ({ panel, backdrop }) => slideOut(panel, backdrop, {
+                settleMs: 420,
+                waitForTransitionEnd: false,
+                onStart: () => this._close(),
+            }),
+        });
     }
 
     /** True when the >=769px popup variant is active (no drag-dismiss). */
@@ -190,74 +205,16 @@ export class SpotifyBottomSheet extends LitElement {
     disconnectedCallback() {
         super.disconnectedCallback();
         this._syncOverlay();
-        // If removed mid-drag, drop the window listeners added in _onDown.
-        this._dragging = false;
-        window.removeEventListener('pointermove', this._onMove);
-        window.removeEventListener('pointerup', this._onUp);
-        window.removeEventListener('pointercancel', this._onUp);
+        // A drag in progress is dropped by the DragDismissController.
     }
 
     _close() { this.dispatchEvent(new CustomEvent('close', { bubbles: true, composed: true })); }
-
-    _onDown(e) {
-        if (this._isModal) return; // popup variant: no drag-dismiss
-        this._sheet = this.shadowRoot.querySelector('.sheet');
-        this._backdrop = this.shadowRoot.querySelector('.backdrop');
-        if (!this._sheet) return;
-        this._startY = e.clientY;
-        this._delta = 0;
-        this._dragging = true;
-        this._sheet.style.transition = 'none';
-        window.addEventListener('pointermove', this._onMove, { passive: false });
-        window.addEventListener('pointerup', this._onUp);
-        window.addEventListener('pointercancel', this._onUp);
-    }
-
-    _onMove(e) {
-        if (!this._dragging || !this._sheet) return;
-        e.preventDefault();
-        this._delta = Math.max(0, e.clientY - this._startY);
-        this._sheet.style.transform = `translateY(${this._delta}px)`;
-        if (this._backdrop) {
-            const h = this._sheet.offsetHeight || 500;
-            this._backdrop.style.opacity = String(Math.max(0, 1 - this._delta / h));
-        }
-    }
-
-    _onUp() {
-        if (!this._dragging) return;
-        this._dragging = false;
-        window.removeEventListener('pointermove', this._onMove);
-        window.removeEventListener('pointerup', this._onUp);
-        window.removeEventListener('pointercancel', this._onUp);
-
-        const sheet = this._sheet;
-        const backdrop = this._backdrop;
-        if (!sheet) return;
-        const h = sheet.offsetHeight || 500;
-        sheet.style.transition = ''; // restore the CSS spring
-
-        if (this._delta > Math.min(140, h * 0.3)) {
-            // Past threshold: finish sliding out, then ask the parent to close.
-            sheet.style.transform = 'translateY(100%)';
-            if (backdrop) backdrop.style.opacity = '0';
-            this._close();
-            setTimeout(() => {
-                sheet.style.transform = '';
-                if (backdrop) backdrop.style.opacity = '';
-            }, 420);
-        } else {
-            // Snap back open.
-            sheet.style.transform = '';
-            if (backdrop) backdrop.style.opacity = '';
-        }
-    }
 
     render() {
         return html`
             <div class="backdrop" @click=${this._close}></div>
             <div class="sheet" role="dialog" aria-modal="true">
-                <div class="grip-area" @pointerdown=${this._onDown}>
+                <div class="grip-area" @pointerdown=${this._drag.start}>
                     <div class="grip"></div>
                 </div>
                 <div class="content"><slot></slot></div>
