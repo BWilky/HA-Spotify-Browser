@@ -65,9 +65,12 @@ A duplication pass over the reorganized code. Known leftovers:
 - Unused now: `renderMediaRowTemplate`, `heldVolume`.
 - Deliberately not done (iOS-sensitive, needs a device): moving the keyboard/viewport lock, idle auto-close and drag-to-close code out of the root; collapsing the fourteen popup visibility flags.
 
-## Decisions waiting on the owner
+## Decisions
 
-- Sidebar device icon next to shuffle (a music note drawn over a playlist glyph today): per-type device icon or cast icon?
-- Subtitle wording differs by screen (`SUBTITLE_STYLE` in `components/media-templates.js`): pick one wording per item type.
-- With more than 7 pins stored, the views report the 8th as not pinned while the manager's `isPinned()` says it is: which is intended?
-- Desktop Previous now restarts the track when more than a few seconds in (as mobile did): keep or revert on desktop?
+Settled by the owner (2026-11-26):
+- Sidebar device icon: the cast icon (done).
+- Pins: first in, first out — adding to a full list drops the oldest pin (done; pins now carry `pinnedAt`).
+- Desktop Previous restarts the track when a few seconds in, as on mobile: keep.
+
+Still open:
+- Subtitle wording differs by screen (`SUBTITLE_STYLE` in `src/components/media-templates.js`): pick one wording per item type.

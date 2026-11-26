@@ -33,6 +33,23 @@ export const USER_LIBRARY_ITEM = {
 // fills any remaining slots (up to 8) with recently played items.
 export const MAX_PINNED_OTHERS = 7;
 
+/**
+ * The pin to drop when the list is full: the one pinned longest ago. Pins
+ * carry `pinnedAt` (ms) since it was introduced; older stored pins have none
+ * and count as older than any that do. Among those, the lowest in the list
+ * goes first — new pins are always added at the top, so the bottom is the
+ * oldest unless the user has reordered.
+ */
+export function oldestPin(pins) {
+    let oldest = null;
+    let oldestAt = Infinity;
+    pins.forEach((pin) => {
+        const at = typeof pin.pinnedAt === 'number' ? pin.pinnedAt : -Infinity;
+        if (at <= oldestAt) { oldest = pin; oldestAt = at; } // <=: later index wins a tie
+    });
+    return oldest;
+}
+
 const CONFIG_PIN_ERROR = 'Pinned by the card config — edit home.pinned.items to change it';
 
 export class PinnedItemsManager {
@@ -202,7 +219,8 @@ export class PinnedItemsManager {
         if (this.isConfigPinned(itemId)) return true;
         if (!this._hasBackend()) return false;
         try {
-            return !!this._readItems().find(i => i.id === itemId);
+            // Same list Home shows (capped), so this agrees with getItems().
+            return !!this._normalize(this._readItems()).find(i => i.id === itemId);
         } catch (e) {
             return false;
         }
@@ -223,8 +241,11 @@ export class PinnedItemsManager {
                 return { success: false, error: "Already pinned" };
             }
 
+            // Full: first in, first out — the oldest pin makes room.
+            let evicted = null;
             if (others.length >= MAX_PINNED_OTHERS) {
-                return { success: false, error: `Pinned is full (max ${MAX_PINNED_OTHERS} items besides Liked Songs)` };
+                evicted = oldestPin(others);
+                others.splice(others.indexOf(evicted), 1);
             }
 
             // Create minimal stored object. Capture the name from every known
@@ -238,12 +259,14 @@ export class PinnedItemsManager {
                 title: displayName,
                 subtitle: item.subtitle || item.description || '',
                 image: item.image || pickImage(item.images, IMG_CARD) || pickImage(item.album?.images, IMG_CARD) || null,
-                uri: item.uri
+                uri: item.uri,
+                pinnedAt: Date.now()
             };
 
             // Library stays first; new pin goes to the top of the "others".
             const newItems = [{ ...USER_LIBRARY_ITEM }, storedItem, ...others].slice(0, 1 + MAX_PINNED_OTHERS);
-            return await this._save(newItems);
+            const result = await this._save(newItems);
+            return evicted && result?.success ? { ...result, evicted } : result;
 
         } catch (e) {
             console.error("[PinnedItemsManager] Add failed:", e);

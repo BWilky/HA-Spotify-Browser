@@ -13,9 +13,8 @@
  * `entity` is the pinned-items sensor entity once a check found that the user
  * may edit pins (null otherwise: no button). `isPinned` is whether the page is
  * in the pinned row as Home shows it: `getItems()` (Liked Songs, config pins,
- * then at most MAX_PINNED_OTHERS stored pins). This is deliberately not the
- * manager's isPinned(), which differs for a stored list longer than the cap
- * and for a malformed (null) stored entry.
+ * then at most MAX_PINNED_OTHERS stored pins). The manager's isPinned() now
+ * reads the same capped list; this stays async because getItems() is.
  *
  * toggle(): the manager's toggle; on success the state flips and a bubbling
  * `pinned-changed` event refreshes Home's pinned row at once; on failure a

@@ -88,13 +88,13 @@ test('check: Liked Songs is always pinned; config pins count; ids are read after
     assert.equal(pin.isPinned, true);
 });
 
-test('check: matches Home\'s pinned row, not isPinned(), for a stored list over the cap', async () => {
+test('check: matches Home\'s pinned row (and isPinned()) for a stored list over the cap', async () => {
     const stored = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map(id => ({ id }));
     const pinned = makeManager({ stored });
     const { pin } = setup({ pinned, data: { id: 'h', type: 'playlist' } });
     await pin.check();
     assert.equal(pin.isPinned, false, 'the 8th stored pin is not in the row');
-    assert.equal(pinned.isPinned('h'), true, 'the manager\'s isPinned() says otherwise');
+    assert.equal(pinned.isPinned('h'), false, 'the manager agrees');
 });
 
 test('toggle: pins, flips the state and tells Home', async () => {

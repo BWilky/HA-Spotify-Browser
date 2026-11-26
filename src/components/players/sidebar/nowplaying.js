@@ -3,6 +3,7 @@ import { parseDeviceItems, normalizeDevice, parseSpotifyUri, formatTime, IMG_THU
 import { NowPlayingController } from "../../controllers/now-playing-controller.js";
 import { VolumeController } from "../../controllers/volume-controller.js";
 import "../../common/spotify-slider.js";
+import { castIcon } from "../../common/icons.js";
 import "../../devices/index.js";
 
 
@@ -182,7 +183,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
             }
 
             .mini-btn:hover { color: var(--spf-text-main); transform: scale(1.1); }
-            .mini-btn svg { width: 20px; height: 20px; } 
+            .mini-btn svg { width: 20px; height: 20px; fill: currentColor; }
             .mini-btn.is-favorite { color: var(--spf-brand, #1ed760); }
             .mini-btn.is-favorite svg { fill: var(--spf-brand, #1ed760); }
 
@@ -527,7 +528,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
                         <div class="queue-artist">${np.artistLine || 'Unknown Artist'}</div>
                         <button class="queue-device-row" @click=${(e) => { e.stopPropagation(); this.toggleDeviceOverlay(); }}
                                 title="Switch device" aria-label="Switch device">
-                            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v9.28a4.39 4.39 0 0 0-1.5-.28 4.5 4.5 0 1 0 4.5 4.5V6h4V3h-7z" fill="none"/><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 6h-8v-1h8v1zm0-3h-8V4h8v1z" fill="none"/><path d="M7 24h2v-2H7v2zm-4 0h2v-2H3v2zm8 0h2v-2h-2v2zM2 9h2v2H2V9zm0 4h2v2H2v-2zm0 4h2v2H2v-2z" fill="none"/><path d="M19 1H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 16H5V3h14v14zM7 10h10v2H7zm0-4h10v2H7z"/></svg>
+                            ${castIcon}
                             <span class="device-name-text">${np.deviceName || 'Device'}</span>
                         </button>
                     </div>
@@ -565,7 +566,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
                 </button>` : ''}
 
                 ${miniplayer.device !== false ? html`<button class="mini-btn ${this._devicesVisible ? 'is-favorite' : ''}" @click=${() => this.toggleDeviceOverlay()}>
-                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v9.28a4.39 4.39 0 0 0-1.5-.28 4.5 4.5 0 1 0 4.5 4.5V6h4V3h-7z" fill="none"/><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 6h-8v-1h8v1zm0-3h-8V4h8v1z" fill="none"/><path d="M7 24h2v-2H7v2zm-4 0h2v-2H3v2zm8 0h2v-2h-2v2zM2 9h2v2H2V9zm0 4h2v2H2v-2zm0 4h2v2H2v-2z" fill="none"/><path d="M19 1H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 16H5V3h14v14zM7 10h10v2H7zm0-4h10v2H7z"/></svg>
+                    ${castIcon}
                 </button>` : ''}
 
                 ${miniplayer.previous !== false ? html`<button class="mini-btn" @click=${() => np.prev({ allowRestart: true })}><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>` : ''}

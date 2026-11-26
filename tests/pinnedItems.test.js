@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PinnedItemsManager, USER_LIBRARY_ITEM } from '../src/components/controllers/pinned-items-manager.js';
+import { PinnedItemsManager, USER_LIBRARY_ITEM, oldestPin } from '../src/components/controllers/pinned-items-manager.js';
 
 function fakeStorage(items, status = 'ok') {
     const store = { pinned_items: items };
@@ -74,8 +74,78 @@ test('config pins do not count against the 7 user pins', async () => {
     const m = new PinnedItemsManager({}, homeCfg(CFG), fakeStorage(seven));
     const items = await m.getItems();
     assert.equal(items.length, 1 + 1 + 7);
+    // Full for user pins: an 8th pushes the oldest out (it never displaces a config pin).
     const add = await m.add({ id: 'u8', type: 'album' });
-    assert.equal(add.success, false); // still full for user pins
+    assert.equal(add.success, true);
+    assert.equal((await m.getItems()).length, 1 + 1 + 7);
+    assert.equal(m.isConfigPinned('dm1'), true);
+});
+
+/* ---------------------- full list: first in, first out ---------------------- */
+
+test('adding to a full list drops the oldest pin and returns it', async () => {
+    // Legacy pins without pinnedAt, stored newest-first (new pins go on top).
+    const seven = Array.from({ length: 7 }, (_, i) => ({ id: 'u' + i }));
+    const storage = fakeStorage(seven);
+    const m = new PinnedItemsManager({}, homeCfg([]), storage);
+    const res = await m.add({ id: 'new', type: 'album', name: 'New' });
+    assert.equal(res.success, true);
+    assert.equal(res.evicted.id, 'u6'); // bottom of the list = oldest
+    assert.deepEqual(storage.store.pinned_items.map(i => i.id),
+        ['user-library', 'new', 'u0', 'u1', 'u2', 'u3', 'u4', 'u5']);
+    assert.equal(typeof storage.store.pinned_items[1].pinnedAt, 'number');
+});
+
+test('eviction follows pin age, not list position, once pins carry a timestamp', async () => {
+    // The user reordered: the oldest pin (t=1) sits at the top.
+    const pins = [1, 7, 6, 5, 4, 3, 2].map(t => ({ id: 'p' + t, pinnedAt: t }));
+    const storage = fakeStorage(pins);
+    const m = new PinnedItemsManager({}, homeCfg([]), storage);
+    const res = await m.add({ id: 'new', type: 'album' });
+    assert.equal(res.evicted.id, 'p1');
+    assert.deepEqual(storage.store.pinned_items.map(i => i.id),
+        ['user-library', 'new', 'p7', 'p6', 'p5', 'p4', 'p3', 'p2']);
+});
+
+test('pins without a timestamp go before any that have one', () => {
+    const pins = [{ id: 'a', pinnedAt: 5 }, { id: 'b' }, { id: 'c', pinnedAt: 1 }, { id: 'd' }];
+    assert.equal(oldestPin(pins).id, 'd');
+    assert.equal(oldestPin([{ id: 'x', pinnedAt: 3 }, { id: 'y', pinnedAt: 2 }]).id, 'y');
+});
+
+test('consecutive adds keep cycling out the oldest', async () => {
+    const storage = fakeStorage([]);
+    const m = new PinnedItemsManager({}, homeCfg([]), storage);
+    let t = 1000;
+    const realNow = Date.now;
+    Date.now = () => ++t;
+    try {
+        for (let i = 0; i < 10; i++) await m.add({ id: 'n' + i, type: 'album' });
+    } finally {
+        Date.now = realNow;
+    }
+    assert.deepEqual(storage.store.pinned_items.map(i => i.id),
+        ['user-library', 'n9', 'n8', 'n7', 'n6', 'n5', 'n4', 'n3']);
+});
+
+test('a reorder keeps each pin\'s age, so the right one is evicted afterwards', async () => {
+    const pins = [3, 2, 1].map(t => ({ id: 'p' + t, pinnedAt: t }));
+    const storage = fakeStorage(pins);
+    const m = new PinnedItemsManager({}, homeCfg([]), storage);
+    await m.reorder(['p1', 'p3', 'p2']);
+    assert.deepEqual(storage.store.pinned_items.map(i => i.pinnedAt), [undefined, 1, 3, 2]);
+});
+
+test('isPinned agrees with the capped list Home shows', async () => {
+    // A stored list longer than the cap (older data): the 8th is not shown, so not pinned.
+    const eight = Array.from({ length: 8 }, (_, i) => ({ id: 'u' + i }));
+    const m = new PinnedItemsManager({}, homeCfg([]), fakeStorage(eight));
+    assert.equal(m.isPinned('u6'), true);
+    assert.equal(m.isPinned('u7'), false);
+    assert.equal((await m.getItems()).some(i => i.id === 'u7'), false);
+    // A malformed (null) entry does not hide the pins after it.
+    const m2 = new PinnedItemsManager({}, homeCfg([]), fakeStorage([null, { id: 'z' }]));
+    assert.equal(m2.isPinned('z'), true);
 });
 
 test('USER_LIBRARY_ITEM is marked fixed', () => {
