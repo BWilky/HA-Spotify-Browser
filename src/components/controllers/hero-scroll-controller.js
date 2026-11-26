@@ -1,7 +1,8 @@
 /**
  * Scroll behaviour of a "hero page" (the playlist/album/Liked Songs view and
  * the artist view): a scroll container that opens with a hero banner and
- * drives the app header while it scrolls.
+ * drives the app header while it scrolls. Pages without a hero use it too
+ * (the "See All" section page: `heroClass: null`, a constant `fade`).
  *
  *   - rAF-coalesced scroll handling (one frame of work per burst of events)
  *   - decorative parallax: the hero image stretches on over-scroll and,
@@ -19,8 +20,9 @@
  *   scroll container: class="main-scroll-container has-hero" @scroll=${this._hero.onScroll}
  *   updateHeaderState() { this._hero.updateHeaderState(); }   // parent: page shown again
  *   this._hero.syncSoon()   // optional: re-report after the current task (e.g. after each update)
+ *   this._hero.sync()       // optional: re-report now (skipped while unchanged, with dedupe)
  *
- * Options (what differs between the two pages):
+ * Options (what differs between the pages):
  *   getTitle        header title (required).
  *   heroImage       selector of the hero <img> that stretches on over-scroll.
  *   heroContent     selector of the hero text block that fades and shrinks as
@@ -28,7 +30,8 @@
  *   isLite          () => true on the low-power profile: the parallax is
  *                   skipped (the header and near-bottom still run).
  *   fade            fixed header thresholds: { alphaEnd = 200, textStart, textSpan }
- *                   (see fixedHeaderFade).
+ *                   (see fixedHeaderFade), or a function scrollTop =>
+ *                   { alpha, textAlpha }.
  *   mobileFade      { query, heroBanner }: while `query` matches, the fade is
  *                   tied to the height of the `heroBanner` element instead
  *                   (see heroHeightHeaderFade). null: always `fade`.
@@ -37,8 +40,12 @@
  *                   may have changed the app header in between).
  *   onNearBottom    called on every scroll frame that ends within
  *                   `nearBottom` px of the end of the content.
+ *   heroClass       class the scroll container must carry to drive the header,
+ *                   fade the hero text and load more (default HERO_PAGE_CLASS,
+ *                   which the playlist view's edit-mode container lacks).
+ *                   null: any container does (a page without a hero).
  *
- * Rules shared by both pages: only a container carrying HERO_PAGE_CLASS drives
+ * Rules shared by all pages: only a container carrying `heroClass` drives
  * the header (and fades the hero text, and loads more); nothing is dispatched
  * while the container has no layout box (a cached page hidden by the router
  * still updates, and its scrollTop reads 0 then). A pending frame and pending
@@ -89,6 +96,7 @@ export class HeroScrollController {
         dedupe = false,
         onNearBottom = null,
         nearBottom = 200,
+        heroClass = HERO_PAGE_CLASS,
     }) {
         this.host = host;
         this._getTitle = getTitle;
@@ -102,6 +110,7 @@ export class HeroScrollController {
         this._dedupe = dedupe;
         this._onNearBottom = onNearBottom;
         this._nearBottom = nearBottom;
+        this._heroClass = heroClass;
         this._raf = null;
         this._target = null;
         this._last = null;        // last dispatched { alpha, textAlpha, title }
@@ -135,6 +144,11 @@ export class HeroScrollController {
         this._syncHeader(this._find('container', SCROLL_CONTAINER), true);
     }
 
+    /** Report the header state now; with `dedupe`, only if it changed. */
+    sync() {
+        this._syncHeader(this._find('container', SCROLL_CONTAINER), false);
+    }
+
     /** Report the header state once the current task is done (after a host update). */
     syncSoon() {
         const id = setTimeout(() => {
@@ -153,7 +167,7 @@ export class HeroScrollController {
     _apply(target) {
         if (!target) return;
         const scrollTop = target.scrollTop;
-        const isHero = target.classList.contains(HERO_PAGE_CLASS);
+        const isHero = this._isHeroPage(target);
 
         // Decorative parallax (stretchy art + hero fade/scale). Skipped on the
         // low-power profile — it's the heaviest per-frame work here.
@@ -192,17 +206,22 @@ export class HeroScrollController {
         }
     }
 
+    _isHeroPage(container) {
+        return this._heroClass === null || container.classList.contains(this._heroClass);
+    }
+
     /** The header fade for `scrollTop`, by the rules this page was given. */
     _headerFade(scrollTop) {
         if (this._mql && this._mql.matches) {
             const banner = this._find('banner', this._mobileFade.heroBanner);
             return heroHeightHeaderFade(scrollTop, banner ? banner.offsetHeight : HERO_HEIGHT);
         }
+        if (typeof this._fade === 'function') return this._fade(scrollTop);
         return fixedHeaderFade(scrollTop, this._fade);
     }
 
     _syncHeader(container, force) {
-        if (!container || !container.classList.contains(HERO_PAGE_CLASS)) return;
+        if (!container || !this._isHeroPage(container)) return;
         // A cached page hidden by the router (display:none on an ancestor) still
         // updates on track changes; it has no layout box then, and its scrollTop
         // reads 0. Never drive the app header from it.

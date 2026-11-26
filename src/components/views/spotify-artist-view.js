@@ -1,12 +1,13 @@
 import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
-import { renderCardTemplate, renderPillTemplate, renderCardSkeletonTemplate, renderPillSkeletonTemplate } from '../media-templates.js';
+import { renderPillTemplate, renderPillSkeletonTemplate, renderCarouselSection, ARTIST_CAROUSEL } from '../media-templates.js';
 import { contextViewStyles, heroPageStyles } from '../../styles/spotify-context-view.styles.js';
 import { playIcon, pauseIcon, pinIcon } from '../common/icons.js';
 import { HeroScrollController } from '../controllers/hero-scroll-controller.js';
 import { TrackLikesController } from '../controllers/track-likes-controller.js';
 import { OptimisticPlaybackController } from '../controllers/optimistic-playback-controller.js';
 import { PinStateController } from '../controllers/pin-state-controller.js';
+import { openTrackMenu } from '../track-menu.js';
 
 export class SpotifyArtistView extends LitElement {
     static get styles() {
@@ -92,13 +93,23 @@ export class SpotifyArtistView extends LitElement {
         this._hero = new HeroScrollController(this, {
             getTitle: () => this.data?.name || '',
             heroImage: '.artist-hero .hero-bg img',
+            isLite: () => this.config?.appearance?.performance?.lite,
             fade: { textStart: 150, textSpan: 50 },
+            dedupe: true,
         });
+        /** Pending follow re-checks (_toggleFollow), cancelled on disconnect. */
+        this._followVerifyTimers = new Set();
     }
 
     connectedCallback() {
         super.connectedCallback();
         this._pin.check();
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback();
+        this._followVerifyTimers.forEach(clearTimeout);
+        this._followVerifyTimers.clear();
     }
 
     updated(changedProperties) {
@@ -163,14 +174,15 @@ export class SpotifyArtistView extends LitElement {
         }
 
         // Verification after 3 seconds
-        setTimeout(async () => {
-            if (!this.isConnected) return;
+        const timer = setTimeout(async () => {
+            this._followVerifyTimers.delete(timer);
             const confirmedState = await this.api.checkArtistsFollowing(this.data.id);
             if (confirmedState !== null && confirmedState !== newState) {
                 console.warn("[SpotifyArtistView] Follow state mismatch detected after verification. Correcting.");
                 this._isFollowing = confirmedState;
             }
         }, 3000);
+        this._followVerifyTimers.add(timer);
     }
 
     _toggleTrackLike(track, e) {
@@ -221,25 +233,11 @@ export class SpotifyArtistView extends LitElement {
         this.api.playMedia(uris, 'track', null, { shuffle: false });
     }
 
-    _navigateToAlbum(album, e) {
+    /** Opens `pageId` (with `data`); `e`, when given, stops at this page. */
+    _navigate(pageId, data, e) {
         if (e) e.stopPropagation();
         this.dispatchEvent(new CustomEvent('navigate', {
-            detail: {
-                pageId: `album:${album.id}`,
-                data: album
-            },
-            bubbles: true,
-            composed: true
-        }));
-    }
-
-    _navigateToArtist(artist, e) {
-        if (e) e.stopPropagation();
-        this.dispatchEvent(new CustomEvent('navigate', {
-            detail: {
-                pageId: `artist:${artist.id}`,
-                data: artist
-            },
+            detail: { pageId, data },
             bubbles: true,
             composed: true
         }));
@@ -251,6 +249,9 @@ export class SpotifyArtistView extends LitElement {
     }
 
     renderArtistProfile(data) {
+        // Each rail shows skeletons while it loads (topTracks, albums and
+        // similarArtists null, playlists undefined) and is left out once it
+        // comes back empty.
         return html`
             <div class="main-scroll-container has-hero" @scroll=${this._hero.onScroll}>
                 <div class="artist-hero">
@@ -301,52 +302,34 @@ export class SpotifyArtistView extends LitElement {
                         </section>
                     ` : ''}
                     
-                    ${data.albums === null || data.albums?.length ? html`
-                        <section class="artist-section">
+                    ${data.albums === null || data.albums?.length ? renderCarouselSection({
+                        ...ARTIST_CAROUSEL,
+                        header: html`
                             <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
                                 <h2 style="margin: 0;">Discography</h2>
-                                <button class="see-all-btn" @click=${() => this.dispatchEvent(new CustomEvent('navigate', { detail: { pageId: `artist-discography:${data.id}`, data: { name: data.name, id: data.id } }, bubbles: true, composed: true }))} style="background: none; border: none; color: #b3b3b3; font-size: var(--spf-text-sm, 12px); font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase;">SEE ALL</button>
-                            </div>
-                            <div class="carousel-wrapper">
-                                 <div class="carousel-layout">
-                                    ${data.albums === null
-                    ? Array(5).fill(0).map(() => renderCardSkeletonTemplate())
-                    : data.albums.map(album => renderCardTemplate(album, 'album', (e) => this._navigateToAlbum(album, e)))
-                }
-                                 </div>
-                            </div>
-                        </section>
-                    ` : ''}
+                                <button class="see-all-btn" @click=${() => this._navigate(`artist-discography:${data.id}`, { name: data.name, id: data.id })} style="background: none; border: none; color: #b3b3b3; font-size: var(--spf-text-sm, 12px); font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase;">SEE ALL</button>
+                            </div>`,
+                        items: data.albums,
+                        type: 'album',
+                        onItem: (album, _type, _sub, e) => this._navigate(`album:${album.id}`, album, e),
+                    }) : ''}
 
-                    ${data.playlists === undefined || data.playlists?.length ? html`
-                        <section class="artist-section">
-                            <h2>Appears On</h2>
-                            <div class="carousel-wrapper">
-                                <div class="carousel-layout">
-                                    ${!data.playlists
-                    ? Array(5).fill(0).map(() => renderCardSkeletonTemplate())
-                    : data.playlists.map(playlist => renderCardTemplate(playlist, 'playlist', () => {
-                        this.dispatchEvent(new CustomEvent('navigate', { detail: { pageId: `playlist:${playlist.id}`, data: playlist }, bubbles: true, composed: true }));
-                    }))
-                }
-                                </div>
-                            </div>
-                        </section>
-                    ` : ''}
+                    ${data.playlists === undefined || data.playlists?.length ? renderCarouselSection({
+                        ...ARTIST_CAROUSEL,
+                        header: html`<h2>Appears On</h2>`,
+                        items: data.playlists,
+                        type: 'playlist',
+                        onItem: (playlist) => this._navigate(`playlist:${playlist.id}`, playlist),
+                    }) : ''}
 
-                    ${data.similarArtists === null || data.similarArtists?.length ? html`
-                        <section class="artist-section">
-                            <h2>Fans Also Like</h2>
-                            <div class="carousel-wrapper">
-                                <div class="carousel-layout circle-cards">
-                                    ${data.similarArtists === null
-                    ? Array(5).fill(0).map(() => renderCardSkeletonTemplate())
-                    : data.similarArtists.map(artist => renderCardTemplate(artist, 'artist', (e) => this._navigateToArtist(artist, e)))
-                }
-                                </div>
-                            </div>
-                        </section>
-                    ` : ''}
+                    ${data.similarArtists === null || data.similarArtists?.length ? renderCarouselSection({
+                        ...ARTIST_CAROUSEL,
+                        header: html`<h2>Fans Also Like</h2>`,
+                        layoutClass: 'circle-cards',
+                        items: data.similarArtists,
+                        type: 'artist',
+                        onItem: (artist, _type, _sub, e) => this._navigate(`artist:${artist.id}`, artist, e),
+                    }) : ''}
                 </div>
             </div>
         `;
@@ -365,23 +348,7 @@ export class SpotifyArtistView extends LitElement {
             (e) => {
                 e.preventDefault();
                 e.stopPropagation();
-
-                const image = track.album?.images?.[0]?.url;
-                const trackData = {
-                    name: track.name,
-                    artist: track.artists ? track.artists.map(a => a.name).join(', ') : '',
-                    album: track.album?.name || '',
-                    uri: track.uri,
-                    id: track.id,
-                    image,
-                    anchor: e.currentTarget.getBoundingClientRect(),
-                };
-
-                this.dispatchEvent(new CustomEvent('open-track-menu', {
-                    detail: trackData,
-                    bubbles: true,
-                    composed: true
-                }));
+                openTrackMenu(this, track, { anchorEl: e.currentTarget });
             },
             (e) => this._toggleTrackLike(track, e),
             isLiked,

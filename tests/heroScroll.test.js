@@ -164,7 +164,7 @@ test('dedupe: an unchanged header is not re-sent, a title change is; updateHeade
     assert.deepEqual(headers()[2].detail, { alpha: 0.5, textAlpha: 0, title: 'Renamed' });
 });
 
-test('without dedupe every frame dispatches (the artist page)', (t) => {
+test('without dedupe every frame dispatches', (t) => {
     const { headers, scroll } = setup(t, { fade: ARTIST_FADE });
     scroll(100); scroll(100); scroll(100);
     assert.equal(headers().length, 3);
@@ -279,4 +279,183 @@ test('disconnect cancels a pending frame and pending syncs', (t) => {
     // A scroll after reconnecting schedules a fresh frame.
     ctrl.onScroll({ currentTarget: container, target: container });
     assert.equal(frames.size, 1);
+});
+
+/* --- Pages without a hero (the "See All" section page) --- */
+
+test('heroClass null: a container without the hero class drives the header and near-bottom', (t) => {
+    const container = makeContainer({ hero: false, clientHeight: 800, scrollHeight: 2000 });
+    const { ctrl, headers, nearBottom, scroll } = setup(t, { heroClass: null }, { dom: { container } });
+    scroll(1200);
+    assert.equal(headers().length, 1);
+    assert.equal(nearBottom.length, 1);
+    ctrl.updateHeaderState();
+    assert.equal(headers().length, 2);
+});
+
+test('heroClass: a custom class is required instead of has-hero', (t) => {
+    const container = makeContainer({ hero: true });
+    const { headers, scroll } = setup(t, { heroClass: 'other-page' }, { dom: { container } });
+    scroll(100);
+    assert.equal(headers().length, 0, 'has-hero alone no longer counts');
+});
+
+test('fade as a function: called with scrollTop, its values are dispatched', (t) => {
+    const seen = [];
+    const { headers, scroll } = setup(t, { fade: (top) => { seen.push(top); return { alpha: 0.25, textAlpha: 0.75 }; } });
+    scroll(42);
+    assert.deepEqual(seen, [42]);
+    assert.deepEqual(headers()[0].detail, { alpha: 0.25, textAlpha: 0.75, title: 'Mix' });
+});
+
+test('sync(): dispatches now, skipped while unchanged (dedupe) or hidden; never forced', (t) => {
+    const { ctrl, host, container, headers } = setup(t, { dedupe: true });
+    container.scrollTop = 100;
+    ctrl.sync();
+    assert.equal(headers().length, 1, 'synchronous');
+    ctrl.sync();
+    assert.equal(headers().length, 1, 'unchanged');
+    host.title = 'Other';
+    ctrl.sync();
+    assert.equal(headers().length, 2);
+    container.visible = false;
+    host.title = 'Hidden';
+    ctrl.sync();
+    assert.equal(headers().length, 2, 'hidden page');
+    container.visible = true;
+    ctrl.sync();
+    assert.deepEqual(headers()[2].detail, { alpha: 0.5, textAlpha: 0, title: 'Hidden' });
+});
+
+// components/views/spotify-section-view.js before it moved onto the
+// controller, copied verbatim (`this` became `host` / `self`).
+function legacySectionView(host) {
+    const self = {
+        updated(changedProperties) {
+            if (changedProperties.has('data')) self._emitHeaderState();
+        },
+        updateHeaderState() {
+            self._emitHeaderState(true);
+        },
+        _emitHeaderState(force = false) {
+            const el = host.shadowRoot?.querySelector('.main-scroll-container');
+            if (!el || el.getClientRects().length === 0) return;
+            const title = host.data?.name || '';
+            if (!force && self._lastHeaderTitle === title) return;
+            self._lastHeaderTitle = title;
+            host.dispatchEvent(new CustomEvent('header-scroll', {
+                detail: { alpha: 1, title, textAlpha: 1 },
+                bubbles: true, composed: true
+            }));
+        },
+        disconnectedCallback() {
+            if (self._scrollRaf) cancelAnimationFrame(self._scrollRaf);
+            self._scrollRaf = null;
+        },
+        _handleScroll(e) {
+            self._scrollTarget = e.target;
+            if (self._scrollRaf) return;
+            self._scrollRaf = requestAnimationFrame(() => {
+                self._scrollRaf = null;
+                self._applyScroll(self._scrollTarget);
+            });
+        },
+        _applyScroll(el) {
+            if (!el) return;
+            self._emitHeaderState();
+            if (!host.data || host.data.isLoading || !host.data.hasMore) return;
+            if (el.scrollTop + el.clientHeight >= el.scrollHeight - 300) {
+                host.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
+            }
+        },
+    };
+    return self;
+}
+
+// The section view now: the same wiring as spotify-section-view.js.
+function controllerSectionView(host) {
+    const ctrl = new HeroScrollController(host, {
+        getTitle: () => host.data?.name || '',
+        heroClass: null,
+        fade: () => ({ alpha: 1, textAlpha: 1 }),
+        dedupe: true,
+        nearBottom: 300,
+        onNearBottom: () => {
+            if (!host.data || host.data.isLoading || !host.data.hasMore) return;
+            host.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
+        },
+    });
+    return {
+        updated(changedProperties) { if (changedProperties.has('data')) ctrl.sync(); },
+        updateHeaderState() { ctrl.updateHeaderState(); },
+        disconnectedCallback() { ctrl.hostDisconnected(); },
+        _handleScroll: ctrl.onScroll,
+    };
+}
+
+test('section page: the controller sends the same events, at the same points, as the old view', (t) => {
+    const frames = new Map();
+    let nextFrame = 1;
+    globalThis.requestAnimationFrame = (cb) => { const id = nextFrame++; frames.set(id, cb); return id; };
+    globalThis.cancelAnimationFrame = (id) => { frames.delete(id); };
+    t.after(() => { delete globalThis.requestAnimationFrame; delete globalThis.cancelAnimationFrame; });
+    const flush = () => { const cbs = [...frames.values()]; frames.clear(); cbs.forEach(cb => cb()); };
+
+    const page = (make) => {
+        const log = [];
+        const container = makeContainer({ hero: false, clientHeight: 800, scrollHeight: 3000 });
+        let shown = container;
+        const host = {
+            data: null,
+            controllers: [],
+            shadowRoot: { querySelector: (sel) => (sel === '.main-scroll-container' ? shown : null) },
+            addController(c) { this.controllers.push(c); },
+            dispatchEvent(e) {
+                log.push(JSON.stringify([e.type, e.bubbles, e.composed, e.detail && { alpha: e.detail.alpha, textAlpha: e.detail.textAlpha, title: e.detail.title }]));
+                return true;
+            },
+        };
+        const view = make(host);
+        const scroll = (top) => { container.scrollTop = top; view._handleScroll({ target: container, currentTarget: container }); };
+        return { log, host, view, container, scroll, setRendered: (on) => { shown = on ? container : null; } };
+    };
+    const legacy = page(legacySectionView);
+    const now = page(controllerSectionView);
+    const DATA = new Set(['data']);
+    const OTHER = new Set(['api']);
+    const steps = [
+        (p) => { p.setRendered(false); p.view.updated(DATA); },          // no data yet: nothing rendered
+        (p) => { p.setRendered(true); p.host.data = { name: 'Recently Played', hasMore: true, isLoading: false }; p.view.updated(DATA); },
+        (p) => p.view.updated(DATA),                                     // same title: deduped
+        (p) => p.view.updated(OTHER),
+        (p) => { p.scroll(100); p.scroll(150); p.scroll(200); },          // burst, before the frame
+        () => flush(),
+        (p) => p.scroll(2100),                                            // near the bottom (2100 + 800 >= 2700)
+        () => flush(),
+        (p) => p.scroll(1899),                                            // 1899 + 800 < 2700
+        () => flush(),
+        (p) => p.scroll(1900),                                            // exactly at the threshold
+        () => flush(),
+        (p) => { p.host.data = { ...p.host.data, isLoading: true }; p.view.updated(DATA); p.scroll(2200); },
+        () => flush(),
+        (p) => { p.host.data = { ...p.host.data, isLoading: false, hasMore: false }; p.view.updated(DATA); p.scroll(2200); },
+        () => flush(),
+        (p) => p.view.updateHeaderState(),                                // forced
+        (p) => { p.container.visible = false; p.host.data = { name: 'Your Albums', hasMore: true }; p.view.updated(DATA); },
+        (p) => { p.scroll(2500); p.view.updateHeaderState(); },
+        () => flush(),                                                    // hidden: header skipped, load-more still sent
+        (p) => { p.container.visible = true; p.view.updated(DATA); },     // title changed while hidden
+        (p) => p.view.updateHeaderState(),
+        (p) => { p.host.data = null; p.scroll(10); },
+        () => flush(),                                                    // header with an empty title, no load-more
+        (p) => { p.host.data = { name: 'Again', hasMore: true }; p.scroll(2600); p.view.disconnectedCallback(); },
+        () => flush(),                                                    // the pending frame was cancelled
+        (p) => { p.scroll(2600); },
+        () => flush(),
+    ];
+    steps.forEach((step, i) => {
+        step(legacy); if (step.length) step(now);
+        assert.deepEqual(now.log, legacy.log, `after step ${i}`);
+    });
+    assert.ok(legacy.log.length >= 10, `scenario exercised (${legacy.log.length} events)`);
 });

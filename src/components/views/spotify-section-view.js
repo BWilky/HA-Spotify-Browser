@@ -2,6 +2,10 @@ import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { listRowStyles } from '../../styles/list-row.styles.js';
 import { renderListRow, renderEmptyState, itemSubtitle, SUBTITLE_STYLE } from '../media-templates.js';
+import { HeroScrollController } from '../controllers/hero-scroll-controller.js';
+
+/** No hero: the app header stays opaque and titled at every scroll offset. */
+const OPAQUE_HEADER = () => ({ alpha: 1, textAlpha: 1 });
 
 export class SpotifySectionView extends LitElement {
     static get properties() {
@@ -56,60 +60,35 @@ export class SpotifySectionView extends LitElement {
         ];
     }
 
+    constructor() {
+        super();
+        // Drives the shared app header (back button + centered title) instead
+        // of rendering our own header bar. The header is sent while the page is
+        // on screen (a cached page's data can still change, e.g. a load-more
+        // finishing after navigating away) and only when the title changed,
+        // except from updateHeaderState: another page may have changed the app
+        // header in between.
+        this._scroll = new HeroScrollController(this, {
+            getTitle: () => this.data?.name || '',
+            heroClass: null,
+            fade: OPAQUE_HEADER,
+            dedupe: true,
+            // Infinite scroll: request the next page when near the bottom.
+            nearBottom: 300,
+            onNearBottom: () => {
+                if (!this.data || this.data.isLoading || !this.data.hasMore) return;
+                this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
+            },
+        });
+    }
+
     updated(changedProperties) {
-        // Drive the shared app header (back button + centered title) instead of
-        // rendering our own header bar.
-        if (changedProperties.has('data')) this._emitHeaderState();
+        if (changedProperties.has('data')) this._scroll.sync();
     }
 
     /** Called by the parent context-view when this page becomes visible again. */
     updateHeaderState() {
-        this._emitHeaderState(true);
-    }
-
-    /**
-     * Skipped while the page is hidden (a cached page's data can still change,
-     * e.g. a load-more finishing after navigating away) and, unless forced,
-     * when the title is unchanged since the last dispatch. updateHeaderState
-     * forces it: another page may have changed the app header in between.
-     */
-    _emitHeaderState(force = false) {
-        const el = this.shadowRoot?.querySelector('.main-scroll-container');
-        if (!el || el.getClientRects().length === 0) return;
-        const title = this.data?.name || '';
-        if (!force && this._lastHeaderTitle === title) return;
-        this._lastHeaderTitle = title;
-        this.dispatchEvent(new CustomEvent('header-scroll', {
-            detail: { alpha: 1, title, textAlpha: 1 },
-            bubbles: true, composed: true
-        }));
-    }
-
-    disconnectedCallback() {
-        super.disconnectedCallback();
-        if (this._scrollRaf) cancelAnimationFrame(this._scrollRaf);
-        this._scrollRaf = null;
-    }
-
-    // Scroll fires many times per gesture; coalesce the work into one frame.
-    _handleScroll(e) {
-        this._scrollTarget = e.target;
-        if (this._scrollRaf) return;
-        this._scrollRaf = requestAnimationFrame(() => {
-            this._scrollRaf = null;
-            this._applyScroll(this._scrollTarget);
-        });
-    }
-
-    _applyScroll(el) {
-        if (!el) return;
-        // Keep the title pinned in the app header during scroll
-        this._emitHeaderState();
-        // Infinite scroll: request the next page when near the bottom.
-        if (!this.data || this.data.isLoading || !this.data.hasMore) return;
-        if (el.scrollTop + el.clientHeight >= el.scrollHeight - 300) {
-            this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
-        }
+        this._scroll.updateHeaderState();
     }
 
     render() {
@@ -117,7 +96,7 @@ export class SpotifySectionView extends LitElement {
         const { items, isLoading } = this.data;
 
         return html`
-            <div class="main-scroll-container" @scroll=${this._handleScroll} style="height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: auto; overscroll-behavior-x: none; position: relative;">
+            <div class="main-scroll-container" @scroll=${this._scroll.onScroll} style="height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: auto; overscroll-behavior-x: none; position: relative;">
                 <div class="section-table-container">
                     ${items && items.length > 0 ? items.map(item => this.renderTableRow(item)) : ''}
                     ${isLoading ? renderEmptyState('Loading more...') : ''}

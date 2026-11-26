@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { normalized, markup, listeners } from './helpers/lit-env.js';
 import { html } from '../src/lit.js';
 import {
-    renderListRow, renderRowSkeletons, renderEmptyState, renderCarouselSection, renderMediaRowTemplate,
+    renderListRow, renderRowSkeletons, renderEmptyState, renderCarouselSection,
     renderCardTemplate, renderCardSkeletonTemplate, itemSubtitle, SUBTITLE_STYLE,
 } from '../src/components/media-templates.js';
 import { getItemImage, IMG_THUMB } from '../src/utils.js';
@@ -70,35 +70,6 @@ function legacySearchRow(item, type) {
 // components/views/spotify-library.js _renderSkeletons / spotify-search.js (same markup)
 const legacySkeletons = (n) => html`${Array(n).fill(0).map(() => html`
             <div class="skel skeleton-pulse"><div class="art"></div><div class="skel-lines"><div></div><div></div></div></div>`)}`;
-
-// components/media-templates.js — renderMediaRowTemplate (subtitle via its own rule)
-function legacyMediaRow(item, type, clickHandler) {
-    const imgUrl = getItemImage(item, type, IMG_THUMB);
-    const name = item.name || 'Unknown';
-    let subtitle = '';
-    if (item.owner) subtitle = `By ${item.owner.display_name}`;
-    else if (item.artists && Array.isArray(item.artists)) subtitle = item.artists.map(a => a.name).join(', ');
-    else if (type === 'artist') subtitle = 'Artist';
-    else if (type === 'album') subtitle = item.release_date ? item.release_date.split('-')[0] : 'Album';
-    const isArtist = type === 'artist';
-    return html`
-        <div class="track-row interactive"
-             style="grid-template-columns: 80px 1fr auto; height: auto; padding: 12px;"
-             @click=${clickHandler}>
-
-            <div class="track-art-small ${imgUrl ? '' : 'art-fallback'}" style="${imgUrl ? `background-image: url('${imgUrl}');` : ''} width: 64px; height: 64px; border-radius: ${isArtist ? '50%' : '4px'}; margin-right: 16px;"></div>
-
-            <div class="track-info">
-                <div class="track-name" style="font-size: var(--spf-text-md, 15px); margin-bottom: 4px;">${name}</div>
-                <div class="track-artist">${subtitle}</div>
-            </div>
-
-            <div class="track-actions-right">
-                <svg width="24" height="24" fill="var(--spf-text-sub)" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>
-            </div>
-        </div>
-    `;
-}
 
 // components/spotify-home.js — cardSubtitle + _cardTemplate + _carouselSection
 function legacyCardSubtitle(item, type) {
@@ -209,14 +180,6 @@ test('renderRowSkeletons / renderEmptyState match the library + search markup', 
     assert.equal(normalized(renderRowSkeletons(5)), normalized(legacySkeletons(5)));
     assert.equal((markup(renderRowSkeletons(3)).match(/class="skel skeleton-pulse"/g) || []).length, 3);
     assert.equal(normalized(renderEmptyState('No playlists yet.')), '<div class="empty">No playlists yet.</div>');
-});
-
-test('renderMediaRowTemplate keeps its markup', () => {
-    const items = [[album, 'album'], [playlist, 'playlist'], [artist, 'artist'], [noArt, 'album'], [track, 'track'],
-        [{ type: 'album', id: 'x', release_date: '1999-01-01', images: img('x') }, 'album'], [{ type: 'album', id: 'y' }, 'album']];
-    for (const [item, type] of items) {
-        assert.equal(normalized(renderMediaRowTemplate(item, type, noop)), normalized(legacyMediaRow(item, type, noop)), `${type} ${item.name}`);
-    }
 });
 
 function homeHost(expanded = []) {

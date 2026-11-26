@@ -1,4 +1,4 @@
-import { html } from "../lit.js";
+import { html, nothing } from "../lit.js";
 import { getItemImage, pickImage, IMG_THUMB, IMG_CARD } from "../utils.js";
 import { heartIcon, heartToggleIcon, queueIcon, menuIcon, playIcon, playingBarsIcon } from "./common/icons.js";
 import { trackMenuDetail } from "./track-menu.js";
@@ -72,7 +72,7 @@ export const SUBTITLE_STYLE = Object.freeze({
     search: Object.freeze({ typeLabel: true, ownerFallback: 'Spotify', year: 'lead' }),
     /** Home "See All" section pages: "By Owner" (else the description), "Artists • 2020", "Artist". */
     section: Object.freeze({ byOwner: true, description: true, year: 'trail', unknownArtist: 'Unknown Artist' }),
-    /** Discography list / renderMediaRowTemplate: "By Owner", "Artists" (else the year, else "Album"), "Artist". */
+    /** Artist discography list: "By Owner", "Artists" (else the year, else "Album"), "Artist". */
     mediaRow: Object.freeze({ byOwner: true, year: 'fallback' }),
     /** Home cards: the item's own subtitle (pinned items), else "Owner", "Artists", "Artist". */
     card: Object.freeze({ preset: true }),
@@ -138,40 +138,59 @@ function scrollCarouselRight(e) {
 }
 
 /**
+ * renderCarouselSection options of the artist page's rails (Discography,
+ * Appears On, Fans Also Like); home's sections use the defaults.
+ */
+export const ARTIST_CAROUSEL = Object.freeze({ sectionClass: 'artist-section', skeletons: 5, scrollButton: false });
+
+/**
  * A titled row of cards that scrolls sideways — or wraps into a grid when
  * expanded — with an optional expand/collapse toggle and a "See All" button.
- * (Home's library sections; styles come from sharedStyles.)
+ * Home's library sections use the defaults; the artist page's rails pass
+ * the options marked (artist), most of them as ARTIST_CAROUSEL. Styles come
+ * from sharedStyles.
  *
  * @param {Object} o
- * @param {string} o.title
- * @param {string} o.id - section id: data-section-id / data-section and the carousel id (carousel-<id>).
- * @param {Array|null} [o.items] - null/undefined: loading (6 card skeletons); []: "No content found.".
+ * @param {string} [o.title] - text of the default header row.
+ * @param {string} [o.id] - section id: data-section-id / data-section and the carousel id (carousel-<id>); omitted, none of the three is written.
+ * @param {Array|null} [o.items] - null/undefined: loading (card skeletons); []: "No content found.".
  * @param {string} [o.type] - the section's item type: used for items with no type/_fallbackType; 'artist' draws round skeletons.
- * @param {Function} o.onItem - (item, type, subtitle) card click.
+ * @param {Function} o.onItem - (item, type, subtitle, event) card click; subtitle is undefined without o.subtitle.
  * @param {Function} [o.subtitle] - (item, type) => card subtitle; omitted, renderCardTemplate picks its own.
  * @param {boolean} [o.expanded] - grid instead of carousel.
  * @param {Function} [o.onToggle] - (e) expand/collapse click; the toggle button shows only when given.
  * @param {Function} [o.seeAll] - (e) "See All" click; the button shows once there are items.
+ * @param {*} [o.header] - (artist) template that replaces the default header row (title, toggle, See All).
+ * @param {string} [o.sectionClass='home-section'] - (artist) class of the <section>.
+ * @param {string} [o.layoutClass] - (artist) extra class on the carousel row.
+ * @param {number} [o.skeletons=6] - (artist) number of card skeletons while loading.
+ * @param {boolean} [o.roundSkeletons] - (artist) round card skeletons; defaults to type === 'artist'.
+ * @param {boolean} [o.scrollButton=true] - (artist) the hover "scroll right" button.
  */
-export function renderCarouselSection({ title, id, items = null, type, onItem, subtitle, expanded = false, onToggle, seeAll }) {
+export function renderCarouselSection({
+    title, id, items = null, type, onItem, subtitle, expanded = false, onToggle, seeAll,
+    header, sectionClass = 'home-section', layoutClass = '', skeletons = 6,
+    roundSkeletons = type === 'artist', scrollButton = true,
+}) {
     const hasItems = !!items && items.length > 0;
 
     let content;
     if (items === null) {
-        content = Array(6).fill(0).map(() => renderCardSkeletonTemplate(type === 'artist'));
+        content = Array(skeletons).fill(0).map(() => renderCardSkeletonTemplate(roundSkeletons));
     } else if (items.length === 0) {
         content = html`<div style="padding:20px; opacity:0.5; white-space:nowrap;">No content found.</div>`;
     } else {
         content = items.map(item => {
             const itemType = item.type || item._fallbackType || type;
-            if (!subtitle) return renderCardTemplate(item, itemType, () => onItem(item, itemType));
+            if (!subtitle) return renderCardTemplate(item, itemType, (e) => onItem(item, itemType, undefined, e));
             const sub = subtitle(item, itemType);
-            return renderCardTemplate({ ...item, subtitle: sub }, itemType, () => onItem(item, itemType, sub));
+            return renderCardTemplate({ ...item, subtitle: sub }, itemType, (e) => onItem(item, itemType, sub, e));
         });
     }
 
     return html`
-        <section class="home-section" data-section-id="${id}">
+        <section class="${sectionClass}" data-section-id="${id ?? nothing}">
+            ${header ?? html`
             <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
                 <div style="display: flex; align-items: center;">
                     <h3 class="section-title" style="margin:0;">${title}</h3>
@@ -184,14 +203,15 @@ export function renderCarouselSection({ title, id, items = null, type, onItem, s
                 ${hasItems && seeAll
                 ? html`<button class="see-all-btn" @click=${seeAll}>See All</button>`
                 : html`<button class="see-all-btn" style="display:none">See All</button>`}
-            </div>
+            </div>`}
             <div class="carousel-wrapper">
-                <div class="${expanded ? 'section-grid' : 'carousel-layout'}" id="carousel-${id}" data-section="${id}">
+                <div class="${expanded ? 'section-grid' : 'carousel-layout'}${layoutClass ? ` ${layoutClass}` : ''}" id="${id == null ? nothing : `carousel-${id}`}" data-section="${id ?? nothing}">
                     ${content}
                 </div>
+                ${scrollButton ? html`
                 <button class="scroll-btn right" @click=${scrollCarouselRight} style="${hasItems && items.length > 5 && !expanded ? '' : 'display:none'}">
                     <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
-                </button>
+                </button>` : ''}
             </div>
         </section>
     `;
@@ -404,39 +424,6 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
 
             <div class="track-actions-right">
                 ${actions}
-            </div>
-        </div>
-    `;
-}
-
-/**
- * Renders a generic "Row" layout for non-track items (Playlists, Albums, Artists),
- * styled by sharedStyles' track-row classes plus inline sizes.
- *
- * @deprecated Lists use renderListRow (styles/list-row.styles.js); the
- * discography list draws this same look through it. Kept, with its markup
- * unchanged, for existing callers.
- */
-export function renderMediaRowTemplate(item, type, clickHandler) {
-    const imgUrl = getItemImage(item, type, IMG_THUMB);
-    const name = item.name || 'Unknown';
-    const subtitle = itemSubtitle(item, type, SUBTITLE_STYLE.mediaRow);
-    const isArtist = type === 'artist';
-
-    return html`
-        <div class="track-row interactive" 
-             style="grid-template-columns: 80px 1fr auto; height: auto; padding: 12px;"
-             @click=${clickHandler}>
-            
-            <div class="track-art-small ${imgUrl ? '' : 'art-fallback'}" style="${imgUrl ? `background-image: url('${imgUrl}');` : ''} width: 64px; height: 64px; border-radius: ${isArtist ? '50%' : '4px'}; margin-right: 16px;"></div>
-
-            <div class="track-info">
-                <div class="track-name" style="font-size: var(--spf-text-md, 15px); margin-bottom: 4px;">${name}</div>
-                <div class="track-artist">${subtitle}</div>
-            </div>
-
-            <div class="track-actions-right">
-                ${rowChevronIcon}
             </div>
         </div>
     `;
