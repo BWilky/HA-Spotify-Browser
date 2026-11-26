@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "../../../lit.js";
 import { sharedStyles } from '../../../styles/shared-styles.js';
-import { queueStyles } from '../../../styles/spotify-queue.styles.js';
+import { queueSidebarStyles } from '../../../styles/spotify-queue.styles.js';
 
 import './nowplaying.js';
 import './queue.js';
@@ -22,11 +22,11 @@ export class SpotifySidebarPlayer extends LitElement {
     }
 
     static get styles() {
-        return [sharedStyles, queueStyles, css`
+        return [sharedStyles, queueSidebarStyles, css`
             :host {
                 display: flex;
                 flex-direction: column;
-                /* height & overflow handled by queueStyles to match layout positioning */
+                /* height & overflow handled by queueSidebarStyles to match layout positioning */
             }
 
             .queue-panel {
@@ -50,6 +50,11 @@ export class SpotifySidebarPlayer extends LitElement {
             .queue-list-container.blurred {
                 filter: blur(8px);
                 opacity: 0.4;
+            }
+
+            /* Rows inherit this (the tracklist host no longer forces auto), so
+               taps land on the container itself and reach _handleBlurClick. */
+            .queue-list-container.blurred > * {
                 pointer-events: none;
             }
 

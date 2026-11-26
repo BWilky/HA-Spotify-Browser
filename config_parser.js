@@ -244,6 +244,13 @@ function normalizeGroup(raw, spec, path) {
     const out = clone(spec.defaults);
     const finish = () => (spec.post ? spec.post(out, raw) : out);
 
+    // Nested groups always fill themselves (their own defaults + post), so an
+    // omitted key behaves exactly like the group's own "omitted" shorthand and
+    // parents don't restate their children's defaults.
+    for (const [k, f] of Object.entries(spec.fields)) {
+        if (f.fields) out[k] = normalizeGroup(undefined, f, `${path}.${k}`);
+    }
+
     if (raw === undefined) return finish();
     if (raw === true) {
         if ('enabled' in out) out.enabled = true;
@@ -306,8 +313,6 @@ const SCHEMA = {
     browser: {
         defaults: {
             hash: '#spotify-browser',
-            auto_close: { enabled: false, timeout: 0 },
-            home_on_exit: { enabled: true, timeout: 0 },
             cache_size: 10,
             debug: false,
         },
@@ -325,14 +330,7 @@ const SCHEMA = {
     },
 
     appearance: {
-        defaults: {
-            performance: { mode: 'auto', lite: false }, // lite resolved in post
-            animations: { page_transition: 'fade', browser_open: 'fade', blur: true },
-            desktop: {
-                mode: 'default', width: '85vw', height: '85vh', fullscreen: false,
-                margin_top: '24px', margin_bottom: '24px', margin_left: '24px', margin_right: '24px',
-            },
-        },
+        defaults: {}, // every field is a nested group
         fields: {
             performance: {
                 defaults: { mode: 'auto', lite: false },
@@ -377,7 +375,6 @@ const SCHEMA = {
     home: {
         defaults: {
             sort: ['pinned', 'recent', 'favorites', 'artists', 'albums'],
-            pinned: { enabled: false, scope: 'shared', items: [] },
             made_for_you: [],
         },
         fields: {
@@ -419,7 +416,6 @@ const SCHEMA = {
         defaults: {
             default: null,
             icons: [],
-            volume: { fallback: 25, rules: [], rate_control: true, optimistic: true, step: 2 },
         },
         fields: {
             default: str,
@@ -444,10 +440,7 @@ const SCHEMA = {
     },
 
     queue: {
-        defaults: {
-            open_on_desktop: false,
-            miniplayer: { enabled: true, shuffle: true, previous: true, next: true, like: true, volume: true, device: true },
-        },
+        defaults: { open_on_desktop: false },
         fields: {
             open_on_desktop: bool,
             miniplayer: {
@@ -499,7 +492,7 @@ const SCHEMA = {
     },
 
     integrations: {
-        defaults: { lastfm: { api_key: null } },
+        defaults: {},
         fields: {
             lastfm: {
                 defaults: { api_key: null },

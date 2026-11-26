@@ -43,7 +43,9 @@ export class Router extends EventTarget {
 
 
         // 1. Manage History
-        if (direction === 'forward' && this.currentPageId) {
+        // Re-navigating to the page already shown (search Enter while on search,
+        // library menu while on library) must not push it, or Back stays put.
+        if (direction === 'forward' && this.currentPageId && this.currentPageId !== pageId) {
             this.history.push(this.currentPageId);
         }
 
@@ -190,6 +192,9 @@ export class Router extends EventTarget {
 
             // open-track-menu bubbles (composed) to the app wrapper's listener.
             contextView.addEventListener('header-scroll', (e) => {
+                // Hidden cached pages still re-render (e.g. on track changes);
+                // only the page on screen may drive the app header.
+                if (this.pageCache.get(this.currentPageId) !== contextView) return;
                 this.dispatchEvent(new CustomEvent('header-scroll', { detail: e.detail }));
             });
 
@@ -214,6 +219,8 @@ export class Router extends EventTarget {
 
     _executeTransition(newPage, oldPage, type, direction) {
         if (!this.container) return;
+        // Same-page navigation: no exit animation on (or hiding of) the page itself.
+        if (oldPage === newPage) oldPage = null;
 
         if (type === 'none') {
             if (newPage) newPage.classList.remove('page-hidden');

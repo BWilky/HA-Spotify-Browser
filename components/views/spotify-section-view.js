@@ -63,12 +63,23 @@ export class SpotifySectionView extends LitElement {
 
     /** Called by the parent context-view when this page becomes visible again. */
     updateHeaderState() {
-        this._emitHeaderState();
+        this._emitHeaderState(true);
     }
 
-    _emitHeaderState() {
+    /**
+     * Skipped while the page is hidden (a cached page's data can still change,
+     * e.g. a load-more finishing after navigating away) and, unless forced,
+     * when the title is unchanged since the last dispatch. updateHeaderState
+     * forces it: another page may have changed the app header in between.
+     */
+    _emitHeaderState(force = false) {
+        const el = this.shadowRoot?.querySelector('.main-scroll-container');
+        if (!el || el.getClientRects().length === 0) return;
+        const title = this.data?.name || '';
+        if (!force && this._lastHeaderTitle === title) return;
+        this._lastHeaderTitle = title;
         this.dispatchEvent(new CustomEvent('header-scroll', {
-            detail: { alpha: 1, title: this.data?.name || '', textAlpha: 1 },
+            detail: { alpha: 1, title, textAlpha: 1 },
             bubbles: true, composed: true
         }));
     }

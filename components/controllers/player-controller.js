@@ -32,6 +32,7 @@ export class PlayerController extends EventTarget {
         this._lastTrackId = null;
         this._cachedApiQueue = null; // Store full API response
         this._eosTimer = null;
+        this._eosFiredFor = null; // Track id whose end-of-track refresh already ran (null = armed)
         this._queueFetchId = 0; // Invalidates in-flight queue refreshes
         this._transferHoldTrack = null; // Track shown while a device transfer settles
         this._transferHoldUntil = 0;
@@ -177,17 +178,15 @@ export class PlayerController extends EventTarget {
         const holdingTrack = !attrs.media_title && this._transferHoldActive();
         const isPlaying = (this._optimisticTrack || holdingTrack) ? true : (stateObj.state === 'playing');
 
-        // 3. Update State Object
-        const newState = {
+        // 3. HASS-derived fields. isLiked / queue / recentTracks are owned by their
+        // own refreshes and carry over untouched (see _setState).
+        const hassState = {
             track: track,
             isPlaying: isPlaying,
             isShuffle: attrs.shuffle === true,
-            isLiked: this.state.isLiked, // Persist until refreshed
             volume: (attrs.volume_level || 0) * 100,
             isMuted: attrs.is_volume_muted || false,
-            activeDevice: activeDevice,
-            queue: this.state.queue, // Persist queue
-            recentTracks: this.state.recentTracks // Persist recent
+            activeDevice: activeDevice
         };
 
         // Check if track changed to trigger Queue Refresh
@@ -235,19 +234,32 @@ export class PlayerController extends EventTarget {
         this._resyncEOSTimer(stateObj);
 
         // Diff and Emit
-        if (!this._statesEqual(this.state, newState)) {
-            this.state = newState;
-            this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
-        }
+        this._setState(hassState);
+    }
+
+    /**
+     * The single way `this.state` changes. Builds a NEW state object from the
+     * current one plus `patch`, and — only if that differs (see _statesEqual) —
+     * swaps it in and announces it. `this.state` is never mutated in place, so
+     * a snapshot handed to a listener stays as it was, and every `state-changed`
+     * detail is a fresh reference (Lit consumers compare by identity). Returns
+     * whether anything changed.
+     */
+    _setState(patch) {
+        const next = { ...this.state, ...patch };
+        if (this._statesEqual(this.state, next)) return false;
+        this.state = next;
+        this.dispatchEvent(new CustomEvent('state-changed', { detail: next }));
+        return true;
     }
 
     /**
      * Cheap equality check between two player-state snapshots, replacing a
      * per-tick JSON.stringify of the whole state (which serialized the ~30-item
-     * queue/recents arrays every second). `queue`/`recentTracks`/`isLiked` are
-     * copied by reference from `this.state` when `newState` is built, so
-     * reference equality there is exact; tracks are compared by identity
-     * fields (see _tracksEqual).
+     * queue/recents arrays every second). `queue`/`recentTracks` are compared
+     * by reference: they are only ever replaced with a new array (never edited
+     * in place), so a new reference is exactly "changed". Tracks are compared
+     * by identity fields (see _tracksEqual).
      */
     _statesEqual(a, b) {
         return a.isPlaying === b.isPlaying
@@ -370,7 +382,7 @@ export class PlayerController extends EventTarget {
             if (fetchId !== this._queueFetchId) return;
             if (res && res.result) {
                 this._cachedApiQueue = res.result;
-                this.state.queue = res.result.queue || [];
+                this._setState({ queue: res.result.queue || [] });
 
                 // Trigger update. Re-calculating state picks up the new API data if
                 // HASS was missing it, and refreshes the liked status off the
@@ -407,9 +419,7 @@ export class PlayerController extends EventTarget {
 
             this._sonosQueueBase = curPos >= 0 ? curPos + 1 : 0;
             this._cachedSonosQueue = full;
-            // New object reference so Lit consumers (identity check) re-render.
-            this.state = { ...this.state, queue: full.slice(this._sonosQueueBase) };
-            this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
+            this._setState({ queue: full.slice(this._sonosQueueBase) });
 
             // sonos.get_queue returns no artwork; enrich the upcoming slice in the
             // background (cached per track id) and re-render once art arrives.
@@ -436,8 +446,7 @@ export class PlayerController extends EventTarget {
         }));
 
         if (!changed || fetchId !== this._queueFetchId) return;
-        this.state = { ...this.state, queue: [...this.state.queue] };
-        this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
+        this._setState({ queue: [...this.state.queue] });
     }
 
     async refreshRecent() {
@@ -449,8 +458,7 @@ export class PlayerController extends EventTarget {
                 if (res.result && res.result.items) items = res.result.items;
                 else if (res.items) items = res.items; // Direct
 
-                this.state.recentTracks = items;
-                this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
+                this._setState({ recentTracks: items });
             }
         } catch (e) {
             console.error('[PlayerController] Recent fetch failed', e);
@@ -467,11 +475,7 @@ export class PlayerController extends EventTarget {
         else if (result && typeof result === 'object') isLiked = result[trackId] === true;
         else return;
 
-        if (this.state.isLiked !== isLiked) {
-            // New object reference so Lit consumers (identity check) re-render.
-            this.state = { ...this.state, isLiked };
-            this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
-        }
+        this._setState({ isLiked });
     }
 
     /* --- ACTIONS --- */
@@ -507,9 +511,8 @@ export class PlayerController extends EventTarget {
         const track = this.state.track;
         if (!track || !track.id) return;
 
-        // Optimistic (new object reference so Lit consumers re-render).
-        this.state = { ...this.state, isLiked: !this.state.isLiked };
-        this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
+        // Optimistic
+        this._setState({ isLiked: !this.state.isLiked });
 
         if (this.state.isLiked) {
             await this.api.saveTrackFavorites(track.id);
@@ -529,7 +532,6 @@ export class PlayerController extends EventTarget {
         const queueIndex = this.state.queue.findIndex(t => t.uri === track.uri);
         if (queueIndex !== -1) {
             this._queueBackup = [...this.state.queue];
-            this.state.queue = this.state.queue.slice(queueIndex + 1);
         }
 
         // Timer to revert
@@ -539,14 +541,16 @@ export class PlayerController extends EventTarget {
                 this._optimisticTrack = null;
                 this._optimisticFromUri = null;
                 if (this._queueBackup) {
-                    this.state.queue = this._queueBackup;
+                    const queue = this._queueBackup;
                     this._queueBackup = null;
+                    this._setState({ queue });
                 }
-                this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
             }
         }, 8000);
 
-        this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
+        if (queueIndex !== -1) {
+            this._setState({ queue: this.state.queue.slice(queueIndex + 1) });
+        }
 
         // Sonos: jump to the absolute queue position via the HA Sonos integration
         // (the Spotify context-offset path doesn't drive the Sonos local queue).
@@ -667,16 +671,14 @@ export class PlayerController extends EventTarget {
         const next = this.peekNext();
         if (next) {
             const current = this.state.track;
-            this.state = {
-                ...this.state,
+            this._armOptimistic(next, current?.uri);
+            this._setState({
                 track: next,
                 queue: this.state.queue.slice(1),
                 recentTracks: current
                     ? [{ track: current }, ...(this.state.recentTracks || [])]
                     : (this.state.recentTracks || []),
-            };
-            this._armOptimistic(next, current?.uri);
-            this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
+            });
             this._preloadNeighborArt();
         }
         if (this.api) {
@@ -703,14 +705,12 @@ export class PlayerController extends EventTarget {
             return;
         }
         const current = this.state.track;
-        this.state = {
-            ...this.state,
+        this._armOptimistic(prev, current?.uri);
+        this._setState({
             track: prev,
             recentTracks: (this.state.recentTracks || []).filter(it => (it.track || it)?.uri !== prev.uri),
             queue: current ? [current, ...(this.state.queue || [])] : (this.state.queue || []),
-        };
-        this._armOptimistic(prev, current?.uri);
-        this.dispatchEvent(new CustomEvent('state-changed', { detail: this.state }));
+        });
         this._preloadNeighborArt();
         await this._playTrackInContext(prev);
     }
@@ -736,14 +736,31 @@ export class PlayerController extends EventTarget {
 
         const remainingSeconds = duration - extrapolatedPosition(stateObj);
 
+        // The end-of-track refresh runs at most once per track. refreshQueue()
+        // re-enters here via _updateStateFromHass(), and until the integration
+        // posts the next track HASS keeps reporting this one as playing past
+        // its end — without the latch that re-armed a 300ms timer (and a
+        // get_player_queue_info call) in a loop. Re-arm on a different track,
+        // or when the position is back before the end (seek / repeat-one).
+        const trackId = stateObj.attributes.media_content_id || stateObj.attributes.media_title || '';
+        if (this._eosFiredFor !== null && (this._eosFiredFor !== trackId || remainingSeconds > 0)) {
+            this._eosFiredFor = null;
+        }
+        if (this._eosFiredFor !== null) return;
+
+        const onEnd = () => {
+            this._eosFiredFor = trackId;
+            this.refreshQueue();
+        };
+
         if (remainingSeconds <= 0) {
-            this._eosTimer = setTimeout(() => this.refreshQueue(), 300);
+            this._eosTimer = setTimeout(onEnd, 300);
             return;
         }
 
         const timeoutMs = (remainingSeconds * 1000) + 300;
         if (timeoutMs > 0 && timeoutMs < 3600000) {
-            this._eosTimer = setTimeout(() => this.refreshQueue(), timeoutMs);
+            this._eosTimer = setTimeout(onEnd, timeoutMs);
         }
     }
 }

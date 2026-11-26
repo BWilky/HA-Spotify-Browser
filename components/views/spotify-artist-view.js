@@ -384,6 +384,10 @@ export class SpotifyArtistView extends LitElement {
         let scrollContainer = this._scrollContainerEl;
         if (!scrollContainer || !scrollContainer.isConnected) scrollContainer = this._scrollContainerEl = this.shadowRoot.querySelector('.main-scroll-container');
         if (!scrollContainer) return;
+        // A cached page hidden by the router (display:none on an ancestor) still
+        // updates on track changes; it has no layout box then, and its scrollTop
+        // reads 0. Never drive the app header from it.
+        if (scrollContainer.getClientRects().length === 0) return;
 
         const scrollTop = scrollContainer.scrollTop;
         const fadeEnd = 200; // Pixel value where header becomes fully opaque

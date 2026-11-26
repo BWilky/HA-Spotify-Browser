@@ -141,6 +141,11 @@ class SpotifyBrowserApp extends LitElement {
             const oldHass = changedProperties.get('hass');
             const newHass = this.hass;
 
+            // The services read entities this gate never looks at, so they get
+            // the new hass on EVERY change — here, not in updated(), which only
+            // runs for the ticks the gate lets through.
+            this._syncServiceHass();
+
             // If oldHass is missing, always update (first load)
             if (!oldHass || !newHass) return true;
 
@@ -149,6 +154,27 @@ class SpotifyBrowserApp extends LitElement {
                 const oldState = oldHass.states[this.config.entity];
                 const newState = newHass.states[this.config.entity];
                 if (oldState !== newState) return true;
+            }
+
+            // 1b. Check the Sonos speakers. Local Sonos playback never engages
+            // Spotify Connect, so the SpotifyPlus entity above sits idle while
+            // the speaker's own media_player carries every track/play/volume
+            // change.
+            const sonos = this.config?.sonos;
+            if (sonos?.enabled) {
+                // The speaker driving playback now: the bridge's remembered
+                // target, which is what playerController.playbackEntityId()
+                // resolves to. Not that resolver itself: it can scan every
+                // media_player (name auto-detect) and rewrites the bridge's
+                // memory — too much for a per-tick gate.
+                const target = this.sonosBridge?.targetEntity;
+                if (target && oldHass.states[target] !== newHass.states[target]) return true;
+
+                // Mapped speakers: one starting to play is how the bridge
+                // adopts a target (prefer_sonos, recovery after a reload).
+                for (const entry of sonos.device_map || []) {
+                    if (entry.entity && oldHass.states[entry.entity] !== newHass.states[entry.entity]) return true;
+                }
             }
 
             // 2. Check the storage sensor — the actual backend for pinned
@@ -169,6 +195,22 @@ class SpotifyBrowserApp extends LitElement {
         }
 
         return true;
+    }
+
+    /**
+     * Hand the current hass to the services whose updateHass/setHass is a plain
+     * pointer swap. Called from shouldUpdate so it runs on every hass change,
+     * including the ticks the render gate drops. PlayerController.updateHass
+     * (derives state, can fetch the queue) and router.updateDependencies (fans
+     * out to every cached page) do real work, so they stay in updated().
+     */
+    _syncServiceHass() {
+        if (!this.hass) return;
+        if (this.api) this.api.updateHass(this.hass);
+        if (this.storageManager) this.storageManager.updateHass(this.hass);
+        if (this.deviceManager) this.deviceManager.updateHass(this.hass);
+        if (this.sonosBridge) this.sonosBridge.setHass(this.hass);
+        if (this.pinnedManager) this.pinnedManager.updateHass(this.hass);
     }
 
     firstUpdated(changedProperties) {
@@ -396,11 +438,9 @@ class SpotifyBrowserApp extends LitElement {
         this._ensureManagers();
 
         if (changedProperties.has('hass') && this.hass) {
-            if (this.api) this.api.updateHass(this.hass);
-            if (this.storageManager) this.storageManager.updateHass(this.hass);
-            if (this.deviceManager) this.deviceManager.updateHass(this.hass);
-            if (this.sonosBridge) this.sonosBridge.setHass(this.hass);
-            if (this.pinnedManager) this.pinnedManager.updateHass(this.hass);
+            // The pointer-only services already have this hass (_syncServiceHass,
+            // from shouldUpdate). These two do real work, so they run only for
+            // the ticks the gate let through.
             if (this.playerController) this.playerController.updateHass(this.hass);
             if (this.router) this.router.updateDependencies({ hass: this.hass });
         }
@@ -471,6 +511,10 @@ class SpotifyBrowserApp extends LitElement {
                 // Fresh data on every (re)open: scan once the socket/grace allows,
                 // then re-read queue/recents (the queue can change while the track doesn't).
                 this._refreshAfterReturn();
+
+                // The storage-corruption prompt is raised at boot, usually
+                // while closed (no popups element to host it) — show it now.
+                this._showStorageCorruptPrompt();
 
                 // Idle auto-close: fresh activity baseline (a stale stamp from
                 // the last session must not instantly re-close us), then start
@@ -919,22 +963,32 @@ class SpotifyBrowserApp extends LitElement {
             // against; see api.js.) Leaving it empty is harmless and silent.
         } else if (status === 'corrupted' && !this._storageCorruptPrompted) {
             this._storageCorruptPrompted = true;
-            // Defer alert slightly to ensure popups are ready
-            setTimeout(() => {
-                this.dispatchEvent(new CustomEvent('show-alert', {
-                    detail: {
-                        id: 'storage-corruption',
-                        title: 'Storage Error',
-                        message: 'Persistent storage data appears to be corrupted. Reset checks and saved items to defaults?',
-                        confirmText: 'Reset Data',
-                        cancelText: 'Ignore',
-                        onConfirm: () => this.storageManager.resetStorage()
-                    },
-                    bubbles: true,
-                    composed: true
-                }));
-            }, 1000);
+            // The alert lives in <spotify-popups>, which only exists while the
+            // overlay is open — and this normally runs at boot, with it closed.
+            // Park the prompt; the open branch of updated() shows it.
+            this._storageCorruptPending = true;
+            this._showStorageCorruptPrompt();
         }
+    }
+
+    /** Show the parked storage-corruption prompt once the overlay (and its popups) exists. */
+    _showStorageCorruptPrompt() {
+        if (!this._storageCorruptPending || !this._isOpen) return;
+        if (!this.shadowRoot?.getElementById('popups')) return;
+        this._storageCorruptPending = false;
+        // It may have waited a long time for the overlay to open — don't offer
+        // a reset for a store that has been repaired (another browser) since.
+        if (this.storageManager.checkStatus() !== 'corrupted') return;
+        this._handleShowAlert({
+            detail: {
+                id: 'storage-corruption',
+                title: 'Storage Error',
+                message: 'Persistent storage data appears to be corrupted. Reset checks and saved items to defaults?',
+                confirmText: 'Reset Data',
+                cancelText: 'Ignore',
+                onConfirm: () => this.storageManager.resetStorage()
+            }
+        });
     }
 
     _initApi() {
@@ -1133,7 +1187,43 @@ class SpotifyBrowserApp extends LitElement {
             case 'menu-library':
                 this.router.navigateTo('library');
                 break;
+            case 'menu-refresh':
+                this._refreshCurrentPage();
+                break;
         }
+    }
+
+    /**
+     * "Refresh Data" (header menu): re-read the page on screen, then the
+     * player. Pages are duck-typed, each with its own refresh path:
+     *  - home: re-fetch each library section. Per section rather than
+     *    refreshSections(), whose cooldown (meant for the automatic
+     *    reopen/refocus path) would swallow an explicit refresh. Pinned
+     *    follows its sensor and needs nothing.
+     *  - library and context pages (playlist/album/artist/section/...): refresh().
+     *  - search: has no way to re-run an unchanged query, so nothing.
+     */
+    _refreshCurrentPage() {
+        const popups = this.shadowRoot.getElementById('popups');
+        if (popups) popups.showToast("Refreshing...");
+
+        const pageId = this.router?.currentPageId;
+        const page = this.router?.pageCache.get(pageId);
+        if (pageId === 'home') {
+            if (page?.fetchSectionData) {
+                for (const key of this.config.home?.sort || []) {
+                    if (key !== 'pinned') page.fetchSectionData(key, { replace: true });
+                }
+            }
+        } else if (page?.refresh) {
+            // refresh() rebuilds the page from scratch — never under an open
+            // playlist edit session, which would silently drop unsaved changes.
+            const editing = page.shadowRoot?.querySelector('spotify-playlist-view')?._editMode;
+            if (!editing) page.refresh();
+        }
+
+        // Now-playing, queue and recents.
+        this._refreshAfterReturn();
     }
 
     /** Switch the active Spotify account/entity and rebuild the API stack. */

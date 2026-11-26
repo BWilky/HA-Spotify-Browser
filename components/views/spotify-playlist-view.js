@@ -715,38 +715,60 @@ export class SpotifyPlaylistView extends LitElement {
         }
 
         if (target.classList.contains('has-hero')) {
-            let alpha, textAlpha;
-            if (this._mobileMql.matches) {
-                // Mobile hero is tall (height: auto) and centered, so a fixed
-                // 200px threshold fades the header in while the hero is still
-                // fully visible. Tie the fade to the actual hero height so the
-                // header only starts appearing as the hero scrolls out under it.
-                let heroBanner = this._heroBannerEl;
-                if (!heroBanner || !heroBanner.isConnected) heroBanner = this._heroBannerEl = this.shadowRoot.querySelector('.hero-banner');
-                const heroHeight = heroBanner ? heroBanner.offsetHeight : 375;
-                const fadeEnd = Math.max(heroHeight - 100, 1); // ~header height below the hero
-                const fadeStart = Math.max(fadeEnd - 80, 0);
-                alpha = Math.max(0, Math.min((scrollTop - fadeStart) / (fadeEnd - fadeStart), 1));
-                textAlpha = Math.max(0, Math.min((scrollTop - fadeEnd) / 50, 1));
-            } else {
-                alpha = Math.min(scrollTop / 200, 1);
-                textAlpha = Math.max(0, Math.min((scrollTop - 220) / 60, 1));
-            }
-            this.dispatchEvent(new CustomEvent('header-scroll', {
-                detail: {
-                    alpha,
-                    textAlpha,
-                    title: this.data?.name || ''
-                },
-                bubbles: true,
-                composed: true
-            }));
+            this._dispatchHeaderState(target, false);
 
             // Infinite Scroll Detection
             if (scrollTop + target.clientHeight >= target.scrollHeight - 200) {
                 this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
             }
         }
+    }
+
+    /** Called by the parent context-view when this page becomes visible again. */
+    updateHeaderState() {
+        const target = this.shadowRoot?.querySelector('.main-scroll-container');
+        if (target && target.classList.contains('has-hero')) this._dispatchHeaderState(target, true);
+    }
+
+    /**
+     * Drive the app header from the scroll position. Skipped while the page is
+     * hidden (no layout box) and, unless forced, when nothing changed since the
+     * last dispatch. updateHeaderState forces it: another page may have changed
+     * the app header in between.
+     */
+    _dispatchHeaderState(target, force) {
+        if (target.getClientRects().length === 0) return;
+        const scrollTop = target.scrollTop;
+        let alpha, textAlpha;
+        if (this._mobileMql.matches) {
+            // Mobile hero is tall (height: auto) and centered, so a fixed
+            // 200px threshold fades the header in while the hero is still
+            // fully visible. Tie the fade to the actual hero height so the
+            // header only starts appearing as the hero scrolls out under it.
+            let heroBanner = this._heroBannerEl;
+            if (!heroBanner || !heroBanner.isConnected) heroBanner = this._heroBannerEl = this.shadowRoot.querySelector('.hero-banner');
+            const heroHeight = heroBanner ? heroBanner.offsetHeight : 375;
+            const fadeEnd = Math.max(heroHeight - 100, 1); // ~header height below the hero
+            const fadeStart = Math.max(fadeEnd - 80, 0);
+            alpha = Math.max(0, Math.min((scrollTop - fadeStart) / (fadeEnd - fadeStart), 1));
+            textAlpha = Math.max(0, Math.min((scrollTop - fadeEnd) / 50, 1));
+        } else {
+            alpha = Math.min(scrollTop / 200, 1);
+            textAlpha = Math.max(0, Math.min((scrollTop - 220) / 60, 1));
+        }
+        const title = this.data?.name || '';
+        const last = this._lastHeaderState;
+        if (!force && last && last.alpha === alpha && last.textAlpha === textAlpha && last.title === title) return;
+        this._lastHeaderState = { alpha, textAlpha, title };
+        this.dispatchEvent(new CustomEvent('header-scroll', {
+            detail: {
+                alpha,
+                textAlpha,
+                title
+            },
+            bubbles: true,
+            composed: true
+        }));
     }
 
     _formatDuration(ms) {

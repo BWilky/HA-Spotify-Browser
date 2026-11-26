@@ -1,6 +1,7 @@
 import { css } from "../lit.js";
 
-export const queueStyles = css`
+// Sidebar container (spotify-sidebar-player): positioned overlay host + panel layout.
+export const queueSidebarStyles = css`
     :host {
         display: block;
         position: absolute; 
@@ -51,10 +52,6 @@ export const queueStyles = css`
             border-left: none;
         }
     }
-    
-    /* ================================================= */
-    /* QUEUE PANEL & MINI PLAYER                         */
-    /* ================================================= */
 
     .queue-header-wrapper {
         flex-shrink: 0;
@@ -66,6 +63,16 @@ export const queueStyles = css`
         padding: 0 !important; 
         overflow: visible;
     }
+`;
+
+// Track list (spotify-sidebar-tracklist): list + row rules. No :host layout here —
+// the list host is a plain block inside the sidebar and inherits pointer-events.
+export const queueListStyles = css`
+    :host * { box-sizing: border-box; }
+
+    /* ================================================= */
+    /* QUEUE PANEL & MINI PLAYER                         */
+    /* ================================================= */
 
     .queue-now-playing-row {
         position: relative;

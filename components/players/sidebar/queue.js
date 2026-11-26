@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "../../../lit.js";
 import { sharedStyles } from '../../../styles/shared-styles.js';
-import { queueStyles } from '../../../styles/spotify-queue.styles.js';
+import { queueListStyles } from '../../../styles/spotify-queue.styles.js';
 import { msToTime } from '../../../utils.js';
 import { renderQueueRow } from '../queue-row.js';
 
@@ -19,7 +19,10 @@ export class SpotifySidebarTrackList extends LitElement {
     }
 
     static get styles() {
-        return [sharedStyles, queueStyles, css`
+        // Undo sharedStyles' :host (absolute, 0x0, z-index). pointer-events is
+        // deliberately NOT set here: it must inherit, so the sidebar's .blurred
+        // state can block row taps.
+        return [sharedStyles, queueListStyles, css`
             :host {
                 display: block;
                 position: static;
@@ -27,7 +30,6 @@ export class SpotifySidebarTrackList extends LitElement {
                 width: 100%;
                 transform: none;
                 z-index: auto;
-                pointer-events: auto;
             }
         `];
     }

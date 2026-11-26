@@ -105,3 +105,91 @@ test('browser.auto_close: 0 or omitted stays disabled', () => {
     assert.deepEqual(ConfigParser.parse({ entity: 'media_player.x' }).browser.auto_close, off);
     assert.deepEqual(ConfigParser.parse({ entity: 'media_player.x', browser: { auto_close: 0 } }).browser.auto_close, off);
 });
+
+// detectLite() reads navigator.deviceMemory / hardwareConcurrency. Node 21+
+// exposes a real navigator (hardwareConcurrency = host cores), so stub it.
+function withNavigator(nav, fn) {
+    const desc = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    Object.defineProperty(globalThis, 'navigator', { value: nav, configurable: true, writable: true });
+    try { return fn(); }
+    finally {
+        if (desc) Object.defineProperty(globalThis, 'navigator', desc);
+        else delete globalThis.navigator;
+    }
+}
+const WEAK = { deviceMemory: 2, hardwareConcurrency: 8 };
+const WEAK_CORES = { hardwareConcurrency: 4 };
+const STRONG = { deviceMemory: 8, hardwareConcurrency: 8 };
+const parseAll = (extra = {}) => ConfigParser.parse({ entity: 'media_player.x', ...extra });
+
+test('appearance.performance omitted runs lite auto-detection', () => {
+    for (const cfg of [{}, { appearance: {} }, { appearance: true }]) {
+        const weak = withNavigator(WEAK, () => parseAll(cfg).appearance);
+        assert.deepEqual(weak.performance, { mode: 'auto', lite: true });
+        assert.equal(weak.animations.blur, false, 'lite forces blur off');
+        assert.deepEqual(withNavigator(WEAK_CORES, () => parseAll(cfg).appearance.performance), { mode: 'auto', lite: true });
+        const strong = withNavigator(STRONG, () => parseAll(cfg).appearance);
+        assert.deepEqual(strong.performance, { mode: 'auto', lite: false });
+        assert.equal(strong.animations.blur, true);
+        // navigator without the values (or no navigator at all) -> not lite
+        assert.deepEqual(withNavigator({}, () => parseAll(cfg).appearance.performance), { mode: 'auto', lite: false });
+        assert.deepEqual(withNavigator(undefined, () => parseAll(cfg).appearance.performance), { mode: 'auto', lite: false });
+    }
+});
+
+test('appearance.performance: high / low ignore detection', () => {
+    for (const nav of [WEAK, STRONG, {}]) {
+        withNavigator(nav, () => {
+            assert.deepEqual(parseAll({ appearance: { performance: 'high' } }).appearance.performance, { mode: 'high', lite: false });
+            assert.deepEqual(parseAll({ appearance: { performance: 'low' } }).appearance.performance, { mode: 'low', lite: true });
+            assert.deepEqual(parseAll({ appearance: { performance: { mode: 'high' } } }).appearance.performance, { mode: 'high', lite: false });
+        });
+    }
+});
+
+// Output of the parser before nested groups filled their own defaults
+// (captured from the previous config_parser.js with navigator values absent).
+const DEFAULTS_SNAPSHOT = {
+    entity: 'media_player.x',
+    accounts: [],
+    browser: { hash: '#spotify-browser', auto_close: { enabled: false, timeout: 0 }, home_on_exit: { enabled: true, timeout: 0 }, cache_size: 10, debug: false },
+    appearance: {
+        performance: { mode: 'auto', lite: false },
+        animations: { page_transition: 'fade', browser_open: 'fade', blur: true },
+        desktop: {
+            mode: 'default', width: '85vw', height: '85vh', fullscreen: false,
+            margin_top: '24px', margin_bottom: '24px', margin_left: '24px', margin_right: '24px',
+        },
+    },
+    home: { sort: ['pinned', 'recent', 'favorites', 'artists', 'albums'], pinned: { enabled: false, scope: 'shared', items: [] } },
+    devices: { default: null, icons: [], volume: { fallback: 25, rules: [], rate_control: true, optimistic: true, step: 2 } },
+    queue: { open_on_desktop: false, miniplayer: { enabled: true, shuffle: true, previous: true, next: true, like: true, volume: true, device: true } },
+    sonos: { enabled: false, launch_mode: 'local', prefer_sonos: false, debug: false, device_map: [] },
+    storage: { sensor: 'sensor.spotify_browser_data', event: 'spotify_browser_store_data', script: null },
+    card: { title: 'Spotify Browser', label: 'launch', icon: 'mdi:spotify', color: '#1DB954' },
+    integrations: { lastfm: { api_key: null } },
+};
+
+test('omitted config: every group matches the pre-change defaults', () => {
+    assert.deepEqual(withNavigator({}, () => parseAll()), DEFAULTS_SNAPSHOT);
+    assert.deepEqual(withNavigator(STRONG, () => parseAll()), DEFAULTS_SNAPSHOT);
+    // On a weak device only the intended lite detection (and its blur-off) differs.
+    const weak = withNavigator(WEAK, () => parseAll());
+    assert.deepEqual(weak, {
+        ...DEFAULTS_SNAPSHOT,
+        appearance: {
+            ...DEFAULTS_SNAPSHOT.appearance,
+            performance: { mode: 'auto', lite: true },
+            animations: { ...DEFAULTS_SNAPSHOT.appearance.animations, blur: false },
+        },
+    });
+});
+
+test('groups configured as {} or true keep nested defaults', () => {
+    withNavigator({}, () => {
+        for (const g of ['browser', 'appearance', 'home', 'devices', 'queue', 'integrations']) {
+            assert.deepEqual(parseAll({ [g]: {} })[g], DEFAULTS_SNAPSHOT[g], `${g}: {}`);
+            assert.deepEqual(parseAll({ [g]: true })[g], DEFAULTS_SNAPSHOT[g], `${g}: true`);
+        }
+    });
+});

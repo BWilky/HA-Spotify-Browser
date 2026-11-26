@@ -30,6 +30,16 @@ export class SonosBridge {
     }
 
     /**
+     * The Sonos entity currently remembered as the playback target (or null).
+     * A cheap read with no side effects — unlike activeTarget(), which resolves
+     * and can rewrite this memory — for per-tick checks such as the app's
+     * render gate.
+     */
+    get targetEntity() {
+        return this._lastEntity;
+    }
+
+    /**
      * Record that the card just launched playback onto a Sonos entity. The grace
      * window keeps the entity trusted while it transitions (idle → playing) as
      * its queue loads, before its own state can vouch for it.
