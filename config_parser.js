@@ -127,6 +127,7 @@ const enumOf = (values, fallback) => (v, path) => {
 const cssSize = (v) => {
     if (v === undefined || v === null) return null;
     if (typeof v === 'number') return `${v}px`;
+    // @ts-expect-error -- lib types isNaN(number); its ToNumber coercion of a numeric string is the point here
     if (typeof v === 'string' && !isNaN(v)) return `${v}px`;
     return String(v);
 };
@@ -301,7 +302,8 @@ const timeoutGroup = (enabledByDefault) => ({
 // known slow tablet.
 function detectLite() {
     try {
-        const mem = navigator.deviceMemory;
+        // deviceMemory is Chromium-only, so not in lib.dom.
+        const mem = /** @type {Navigator & {deviceMemory?: number}} */ (navigator).deviceMemory;
         const cores = navigator.hardwareConcurrency;
         if (typeof mem === 'number' && mem <= 4) return true;
         if (typeof cores === 'number' && cores <= 4) return true;

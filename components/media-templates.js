@@ -15,7 +15,7 @@ import { trackMenuDetail } from "./track-menu.js";
  * @param {Object} [options]
  * @param {boolean} [options.preset] - a precomputed item.subtitle (pinned items) wins when non-empty.
  * @param {boolean} [options.typeLabel] - lead with the type: "Playlist • Owner", "Album • Artists", "Song • Artists".
- * @param {boolean} [options.byOwner] - playlist owner written "By <name>" (without typeLabel). The name is printed as is, null or undefined included.
+ * @param {boolean} [options.byOwner] - playlist owner written "By <name>" (without typeLabel); "Playlist" when the owner has no name.
  * @param {boolean} [options.ownerAltName] - use owner.name when owner.display_name is empty.
  * @param {string}  [options.ownerFallback] - (typeLabel) owner text when the playlist has no owner name.
  * @param {boolean} [options.description] - a playlist with no owner shows its description.
@@ -43,13 +43,15 @@ export function itemSubtitle(item, type = item?.type, options = {}) {
             if (!name && ownerAltName) name = owner?.name;
             if (typeLabel) return `Playlist • ${name || ownerFallback}`;
             if (!owner) return (description && item.description) || '';
-            return byOwner ? `By ${name}` : (name || '');
+            // An owner without a display name reads "Playlist", not "By undefined".
+            return byOwner ? (name ? `By ${name}` : 'Playlist') : (name || '');
         }
         case 'album': {
             if (typeLabel) return ['Album', year === 'lead' && yr, artists].filter(Boolean).join(' • ');
-            if (year === 'fallback') return artists ?? (yr || 'Album');
-            const text = artists ?? unknownArtist;
-            return year === 'trail' && yr ? `${text} • ${yr}` : text;
+            if (year === 'fallback') return artists || (yr || 'Album');
+            // An empty artists list counts as missing (no leading " • 2020").
+            const text = artists || unknownArtist;
+            return year === 'trail' && yr ? (text ? `${text} • ${yr}` : yr) : text;
         }
         case 'track':
             return typeLabel ? `Song • ${artists || ''}` : (artists || '');

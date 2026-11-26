@@ -175,6 +175,7 @@ async function album(ctx) {
  * Artist pages load progressively: the artist itself first, then each rail
  * (albums, top tracks, playlists, similar artists) as its read resolves. The
  * reads go out together, so a rail can answer before the artist does.
+ * @returns {Promise<(() => void) | void>}  wireRails when the artist itself failed (see the header)
  */
 async function artist(ctx) {
     const id = ctx.id;

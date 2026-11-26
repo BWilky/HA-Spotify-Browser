@@ -1,5 +1,26 @@
 import { parseSpotifyUri, spotifyUriFromContentId, extrapolatedPosition } from '../../utils.js';
 
+/** @typedef {import('../../utils.js').SpotifyItem} SpotifyItem */
+
+/**
+ * The player state: `.state` and the `state-changed` event's detail. Replaced
+ * as a whole, never mutated (see _setState).
+ * @typedef {object} PlayerState
+ * @property {SpotifyItem|null} track        the track on screen (may be optimistic)
+ * @property {boolean} isPlaying
+ * @property {boolean} isShuffle
+ * @property {boolean} isLiked
+ * @property {SpotifyItem[]} queue           upcoming tracks
+ * @property {SpotifyItem[]} recentTracks    play-history items ({ track }) or bare tracks
+ * @property {number} volume                 0..100
+ * @property {boolean} isMuted
+ * @property {string|null} activeDevice      display name of the active device
+ * @property {'off'|'all'|'one'} repeat
+ * @property {string|null} contextName
+ * @property {string|null} deviceId
+ * @property {string|null} contextUri
+ */
+
 export class PlayerController extends EventTarget {
     constructor(api) {
         super();
@@ -10,6 +31,7 @@ export class PlayerController extends EventTarget {
         this._sonosQueueBase = 0; // Absolute index of the first upcoming Sonos queue item
 
         // State
+        /** @type {PlayerState} */
         this.state = {
             track: null,
             isPlaying: false,
@@ -334,6 +356,8 @@ export class PlayerController extends EventTarget {
      * a snapshot handed to a listener stays as it was, and every `state-changed`
      * detail is a fresh reference (Lit consumers compare by identity). Returns
      * whether anything changed.
+     * @param {Partial<PlayerState>} patch
+     * @returns {boolean}
      */
     _setState(patch) {
         const next = { ...this.state, ...patch };
@@ -777,6 +801,8 @@ export class PlayerController extends EventTarget {
      * Show `track` immediately. `fromUri` is the track we're leaving — the
      * override holds only while HASS still reports it (the propagation window).
      * The timer is a last-resort safety net if HASS never updates at all.
+     * @param {SpotifyItem} track
+     * @param {string|null} [fromUri]
      */
     _armOptimistic(track, fromUri = null) {
         this._optimisticTrack = track;

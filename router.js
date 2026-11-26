@@ -1,3 +1,14 @@
+/**
+ * A page's navigation payload: { query } for search, the Spotify item (or a
+ * stub of one) for a context page.
+ * @typedef {Record<string, any>} RouteData
+ */
+/** @typedef {CustomEvent<{pageId: string, data?: RouteData|null}>} NavigateEvent */
+/**
+ * A routed page element (spotify-home, -search, -library, -context-view).
+ * @typedef {HTMLElement & {pageId?: string, data?: RouteData|null}} PageElement
+ */
+
 export class Router extends EventTarget {
     constructor(host, container, config) {
         super();
@@ -44,6 +55,11 @@ export class Router extends EventTarget {
         }
     }
 
+    /**
+     * @param {string} pageId
+     * @param {RouteData|null} [data]
+     * @param {'forward'|'back'} [direction]
+     */
     navigateTo(pageId, data = null, direction = 'forward') {
         if (!this.container) return;
 
@@ -170,16 +186,16 @@ export class Router extends EventTarget {
             const home = document.createElement('spotify-home');
             home.classList.add('page', 'home-page');
             this._injectProps(home);
-            home.addEventListener('navigate', (e) => this.navigateTo(e.detail.pageId, e.detail.data));
+            home.addEventListener('navigate', (/** @type {NavigateEvent} */ e) => this.navigateTo(e.detail.pageId, e.detail.data));
             return home;
         } else if (pageId === 'search') {
-            const search = document.createElement('spotify-search');
+            const search = /** @type {PageElement & {search(query: string): void}} */ (document.createElement('spotify-search'));
             search.classList.add('page', 'search-page');
             this._injectProps(search);
             if (data && data.query) {
                 search.search(data.query);
             }
-            search.addEventListener('navigate', (e) => this.navigateTo(e.detail.pageId, e.detail.data));
+            search.addEventListener('navigate', (/** @type {NavigateEvent} */ e) => this.navigateTo(e.detail.pageId, e.detail.data));
             search.addEventListener('back', () => this.goBack());
             // open-track-menu bubbles (composed) to the app wrapper's listener.
             return search;
@@ -187,9 +203,10 @@ export class Router extends EventTarget {
             const lib = document.createElement('spotify-library');
             lib.classList.add('page', 'search-page');
             this._injectProps(lib);
-            lib.addEventListener('navigate', (e) => this.navigateTo(e.detail.pageId, e.detail.data));
+            lib.addEventListener('navigate', (/** @type {NavigateEvent} */ e) => this.navigateTo(e.detail.pageId, e.detail.data));
             return lib;
         } else if (pageId) {
+            /** @type {PageElement} */
             const contextView = document.createElement('spotify-context-view');
             contextView.classList.add('page', 'has-hero');
             this._injectProps(contextView);
@@ -197,7 +214,7 @@ export class Router extends EventTarget {
             contextView.data = data;
 
             // open-track-menu bubbles (composed) to the app wrapper's listener.
-            contextView.addEventListener('header-scroll', (e) => {
+            contextView.addEventListener('header-scroll', (/** @type {CustomEvent} */ e) => {
                 // Hidden cached pages still re-render (e.g. on track changes);
                 // only the page on screen may drive the app header.
                 if (this.pageCache.get(this.currentPageId) !== contextView) return;
@@ -207,7 +224,7 @@ export class Router extends EventTarget {
             // A playlist edit session started or ended on this page. Heard here,
             // on the page itself, so it is recorded even while the page is not
             // attached to the app (overlay closed while a save was in flight).
-            contextView.addEventListener('edit-session-changed', (e) => {
+            contextView.addEventListener('edit-session-changed', (/** @type {CustomEvent<{active?: boolean}>} */ e) => {
                 const active = !!e.detail?.active;
                 if (active) this._editingPages.add(contextView);
                 else this._editingPages.delete(contextView);
@@ -216,7 +233,7 @@ export class Router extends EventTarget {
                 }));
             });
 
-            contextView.addEventListener('navigate', (e) => this.navigateTo(e.detail.pageId, e.detail.data));
+            contextView.addEventListener('navigate', (/** @type {NavigateEvent} */ e) => this.navigateTo(e.detail.pageId, e.detail.data));
             // In-page back buttons (section views, lists) dispatch 'back'
             contextView.addEventListener('back', () => this.goBack());
             return contextView;

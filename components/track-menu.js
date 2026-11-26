@@ -16,9 +16,24 @@ import { pickImage, IMG_THUMB } from '../utils.js';
  *  - context  where the track was listed, which adds actions:
  *             { surface: 'queue' | 'nowplaying', sourceUri } or
  *             { surface: 'playlist', playlistId, canEditItems, snapshotId, uriCount }
+ *
+ * @typedef {object} TrackMenuDetail
+ * @property {string} [name]
+ * @property {string} artist
+ * @property {string} album
+ * @property {string} [uri]
+ * @property {string|null} [id]
+ * @property {string} image
+ * @property {DOMRect} [anchor]
+ * @property {object} [context]
  */
 
-/** Builds the `open-track-menu` detail for a Spotify track; `extra` fields are merged in last. */
+/**
+ * Builds the `open-track-menu` detail for a Spotify track; `extra` fields are merged in last.
+ * @param {import('../utils.js').SpotifyItem|null|undefined} track
+ * @param {object} [extra]
+ * @returns {TrackMenuDetail}
+ */
 export function trackMenuDetail(track, extra = {}) {
     return {
         name: track?.name,
@@ -35,6 +50,9 @@ export function trackMenuDetail(track, extra = {}) {
  * Opens the track menu for `track` from `host` (the element that dispatches
  * the event). `anchorEl` is the button that was pressed (its rect places the
  * desktop popover); any other option (e.g. `context`) goes into the detail.
+ * @param {EventTarget} host
+ * @param {import('../utils.js').SpotifyItem|null|undefined} track
+ * @param {{anchorEl?: Element|null, context?: object}} [options]
  */
 export function openTrackMenu(host, track, { anchorEl = null, ...extra } = {}) {
     const detail = trackMenuDetail(track);

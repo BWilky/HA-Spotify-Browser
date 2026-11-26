@@ -29,6 +29,14 @@ export const THROTTLE_MS = 200;
 export const HOLD_MS = 3000;
 
 export class VolumeController {
+    /**
+     * @param {{requestUpdate: () => void, addController?: (c: object) => void}} host
+     * @param {object} [options]
+     * @param {(percent: number) => void} [options.send]
+     * @param {() => ({rate_control?: boolean, optimistic?: boolean}|null|undefined)} [options.getConfig]  the `devices.volume` config group
+     * @param {number} [options.throttleMs]
+     * @param {number} [options.holdMs]
+     */
     constructor(host, { send, getConfig = () => null, throttleMs = THROTTLE_MS, holdMs = HOLD_MS } = {}) {
         this.host = host;
         this._send = send;

@@ -4,7 +4,7 @@
 
 The card has grown to ~17k lines of plain Lit JS (27 custom elements, no types, no lint, tests only on pure modules). You asked for an architecture review covering speed, organization and code reduction, run through sub-agents with me planning and verifying.
 
-How it was done: four read-only reviewers (2 Fable, 2 Opus) each read one slice in full — app shell, data layer, browse views, players/devices/overlays — and I covered styles/build/layout myself. I then re-read the source behind each reviewer's top claims. Everything below marked **verified** I confirmed in the code. Nothing was built, run or measured (plan mode), so speed payoffs are call counts and render counts read from code, not timings, and line counts are reviewer estimates.
+How it was done: four read-only reviewers each read one slice in full — app shell, data layer, browse views, players/devices/overlays — and I covered styles/build/layout myself. I then re-read the source behind each reviewer's top claims. Everything below marked **verified** I confirmed in the code. Nothing was built, run or measured (plan mode), so speed payoffs are call counts and render counts read from code, not timings, and line counts are reviewer estimates.
 
 **Headline:** the architecture is sound in outline (one service stack, a router with a page cache, a single overlay primitive, a table-driven config parser). The size comes from three things: parallel implementations of the same feature (desktop vs mobile now-playing, playlist vs artist view, five device lists, five list-row templates), a root component that is also the window manager and popup host, and ~650 lines of dead code. The speed problems are mostly "work that runs when nobody is looking": the whole service stack fetches from Spotify while the overlay is closed, hidden pages re-render on every HA tick, and status checks re-run with every track id on each page of a playlist.
 
@@ -16,7 +16,7 @@ The review also turned up **nine functional bugs**, listed first because they ar
 
 **Phase 4 is a roadmap, not part of this run.** Those are structural moves that change how things feel (scroll, drag, skip) and need you to check them on a real phone/tablet against live SpotifyPlus and Sonos, which I cannot do from here. Each item there should be its own PR.
 
-Implementation is fanned out to sub-agents (Fable/Opus) on disjoint file sets; I review every diff before it is committed.
+Implementation is fanned out to sub-agents on disjoint file sets; I review every diff before it is committed.
 
 ---
 

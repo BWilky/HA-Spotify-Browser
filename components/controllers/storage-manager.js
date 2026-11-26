@@ -5,6 +5,13 @@ const DEFAULT_STORAGE_EVENT = 'spotify_browser_store_data';
 const STORAGE_ATTRIBUTE = 'data';
 
 /**
+ * The persisted blob: one JSON object, top-level key -> value (e.g.
+ * 'pinned_items', the device manager's key). Values are whatever their owner
+ * saved.
+ * @typedef {Record<string, any>} StorageBlob
+ */
+
+/**
  * Persistence for the card: ONE JSON blob in the `data` attribute of a Home
  * Assistant trigger-template sensor, shared by every user and browser. There
  * is no localStorage fallback. Reads work for anyone who can see the sensor;
@@ -136,7 +143,10 @@ export class StorageManager {
         return 'ok';
     }
 
-    /** The blob the sensor shows right now; {} when missing, empty or unreadable. */
+    /**
+     * The blob the sensor shows right now; {} when missing, empty or unreadable.
+     * @returns {StorageBlob}
+     */
     _sensorBlob(logUnreadable = false) {
         let data = this.hass?.states?.[this._sensorEntity]?.attributes?.[STORAGE_ATTRIBUTE];
         if (typeof data === 'string') {
@@ -154,6 +164,7 @@ export class StorageManager {
      * The sensor's blob with our pending writes laid over it: what reads are
      * answered from and writes are built on. Drops pending keys that have
      * expired or that the sensor has caught up with.
+     * @returns {StorageBlob}
      */
     _blob(logUnreadable = false) {
         const sensor = this._sensorBlob(logUnreadable);
@@ -195,6 +206,7 @@ export class StorageManager {
      * over the websocket (fast, no extra config). Non-admins can't fire events,
      * so when a `storage.script` middle-man is configured they call it instead —
      * the script validates the payload and fires the event in HA's context.
+     * @param {StorageBlob} fullData
      */
     async _write(fullData) {
         if (this._writeScript && this._isNonAdmin) {

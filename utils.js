@@ -17,6 +17,12 @@ export function debugLog(...args) {
     if (_debug) console.log('[SpotifyBrowser]', ...args);
 }
 
+/**
+ * @template {(...args: any[]) => void} F
+ * @param {F} func
+ * @param {number} wait  ms
+ * @returns {(this: unknown, ...args: Parameters<F>) => void}  calls `func` with the caller's `this`
+ */
 export function debounce(func, wait) {
     let timeout;
     return function(...args) {
@@ -106,8 +112,20 @@ export function parseWebApiDevices(response) {
 }
 
 /**
+ * A Spotify Connect device as the card lists it (see normalizeDevice).
+ * @typedef {object} Device
+ * @property {string} id
+ * @property {string} name
+ * @property {string} type       Spotify device type ('Speaker', 'CastAudio', ...)
+ * @property {string|null} brand  e.g. 'Sonos' (see deviceBrand)
+ * @property {boolean} isActive
+ * @property {boolean} isSaved
+ */
+
+/**
  * Canonicalizes one raw API device (which may use PascalCase keys)
- * to { id, name, type, isActive, isSaved }.
+ * to { id, name, type, brand, isActive, isSaved }.
+ * @returns {Device}
  */
 export function normalizeDevice(d) {
     return {
@@ -135,6 +153,29 @@ export function deviceBrand(d) {
 /* --- Media item helpers --- */
 
 /**
+ * @typedef {object} SpotifyImage
+ * @property {string} url
+ * @property {number|null} [width]   null/absent on mosaic covers and user-uploaded art
+ * @property {number|null} [height]
+ */
+
+/**
+ * A Spotify Web API item (track, album, playlist, artist, show, episode) as
+ * this code reads it. Only the fields read here are listed; real objects
+ * carry more.
+ * @typedef {object} SpotifyItem
+ * @property {string} [uri]
+ * @property {string|null} [id]
+ * @property {string} [name]
+ * @property {string} [type]
+ * @property {SpotifyImage[]} [images]
+ * @property {SpotifyItem} [album]      tracks: the album (its `images` are the track art)
+ * @property {SpotifyItem[]} [artists]  tracks/albums
+ * @property {number} [duration_ms]
+ * @property {SpotifyItem} [track]      playlist items and play history wrap the track here
+ */
+
+/**
  * Display-size hints for pickImage/getItemImage, in source pixels. Spotify
  * serves ~640/300/64 for albums and playlists and ~640/320/160 for artists;
  * these pick the same variants Spotify's own clients use for each slot.
@@ -154,6 +195,10 @@ export const IMG_CARD = 300;  // grid/carousel cards (<= ~200px slots)
  * lists largest-first. Entries without a numeric width (mosaic covers,
  * user-uploaded playlist art) can't be ranked: if nothing sized qualifies,
  * the first entry is returned, exactly as before. Returns '' for no images.
+ * @param {any[]|null|undefined} images  a Spotify `images` array (SpotifyImage[]). Not typed as
+ *   such: `best` only ever holds an entry whose width is a number, which the checker can't follow.
+ * @param {number} [minPx]
+ * @returns {string}
  */
 export function pickImage(images, minPx = 0) {
     if (!Array.isArray(images) || images.length === 0) return '';
@@ -196,6 +241,7 @@ export function spotifyUriFromContentId(contentId) {
 
 /**
  * Parses a spotify:<type>:<id> URI. Returns { type, id } or null.
+ * @returns {{type: string, id: string}|null}
  */
 export function parseSpotifyUri(uri) {
     if (!uri || typeof uri !== 'string' || !uri.startsWith('spotify:')) return null;
@@ -307,7 +353,8 @@ export function getVibrantColor(url) {
                 const size = 32;
                 const c = document.createElement('canvas');
                 c.width = c.height = size;
-                const ctx = c.getContext('2d', { willReadFrequently: true });
+                // getContext() returning null throws below and is caught: out stays null.
+                const ctx = /** @type {CanvasRenderingContext2D} */ (c.getContext('2d', { willReadFrequently: true }));
                 ctx.drawImage(img, 0, 0, size, size);
                 const data = ctx.getImageData(0, 0, size, size).data;
                 const buckets = new Map();

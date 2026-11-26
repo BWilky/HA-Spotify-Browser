@@ -1,0 +1,58 @@
+// Type-checks the pure (no Lit, no rendering) modules from their JSDoc.
+// Editors pick this file up; on the command line (nothing to install, the
+// project does not depend on TypeScript):
+//
+//   npx --yes -p typescript@5 tsc -p jsconfig.json
+//
+// Must report no errors: any error is a new problem.
+//
+// Scope is the explicit "files" list. Files they import are checked too, so a
+// listed module must not import a Lit component (none does today); check with
+// `tsc -p jsconfig.json --listFilesOnly`.
+//
+// "strict" minus four flags:
+//   noImplicitAny             ~290 errors: most parameters have no JSDoc type.
+//   strictFunctionTypes       rejects addEventListener('x', (/** @type {CustomEvent} */ e) => ...).
+//   useUnknownInCatchVariables  a catch binding cannot be typed in JSDoc.
+//   alwaysStrict              ES modules are strict anyway. esbuild also reads this file and
+//                             would put "use strict" at the top of the bundle (as would "strict": true).
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": [],
+
+    "strict": false,
+    "strictNullChecks": true,
+    "noImplicitThis": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "strictBuiltinIteratorReturn": true,
+
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false
+  },
+  "files": [
+    "utils.js",
+    "config_parser.js",
+    "router.js",
+    "components/track-menu.js",
+    "components/controllers/home-content.js",
+    "components/controllers/overlay-stack.js",
+    "components/controllers/page-loaders.js",
+    "components/controllers/pinned-items-manager.js",
+    "components/controllers/player-controller.js",
+    "components/controllers/player-state-controller.js",
+    "components/controllers/playlist-edit-plan.js",
+    "components/controllers/storage-manager.js",
+    "components/controllers/volume-controller.js"
+  ]
+}

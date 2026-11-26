@@ -24,18 +24,16 @@ export const BLOCKED_PARTIAL_DUPLICATE = 'partial-duplicate-over-replace-limit';
 export const entryUri = (entry) => (entry.item?.track || entry.item)?.uri;
 
 /**
+ * @typedef {{ op: 'remove', uris: string[] } |
+ *   { op: 'reorder', rangeStart: number, insertBefore: number, rangeLength: number } |
+ *   { op: 'replace', uris: string[] } |
+ *   { op: 'abort', message: string }} PlaylistEditOp
+ */
+
+/**
  * @param {Array<{key: string, item: object}>} orig  the list as it was when editing began
  * @param {Array<{key: string, item: object}>} fin   the list as it should be after saving
- * @returns {{
- *   tracksChanged: boolean,
- *   blocked: string|null,
- *   ops: Array<
- *     { op: 'remove', uris: string[] } |
- *     { op: 'reorder', rangeStart: number, insertBefore: number, rangeLength: number } |
- *     { op: 'replace', uris: string[] } |
- *     { op: 'abort', message: string }
- *   >
- * }}
+ * @returns {{ tracksChanged: boolean, blocked: string|null, ops: PlaylistEditOp[] }}
  *   - `tracksChanged`: false when `fin` is `orig` row for row (ops is then empty).
  *   - `blocked`: non-null when the edit cannot be saved at all (ops is then
  *     empty and nothing must be sent); see BLOCKED_PARTIAL_DUPLICATE.
@@ -82,6 +80,7 @@ export function planPlaylistEdit(orig, fin) {
         return { tracksChanged, blocked: null, ops: [{ op: 'replace', uris: fin.map(entryUri) }] };
     }
 
+    /** @type {PlaylistEditOp[]} */
     const ops = [];
     if (fullyRemoved.length) ops.push({ op: 'remove', uris: fullyRemoved });
 

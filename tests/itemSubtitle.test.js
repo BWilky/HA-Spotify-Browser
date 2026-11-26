@@ -118,6 +118,26 @@ const TABLE = [
 ];
 const SITES = ['library', 'search', 'section', 'mediaRow', 'card'];
 
+/**
+ * The legacy rules had three wording bugs that itemSubtitle deliberately does
+ * not reproduce. This maps a legacy result to the corrected text:
+ *  - "By null" / "By undefined" / "By " for a playlist whose owner has no
+ *    display name -> "Playlist";
+ *  - an album with an EMPTY artists list: section printed " • 2020" (now
+ *    "Unknown Artist • 2020") and the discography list printed nothing (now
+ *    the year, else "Album", as for an album with no artists list at all).
+ */
+function corrected(site, item, text) {
+    if (/^By (null|undefined)?$/.test(text)) return 'Playlist';
+    // "Empty" = an artists list that yields no text (no entries, or blank names).
+    const emptyArtists = item.type === 'album' && Array.isArray(item.artists) && item.artists.map(a => a.name).join(', ') === '';
+    if (!emptyArtists) return text;
+    const yr = item.release_date ? item.release_date.split('-')[0] : '';
+    if (site === 'section') return yr ? `Unknown Artist • ${yr}` : 'Unknown Artist';
+    if (site === 'mediaRow') return yr || 'Album';
+    return text;
+}
+
 test('the pinned wording is what each list rendered before the refactor', () => {
     for (const [key, ...expected] of TABLE) {
         const item = I[key];
@@ -128,12 +148,12 @@ test('the pinned wording is what each list rendered before the refactor', () => 
     }
 });
 
-test('itemSubtitle reproduces every list through its SUBTITLE_STYLE', () => {
+test('itemSubtitle reproduces every list through its SUBTITLE_STYLE (minus the three corrected bugs)', () => {
     for (const [key, ...expected] of TABLE) {
         const item = I[key];
         SITES.forEach((site, i) => {
             if (expected[i] === undefined) return;
-            assert.equal(itemSubtitle(item, item.type, SUBTITLE_STYLE[site]), expected[i], `${site} / ${key}`);
+            assert.equal(itemSubtitle(item, item.type, SUBTITLE_STYLE[site]), corrected(site, item, expected[i]), `${site} / ${key}`);
         });
     }
 });
@@ -162,12 +182,12 @@ const SHOWS = {
     card: ['playlist', 'album', 'artist', 'track'],
 };
 
-test('itemSubtitle matches each legacy rule on every realistic field combination', () => {
+test('itemSubtitle matches each legacy rule on every realistic field combination (minus the three corrected bugs)', () => {
     let checked = 0;
     for (const item of variants()) {
         for (const site of SITES) {
             if (!SHOWS[site].includes(item.type)) continue;
-            assert.equal(itemSubtitle(item, item.type, SUBTITLE_STYLE[site]), legacy[site](item, item.type),
+            assert.equal(itemSubtitle(item, item.type, SUBTITLE_STYLE[site]), corrected(site, item, legacy[site](item, item.type)),
                 `${site}: ${JSON.stringify(item)}`);
             checked++;
         }
