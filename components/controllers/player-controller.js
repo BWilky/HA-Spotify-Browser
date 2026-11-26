@@ -19,7 +19,13 @@ export class PlayerController extends EventTarget {
             recentTracks: [],
             volume: 0,
             isMuted: false,
-            activeDevice: null
+            activeDevice: null,
+            // Read off the entity driving playback (see playbackEntityId):
+            repeat: 'off',       // attributes.repeat ('off' | 'all' | 'one')
+            contextName: null,   // attributes.media_playlist (display name of the playing context)
+            deviceId: null,      // attributes.sp_device_id (null on a Sonos entity, which has none)
+            // Read off the SpotifyPlus entity (config.entity), see sourceContextUri():
+            contextUri: null
         };
 
         // Internal State
@@ -38,6 +44,7 @@ export class PlayerController extends EventTarget {
         this._transferHoldUntil = 0;
         this._active = true; // See setActive()
         this._queueStale = false; // Track changed while inactive: queue not re-fetched for it
+        this._soonTimers = []; // Delayed queue refreshes after a shuffle/repeat toggle
     }
 
     /**
@@ -69,6 +76,11 @@ export class PlayerController extends EventTarget {
             if (this._eosTimer) {
                 clearTimeout(this._eosTimer);
                 this._eosTimer = null;
+            }
+            if (this._soonTimers.length) {
+                // Cancelled post-toggle refreshes are queue refreshes that never ran.
+                this._clearSoonTimers();
+                this._queueStale = true;
             }
             return;
         }
@@ -122,6 +134,7 @@ export class PlayerController extends EventTarget {
         this._optimisticTimer = null;
         this._refreshTimer = null;
         this._eosTimer = null;
+        this._clearSoonTimers();
         this._queueFetchId++;
     }
 
@@ -152,8 +165,19 @@ export class PlayerController extends EventTarget {
 
     /** URI of the playing source context (spotify:playlist:.. / spotify:album:..), or null. */
     sourceContextUri() {
-        const attrs = this.hass?.states?.[this.config?.entity]?.attributes || {};
-        return attrs.sp_context_uri || attrs.media_context_content_id || null;
+        return this._contextUriFrom(this.sourceAttributes());
+    }
+
+    /**
+     * The SpotifyPlus entity's (config.entity) attributes, or {} — the source
+     * of the Connect device list/ids even while Sonos drives playback.
+     */
+    sourceAttributes() {
+        return this.hass?.states?.[this.config?.entity]?.attributes || {};
+    }
+
+    _contextUriFrom(attrs) {
+        return attrs?.sp_context_uri || attrs?.media_context_content_id || null;
     }
 
     /**
@@ -244,7 +268,11 @@ export class PlayerController extends EventTarget {
             isShuffle: attrs.shuffle === true,
             volume: (attrs.volume_level || 0) * 100,
             isMuted: attrs.is_volume_muted || false,
-            activeDevice: activeDevice
+            activeDevice: activeDevice,
+            repeat: attrs.repeat || 'off',
+            contextName: attrs.media_playlist || null,
+            deviceId: attrs.sp_device_id || null,
+            contextUri: this._contextUriFrom(spStateObj?.attributes)
         };
 
         // Check if track changed to trigger Queue Refresh
@@ -330,6 +358,10 @@ export class PlayerController extends EventTarget {
             && a.volume === b.volume
             && a.isMuted === b.isMuted
             && a.activeDevice === b.activeDevice
+            && a.repeat === b.repeat
+            && a.contextName === b.contextName
+            && a.contextUri === b.contextUri
+            && a.deviceId === b.deviceId
             && a.queue === b.queue
             && a.recentTracks === b.recentTracks
             && this._tracksEqual(a.track, b.track);
@@ -561,8 +593,44 @@ export class PlayerController extends EventTarget {
         await this.api.setVolume(vol);
     }
 
+    /** Toggle shuffle, then re-pull the queue (shuffle reorders what's next). */
     async toggleShuffle() {
+        this._refreshQueueSoon();
         await this.api.fetchSpotifyPlus('player_shuffle', { state: !this.state.isShuffle }, false);
+    }
+
+    /** Cycle repeat off -> all -> one -> off, then re-pull the queue (repeat changes it). */
+    async cycleRepeat() {
+        const next = { off: 'all', all: 'one', one: 'off' };
+        this._refreshQueueSoon();
+        await this.api.fetchSpotifyPlus('player_repeat', { state: next[this.state.repeat] || 'all' }, false);
+    }
+
+    /**
+     * Re-pull the queue after a shuffle/repeat toggle so the predicted next
+     * track (carousel + skip) reflects the new order. Two passes give the
+     * server a moment to regenerate the queue. While inactive nothing is
+     * scheduled: the queue is marked stale for the caller's refresh on return
+     * (see setActive), which also cancels passes still pending.
+     */
+    _refreshQueueSoon() {
+        if (!this._active) {
+            this._queueStale = true;
+            return;
+        }
+        this._clearSoonTimers();
+        for (const delay of [500, 1500]) {
+            const id = setTimeout(() => {
+                this._soonTimers = this._soonTimers.filter(t => t !== id);
+                this.refreshQueue();
+            }, delay);
+            this._soonTimers.push(id);
+        }
+    }
+
+    _clearSoonTimers() {
+        this._soonTimers.forEach(id => clearTimeout(id));
+        this._soonTimers = [];
     }
 
     async toggleLike() {

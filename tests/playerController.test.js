@@ -518,3 +518,140 @@ test('the optimistic safety timer does not fetch while inactive', async (t) => {
     assert.equal(queueCalls(calls), queueCalls(before));
     assert.equal(calls.get_player_recent_tracks, before.get_player_recent_tracks);
 });
+
+/* ---- hass-derived now-playing fields: repeat / context / device id ---- */
+
+test('repeat, context name, context uri and device id are derived from hass', async (t) => {
+    const { ctrl } = await started(t, {
+        repeat: 'all', media_playlist: 'Road Trip', sp_device_id: 'dev1',
+        sp_context_uri: 'spotify:playlist:abc',
+    });
+    assert.equal(ctrl.state.repeat, 'all');
+    assert.equal(ctrl.state.contextName, 'Road Trip');
+    assert.equal(ctrl.state.contextUri, 'spotify:playlist:abc');
+    assert.equal(ctrl.state.deviceId, 'dev1');
+});
+
+test('the new fields default when hass omits them; context uri falls back to media_context_content_id', async (t) => {
+    const { ctrl } = await started(t, { media_context_content_id: 'spotify:album:xyz' });
+    assert.equal(ctrl.state.repeat, 'off');
+    assert.equal(ctrl.state.contextName, null);
+    assert.equal(ctrl.state.deviceId, null);
+    assert.equal(ctrl.state.contextUri, 'spotify:album:xyz');
+});
+
+for (const [field, attrs, expected] of [
+    ['repeat', { repeat: 'one' }, 'one'],
+    ['contextName', { media_playlist: 'Focus' }, 'Focus'],
+    ['contextUri', { sp_context_uri: 'spotify:playlist:new' }, 'spotify:playlist:new'],
+    ['deviceId', { sp_device_id: 'dev2' }, 'dev2'],
+]) {
+    test(`a change to ${field} alone dispatches one fresh state`, async (t) => {
+        const { ctrl, events } = await started(t);
+        const before = ctrl.state;
+        ctrl.updateHass(hassWith(playerState(attrs)));
+        assert.equal(events.length, 1);
+        assert.notEqual(events[0], before);
+        assert.equal(events[0][field], expected);
+        // Re-posting the same values dispatches nothing (_statesEqual covers the field).
+        ctrl.updateHass(hassWith(playerState(attrs)));
+        assert.equal(events.length, 1);
+    });
+}
+
+test('with Sonos driving playback, repeat / context name / device id come from the Sonos entity and the context uri from SpotifyPlus', async (t) => {
+    const { ctrl } = setup(t);
+    ctrl.setSonosBridge({
+        activeTarget: () => ({ isSonos: true, entity: SONOS_ENTITY }),
+        getQueue: async () => [],
+        log() {},
+    });
+    const sp = playerState({ repeat: 'off', media_playlist: 'SP list', sp_device_id: 'spdev', sp_context_uri: 'spotify:playlist:sp' });
+    const sonos = playerState({ repeat: 'one', media_playlist: 'Sonos list', sp_context_uri: 'spotify:playlist:sonos' });
+    delete sonos.attributes.sp_device_id;
+    ctrl.updateHass(hassWith(sp, { [SONOS_ENTITY]: sonos }));
+    await settle();
+    assert.equal(ctrl.state.repeat, 'one');
+    assert.equal(ctrl.state.contextName, 'Sonos list');
+    assert.equal(ctrl.state.deviceId, null, 'the Sonos entity has no sp_device_id');
+    assert.equal(ctrl.state.contextUri, 'spotify:playlist:sp');
+    assert.equal(ctrl.sourceContextUri(), 'spotify:playlist:sp');
+    assert.equal(ctrl.sourceAttributes().sp_device_id, 'spdev');
+});
+
+/* ---- shuffle / repeat: service call + delayed queue refresh ---- */
+
+function recordParams(api) {
+    const sent = [];
+    const orig = api.fetchSpotifyPlus;
+    api.fetchSpotifyPlus = async (service, params, ...rest) => {
+        sent.push({ service, params });
+        return orig(service, params, ...rest);
+    };
+    return sent;
+}
+
+test('toggleShuffle sends the inverse state and refreshes the queue at 500ms and 1500ms', async (t) => {
+    const { ctrl, api, calls } = await started(t, { shuffle: true });
+    const sent = recordParams(api);
+    const fetched = queueCalls(calls);
+
+    await ctrl.toggleShuffle();
+    assert.deepEqual(sent[0], { service: 'player_shuffle', params: { state: false } });
+    assert.equal(queueCalls(calls), fetched, 'no immediate refresh');
+
+    mock.timers.tick(500);
+    await settle();
+    assert.equal(queueCalls(calls), fetched + 1);
+    mock.timers.tick(1000);
+    await settle();
+    assert.equal(queueCalls(calls), fetched + 2);
+    mock.timers.tick(5000);
+    await settle();
+    assert.equal(queueCalls(calls), fetched + 2, 'two passes only');
+});
+
+test('cycleRepeat steps off -> all -> one -> off and refreshes the queue twice', async (t) => {
+    for (const [from, to] of [['off', 'all'], ['all', 'one'], ['one', 'off'], [undefined, 'all']]) {
+        const { ctrl, api, calls } = await started(t, from ? { repeat: from } : {});
+        const sent = recordParams(api);
+        const fetched = queueCalls(calls);
+        await ctrl.cycleRepeat();
+        assert.deepEqual(sent[0], { service: 'player_repeat', params: { state: to } });
+        mock.timers.tick(1500);
+        await settle();
+        assert.equal(queueCalls(calls), fetched + 2);
+        ctrl.destroy();
+        mock.timers.reset();
+    }
+});
+
+test('a shuffle toggle while inactive schedules nothing and marks the queue stale', async (t) => {
+    const { ctrl, calls } = await started(t);
+    ctrl.setActive(false);
+    const before = totalCalls(calls);
+    await ctrl.toggleShuffle();
+    mock.timers.tick(5000);
+    await settle();
+    assert.equal(totalCalls(calls), before + 1, 'only the shuffle call itself');
+    assert.equal(ctrl._soonTimers.length, 0);
+    assert.equal(ctrl._queueStale, true);
+});
+
+test('going inactive cancels pending post-toggle refreshes; destroy() does too', async (t) => {
+    const { ctrl, calls } = await started(t);
+    await ctrl.toggleShuffle();
+    const fetched = queueCalls(calls);
+    ctrl.setActive(false);
+    mock.timers.tick(5000);
+    await settle();
+    assert.equal(queueCalls(calls), fetched);
+    assert.equal(ctrl._queueStale, true);
+
+    ctrl.setActive(true);
+    await ctrl.cycleRepeat();
+    ctrl.destroy();
+    mock.timers.tick(5000);
+    await settle();
+    assert.equal(queueCalls(calls), fetched);
+});

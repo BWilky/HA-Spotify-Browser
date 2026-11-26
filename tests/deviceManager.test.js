@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DeviceManager } from '../components/devices/device-manager.js';
+import { StorageManager } from '../components/controllers/storage-manager.js';
 
 function managerWith(devices) {
     const storage = { getData: () => ({ settings: { version: 1 }, devices }), updateHass() {} };
@@ -23,18 +24,29 @@ test('displayName falls back when storage is unavailable', () => {
     assert.equal(dm.displayName('abc', 'Kitchen'), 'Kitchen');
 });
 
-/* ---- Pending-write cache: reads reflect our own write until the sensor catches up ---- */
+/* ---- Pending writes: reads reflect our own write until the sensor catches up ---- */
 
 function laggingStorage() {
-    // `served` is what hass currently shows; `stored` is what was last written.
+    // The real StorageManager (which holds the pending-write overlay) over a
+    // fake hass. `served` is the device data the sensor currently shows;
+    // `stored` is the device data in the last blob sent to Home Assistant.
     // They only converge when the test calls sync().
-    const s = { served: { settings: { version: 1 }, devices: [] }, stored: null };
-    s.storage = {
-        getData: () => s.served,
-        saveData: async (_key, items) => { s.stored = items; return { success: true }; },
-        updateHass() {},
+    const SENSOR = 'sensor.spotify_browser_data';
+    let sent = null;
+    const hass = {
+        user: { is_admin: true },
+        states: {},
+        connection: { sendMessagePromise: async (msg) => { sent = JSON.parse(JSON.stringify(msg.event_data.data)); } },
     };
-    s.sync = () => { s.served = s.stored; };
+    const show = (blob) => { hass.states = { [SENSOR]: { attributes: { data: blob } } }; };
+    show({ device_manager: { settings: { version: 1 }, devices: [] } });
+    const s = {
+        storage: new StorageManager(hass, {}),
+        get stored() { return sent.device_manager; },
+        get served() { return hass.states[SENSOR].attributes.data.device_manager; },
+        set served(value) { show({ device_manager: value }); },
+        sync: () => show(sent),
+    };
     return s;
 }
 
@@ -71,14 +83,14 @@ test('once a read sees the sensor matching the write, reads come from storage ag
     assert.equal((await dm.getDevices())[0].name, 'Renamed');
 });
 
-test('a pending write stops shadowing storage after 5 seconds', async () => {
+test('a pending write stops shadowing storage after the storage timeout', async () => {
     const s = laggingStorage();
     const dm = new DeviceManager({}, {}, s.storage);
     let now = 1000;
-    dm._now = () => now;
+    s.storage._now = () => now;
     await dm.saveDevices([...(await dm.getDevices()), { id: 'a', name: 'A', type: 'Speaker', is_default: false, is_backup: false, visible: true }]);
     assert.equal((await dm.getDevices()).length, 1);
-    now += 5001;
+    now += StorageManager.PENDING_WRITE_MS + 1;
     assert.equal((await dm.getDevices()).length, 0); // sensor never caught up; stale cache dropped
 });
 

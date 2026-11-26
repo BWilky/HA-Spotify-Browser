@@ -241,6 +241,32 @@ export function extrapolatedPosition(stateObj) {
     return pos;
 }
 
+/**
+ * Playback progress for a progress bar: `{ position, duration }` in seconds.
+ * When HA reports a `media_duration` the position is extrapolated from the
+ * entity (see extrapolatedPosition). Without one, fall back to the track
+ * object: `duration_ms`, and `progress_ms` for the position when the track
+ * carries it (otherwise the extrapolated entity position, usually 0). The
+ * position is clamped to [0, duration] whenever a duration is known.
+ * `now` (ms) defaults to the current time; pass it for a deterministic result.
+ */
+export function playbackProgress(stateObj, track, now) {
+    const attrs = stateObj?.attributes || {};
+    let position = extrapolatedPosition(stateObj);
+    if (now !== undefined && stateObj?.state === 'playing'
+        && attrs.media_position !== undefined && stateObj.last_updated) {
+        position -= (Date.now() - now) / 1000; // re-anchor the extrapolation at `now`
+    }
+    let duration = attrs.media_duration || 0;
+    if (!duration && track?.duration_ms) {
+        duration = track.duration_ms / 1000;
+        if (typeof track.progress_ms === 'number') position = track.progress_ms / 1000;
+    }
+    if (!(position > 0)) position = 0;
+    if (duration && position > duration) position = duration;
+    return { position, duration };
+}
+
 /** True when the given context URI (playlist/album/artist) is actively playing. */
 export function isContextPlaying(hass, entityId, contextUri) {
     const stateObj = getPlayerStateObj(hass, entityId);

@@ -1,7 +1,7 @@
 import { LitElement, html } from "./lit.js";
 
 import { SpotifyApi, classifyPlaybackError } from './api.js';
-import { parseDeviceItems, normalizeDevice, fireHaptic, extrapolatedPosition, setDebug, debugLog, pickImage, IMG_THUMB } from './utils.js';
+import { parseDeviceItems, normalizeDevice, fireHaptic, playbackProgress, setDebug, debugLog, pickImage, IMG_THUMB } from './utils.js';
 import { sharedStyles } from './styles/shared-styles.js';
 import { Router } from './router.js';
 import './components/spotify-header.js';
@@ -1741,19 +1741,9 @@ class SpotifyBrowserApp extends LitElement {
         const progressBar = this.shadowRoot.getElementById('mini-player-progress-bar');
         if (!progressBar) return;
 
-        let position = 0;
-        let duration = 1;
-
-        if (stateObj.attributes.media_duration) {
-            position = extrapolatedPosition(stateObj);
-            duration = stateObj.attributes.media_duration;
-        } else if (this._playerState?.track?.duration_ms) {
-            duration = this._playerState.track.duration_ms / 1000;
-            position = (this._playerState.track.progress_ms || 0) / 1000;
-        }
-
-        if (position > duration) position = duration;
-        const percent = (position / duration) * 100;
+        // Same computation as the sidebar and the full-screen view.
+        const { position, duration } = playbackProgress(stateObj, this._playerState?.track);
+        const percent = duration ? (position / duration) * 100 : 0;
         progressBar.style.width = `${percent}%`;
     }
 

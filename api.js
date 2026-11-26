@@ -364,7 +364,7 @@ export class SpotifyApi {
                 return ok;
             }
             const res = await this.fetchSpotifyPlus('player_media_play_track_favorites',
-                { shuffle: false }, false);
+                { shuffle: false }, { expectResponse: false });
             if (!res) return false;
             if (offsetPosition != null && offsetPosition > 0) {
                 // Favorites load at roughly 5 tracks/sec on the Sonos path; allow
@@ -383,7 +383,18 @@ export class SpotifyApi {
         return ok;
     }
 
+    /**
+     * Call a SpotifyPlus service. The flags go either positionally
+     * (`expectResponse, logError, throwOnError`) or as one options object in
+     * the third slot (`{ expectResponse, logError, throwOnError }`, extra
+     * positional arguments then ignored); both forms share the defaults
+     * true / true / false. Any non-object third argument (a boolean, null,
+     * undefined) is the positional form, exactly as before.
+     */
     async fetchSpotifyPlus(service, params = {}, expectResponse = true, logError = true, throwOnError = false) {
+        if (expectResponse !== null && typeof expectResponse === 'object') {
+            ({ expectResponse = true, logError = true, throwOnError = false } = expectResponse);
+        }
         // Immutable catalog reads share one request per TTL (see _cachedRead).
         // A caller that asked for no response is never served a cached one.
         if (this.hass && expectResponse && SpotifyApi.CACHED_READ_SERVICES.has(service)) {
@@ -811,7 +822,7 @@ export class SpotifyApi {
                     }
 
                     // Enable throwOnError to catch validation errors
-                    const res = await this.fetchSpotifyPlus('player_media_play_context', params, false, true, true);
+                    const res = await this.fetchSpotifyPlus('player_media_play_context', params, { expectResponse: false, throwOnError: true });
 
                     if ((!res || res.error) && offset_uri) {
                         console.warn("[SpotifyAPI] Context jump failed. Falling back to Track Play.");
@@ -826,7 +837,7 @@ export class SpotifyApi {
                 else if (type === 'likedsongs') {
                     params.shuffle = true;
                     // Enable throwOnError
-                    const res = await this.fetchSpotifyPlus('player_media_play_track_favorites', params, false, true, true);
+                    const res = await this.fetchSpotifyPlus('player_media_play_track_favorites', params, { expectResponse: false, throwOnError: true });
                     if (!res) return { success: false, error: "Call Failed" };
 
                     // Trigger Scan on Success
@@ -840,7 +851,7 @@ export class SpotifyApi {
                         params.uris = uriArray.join(',');
 
                         // Enable throwOnError
-                        const res = await this.fetchSpotifyPlus('player_media_play_tracks', params, false, true, true);
+                        const res = await this.fetchSpotifyPlus('player_media_play_tracks', params, { expectResponse: false, throwOnError: true });
                         if (!res) return { success: false, error: "Call Failed" };
                     } else {
                         const contentId = Array.isArray(uri) ? uri[0] : uri;
@@ -932,7 +943,7 @@ export class SpotifyApi {
         try {
             // expectResponse=false: player_transfer_playback doesn't support
             // return_response=true. throwOnError so we can classify failures.
-            await this.fetchSpotifyPlus('player_transfer_playback', { device_id: device.id, play }, false, true, true);
+            await this.fetchSpotifyPlus('player_transfer_playback', { device_id: device.id, play }, { expectResponse: false, throwOnError: true });
             return { success: true };
         } catch (e) {
             return { success: false, reported: !!e._sbReported };
@@ -974,46 +985,86 @@ export class SpotifyApi {
             // tell the user how to fix it instead of failing silently.
             this.sonosBridge.reportUnmapped(this._activeAttributes().source);
         }
-        const res = await this.fetchSpotifyPlus('add_player_queue_items', { uris: uri }, false);
+        const res = await this.fetchSpotifyPlus('add_player_queue_items', { uris: uri }, { expectResponse: false });
         return { success: !!res };
+    }
+
+    /**
+     * Fire-and-forget SpotifyPlus command via hass.callService: `{ success: true }`
+     * once HA accepts it, else `{ success: false, error }` with a console.error
+     * "<label> failed:". `buildData` returns the service data minus entity_id and
+     * runs inside the try, so a bad argument fails the same way a refused call does.
+     */
+    async _command(service, label, buildData) {
+        try {
+            await this.hass.callService('spotifyplus', service, {
+                entity_id: this.entityId,
+                ...buildData()
+            });
+            return { success: true };
+        } catch (e) {
+            console.error(`${label} failed:`, e);
+            return { success: false, error: e };
+        }
+    }
+
+    /** One id or a list of ids as the comma-separated string SpotifyPlus takes. */
+    _joinIds(ids) {
+        return Array.isArray(ids) ? ids.join(',') : ids;
+    }
+
+    /**
+     * Shared body of checkArtistsFollowing / checkAlbumFavorites: the raw
+     * `result` of a check_* service (single non-list id -> that id's entry),
+     * null when there is no result, and null plus a console.error
+     * "<label> failed:" if anything throws.
+     */
+    async _checkIds(service, ids, label) {
+        try {
+            const idsParam = this._joinIds(ids);
+            const res = await this.fetchSpotifyPlus(service, { ids: idsParam });
+            if (res?.result) {
+                // If checking single ID, return single boolean
+                if (!Array.isArray(ids) && !idsParam.includes(',')) return res.result[idsParam];
+                return res.result;
+            }
+            return null;
+        } catch (e) {
+            console.error(`${label} failed:`, e);
+            return null;
+        }
+    }
+
+    /**
+     * The playlist-items guard: `uris` (one or a list, blanks dropped) as
+     * `{ list }`, or `{ error }` when there is no hass, playlist id or uri.
+     */
+    _playlistUriList(playlistId, uris) {
+        const list = Array.isArray(uris) ? uris.filter(Boolean) : (uris ? [uris] : []);
+        if (!this.hass || !playlistId || list.length === 0) {
+            return { error: new Error('Playlist id and track URIs are required') };
+        }
+        return { list };
     }
 
     // --- PLAYLIST MANAGEMENT ---
 
     async followPlaylist(playlistId, isPublic = true) {
         if (!this.hass || !playlistId) return { success: false };
-        try {
-            await this.hass.callService('spotifyplus', 'follow_playlist', {
-                entity_id: this.entityId,
-                playlist_id: playlistId,
-                public: isPublic
-            });
-            return { success: true };
-        } catch (e) {
-            console.error("Follow Playlist failed:", e);
-            return { success: false, error: e };
-        }
+        return this._command('follow_playlist', 'Follow Playlist',
+            () => ({ playlist_id: playlistId, public: isPublic }));
     }
 
     async unfollowPlaylist(playlistId) {
         if (!this.hass || !playlistId) return { success: false };
-        try {
-            await this.hass.callService('spotifyplus', 'unfollow_playlist', {
-                entity_id: this.entityId,
-                playlist_id: playlistId
-            });
-            return { success: true };
-        } catch (e) {
-            console.error("Unfollow Playlist failed:", e);
-            return { success: false, error: e };
-        }
+        return this._command('unfollow_playlist', 'Unfollow Playlist', () => ({ playlist_id: playlistId }));
     }
 
     async getCurrentUserProfile() {
         if (!this.hass) return null;
         try {
             // Workaround: Use get_playlist_favorites to retrieve user profile since no dedicated service exists
-            const res = await this.fetchSpotifyPlus('get_playlist_favorites', { limit_total: 1 }, true);
+            const res = await this.fetchSpotifyPlus('get_playlist_favorites', { limit_total: 1 });
             return res?.user_profile; // Returns full user object including ID
         } catch (e) {
             console.warn("Get Current User Profile failed:", e);
@@ -1044,11 +1095,11 @@ export class SpotifyApi {
     async checkUserFollowsPlaylist(playlistId, userIds) {
         if (!this.hass || !playlistId || !userIds) return null;
         try {
-            const idsParam = Array.isArray(userIds) ? userIds.join(',') : userIds;
+            const idsParam = this._joinIds(userIds);
             const res = await this.fetchSpotifyPlus('check_playlist_followers', {
                 playlist_id: playlistId,
                 user_ids: idsParam
-            }, true);
+            });
 
             if (res?.result) {
                 return Object.values(res.result);
@@ -1074,7 +1125,7 @@ export class SpotifyApi {
                 description,
                 public: collaborative ? false : isPublic,
                 collaborative
-            }, true, true, true);
+            }, { throwOnError: true });
             return { success: true, playlist: res?.result || null };
         } catch (e) {
             console.error("Create Playlist failed:", e);
@@ -1089,20 +1140,13 @@ export class SpotifyApi {
      */
     async changePlaylistDetails(playlistId, { name, description = '', isPublic = true, collaborative = false }) {
         if (!this.hass || !playlistId || !name) return { success: false, error: new Error('Playlist id and name are required') };
-        try {
-            await this.hass.callService('spotifyplus', 'playlist_change', {
-                entity_id: this.entityId,
-                playlist_id: playlistId,
-                name,
-                description,
-                public: collaborative ? false : isPublic,
-                collaborative
-            });
-            return { success: true };
-        } catch (e) {
-            console.error("Change Playlist Details failed:", e);
-            return { success: false, error: e };
-        }
+        return this._command('playlist_change', 'Change Playlist Details', () => ({
+            playlist_id: playlistId,
+            name,
+            description,
+            public: collaborative ? false : isPublic,
+            collaborative
+        }));
     }
 
     /**
@@ -1112,16 +1156,14 @@ export class SpotifyApi {
      * playing track. Returns { success, snapshotId }.
      */
     async addPlaylistItems(playlistId, uris, position = undefined) {
-        const list = Array.isArray(uris) ? uris.filter(Boolean) : (uris ? [uris] : []);
-        if (!this.hass || !playlistId || list.length === 0) {
-            return { success: false, error: new Error('Playlist id and track URIs are required') };
-        }
+        const { list, error } = this._playlistUriList(playlistId, uris);
+        if (error) return { success: false, error };
         try {
             let snapshotId = null;
             for (let i = 0; i < list.length; i += 100) {
                 const params = { playlist_id: playlistId, uris: list.slice(i, i + 100).join(',') };
                 if (Number.isInteger(position)) params.position = position + i;
-                const res = await this.fetchSpotifyPlus('playlist_items_add', params, true, true, true);
+                const res = await this.fetchSpotifyPlus('playlist_items_add', params, { throwOnError: true });
                 if (typeof res?.result === 'string') snapshotId = res.result;
             }
             return { success: true, snapshotId };
@@ -1137,16 +1179,14 @@ export class SpotifyApi {
      * into batches of 100, threading the returned snapshot id between chunks.
      */
     async removePlaylistItems(playlistId, uris, snapshotId = undefined) {
-        const list = Array.isArray(uris) ? uris.filter(Boolean) : (uris ? [uris] : []);
-        if (!this.hass || !playlistId || list.length === 0) {
-            return { success: false, error: new Error('Playlist id and track URIs are required') };
-        }
+        const { list, error } = this._playlistUriList(playlistId, uris);
+        if (error) return { success: false, error };
         try {
             let currentSnapshot = snapshotId || null;
             for (let i = 0; i < list.length; i += 100) {
                 const params = { playlist_id: playlistId, uris: list.slice(i, i + 100).join(',') };
                 if (currentSnapshot) params.snapshot_id = currentSnapshot;
-                const res = await this.fetchSpotifyPlus('playlist_items_remove', params, true, true, true);
+                const res = await this.fetchSpotifyPlus('playlist_items_remove', params, { throwOnError: true });
                 if (typeof res?.result === 'string') currentSnapshot = res.result;
             }
             return { success: true, snapshotId: currentSnapshot };
@@ -1171,7 +1211,7 @@ export class SpotifyApi {
                 range_length: rangeLength
             };
             if (snapshotId) params.snapshot_id = snapshotId;
-            const res = await this.fetchSpotifyPlus('playlist_items_reorder', params, true, true, true);
+            const res = await this.fetchSpotifyPlus('playlist_items_reorder', params, { throwOnError: true });
             return { success: true, snapshotId: typeof res?.result === 'string' ? res.result : null };
         } catch (e) {
             console.error("Reorder Playlist Items failed:", e);
@@ -1186,10 +1226,8 @@ export class SpotifyApi {
      * `uris` is an error: the raw service would CLEAR the playlist.
      */
     async replacePlaylistItems(playlistId, uris) {
-        const list = Array.isArray(uris) ? uris.filter(Boolean) : (uris ? [uris] : []);
-        if (!this.hass || !playlistId || list.length === 0) {
-            return { success: false, error: new Error('Playlist id and track URIs are required') };
-        }
+        const { list, error } = this._playlistUriList(playlistId, uris);
+        if (error) return { success: false, error };
         if (list.length > 100) {
             return { success: false, error: new Error('playlist_items_replace is limited to 100 tracks') };
         }
@@ -1197,7 +1235,7 @@ export class SpotifyApi {
             const res = await this.fetchSpotifyPlus('playlist_items_replace', {
                 playlist_id: playlistId,
                 uris: list.join(',')
-            }, true, true, true);
+            }, { throwOnError: true });
             return { success: true, snapshotId: typeof res?.result === 'string' ? res.result : null };
         } catch (e) {
             console.error("Replace Playlist Items failed:", e);
@@ -1237,54 +1275,19 @@ export class SpotifyApi {
 
     async followArtist(ids) {
         if (!this.hass || !ids) return { success: false };
-        try {
-            await this.hass.callService('spotifyplus', 'follow_artists', {
-                entity_id: this.entityId,
-                ids: Array.isArray(ids) ? ids.join(',') : ids
-            });
-            return { success: true };
-        } catch (e) {
-            console.error("Follow Artist failed:", e);
-            return { success: false, error: e };
-        }
+        return this._command('follow_artists', 'Follow Artist', () => ({ ids: this._joinIds(ids) }));
     }
 
     async unfollowArtist(ids) {
         if (!this.hass || !ids) return { success: false };
-        try {
-            await this.hass.callService('spotifyplus', 'unfollow_artists', {
-                entity_id: this.entityId,
-                ids: Array.isArray(ids) ? ids.join(',') : ids
-            });
-            return { success: true };
-        } catch (e) {
-            console.error("Unfollow Artist failed:", e);
-            return { success: false, error: e };
-        }
+        return this._command('unfollow_artists', 'Unfollow Artist', () => ({ ids: this._joinIds(ids) }));
     }
 
     async checkArtistsFollowing(ids) {
         if (!this.hass || !ids) return null;
-        try {
-            const idsParam = Array.isArray(ids) ? ids.join(',') : ids;
-            // The response structure is tricky:
-            // "result": { "artistID": true }
-            const res = await this.fetchSpotifyPlus('check_artists_following', {
-                ids: idsParam
-            }, true);
-
-            if (res?.result) {
-                // If checking single ID, return single boolean
-                if (!Array.isArray(ids) && !idsParam.includes(',')) {
-                    return res.result[idsParam];
-                }
-                return res.result;
-            }
-            return null;
-        } catch (e) {
-            console.error("Check Artists Following failed:", e);
-            return null;
-        }
+        // The response structure is tricky:
+        // "result": { "artistID": true }
+        return this._checkIds('check_artists_following', ids, 'Check Artists Following');
     }
 
     async checkTrackFavorites(ids) {
@@ -1292,9 +1295,7 @@ export class SpotifyApi {
         try {
             const idList = Array.isArray(ids) ? ids.slice() : String(ids).split(',');
             const idsParam = idList.join(',');
-            const res = await this.fetchSpotifyPlus('check_track_favorites', {
-                ids: idsParam
-            }, true);
+            const res = await this.fetchSpotifyPlus('check_track_favorites', { ids: idsParam });
 
             let result = res?.result ?? res;
             if (typeof result === 'string') {
@@ -1398,75 +1399,28 @@ export class SpotifyApi {
 
     async saveTrackFavorites(ids) {
         if (!this.hass || !ids) return { success: false };
-        try {
-            await this.hass.callService('spotifyplus', 'save_track_favorites', {
-                entity_id: this.entityId,
-                ids: Array.isArray(ids) ? ids.join(',') : ids
-            });
-            return { success: true };
-        } catch (e) {
-            console.error("Save Track Favorites failed:", e);
-            return { success: false, error: e };
-        }
+        return this._command('save_track_favorites', 'Save Track Favorites', () => ({ ids: this._joinIds(ids) }));
     }
 
     async removeTrackFavorites(ids) {
         if (!this.hass || !ids) return { success: false };
-        try {
-            await this.hass.callService('spotifyplus', 'remove_track_favorites', {
-                entity_id: this.entityId,
-                ids: Array.isArray(ids) ? ids.join(',') : ids
-            });
-            return { success: true };
-        } catch (e) {
-            console.error("Remove Track Favorites failed:", e);
-            return { success: false, error: e };
-        }
+        return this._command('remove_track_favorites', 'Remove Track Favorites', () => ({ ids: this._joinIds(ids) }));
     }
 
     /** True/false (single id) or an id→bool map (multiple), or null on failure. */
     async checkAlbumFavorites(ids) {
         if (!this.hass || !ids) return null;
-        try {
-            const idsParam = Array.isArray(ids) ? ids.join(',') : ids;
-            const res = await this.fetchSpotifyPlus('check_album_favorites', { ids: idsParam }, true);
-            if (res?.result) {
-                if (!Array.isArray(ids) && !idsParam.includes(',')) return res.result[idsParam];
-                return res.result;
-            }
-            return null;
-        } catch (e) {
-            console.error("Check Album Favorites failed:", e);
-            return null;
-        }
+        return this._checkIds('check_album_favorites', ids, 'Check Album Favorites');
     }
 
     async saveAlbumFavorites(ids) {
         if (!this.hass || !ids) return { success: false };
-        try {
-            await this.hass.callService('spotifyplus', 'save_album_favorites', {
-                entity_id: this.entityId,
-                ids: Array.isArray(ids) ? ids.join(',') : ids
-            });
-            return { success: true };
-        } catch (e) {
-            console.error("Save Album Favorites failed:", e);
-            return { success: false, error: e };
-        }
+        return this._command('save_album_favorites', 'Save Album Favorites', () => ({ ids: this._joinIds(ids) }));
     }
 
     async removeAlbumFavorites(ids) {
         if (!this.hass || !ids) return { success: false };
-        try {
-            await this.hass.callService('spotifyplus', 'remove_album_favorites', {
-                entity_id: this.entityId,
-                ids: Array.isArray(ids) ? ids.join(',') : ids
-            });
-            return { success: true };
-        } catch (e) {
-            console.error("Remove Album Favorites failed:", e);
-            return { success: false, error: e };
-        }
+        return this._command('remove_album_favorites', 'Remove Album Favorites', () => ({ ids: this._joinIds(ids) }));
     }
 
     async setVolume(volumeLevel, { silent = false } = {}) {

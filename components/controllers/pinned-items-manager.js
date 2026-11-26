@@ -1,4 +1,5 @@
 import { pickImage, IMG_CARD } from '../../utils.js';
+import { DEFAULT_STORAGE_SENSOR } from './storage-manager.js';
 
 // Liked Songs artwork: the same purple gradient + white heart the Liked Songs
 // view uses (linear-gradient(135deg, #4a35d6, #8d7bf0)), inlined as an SVG data
@@ -41,12 +42,6 @@ export class PinnedItemsManager {
         this.config = config || {};
         this.storageManager = storageManager;
         this._entity = this.config.entity || null;
-        // Optimistic write cache: a save fires a HA event and the sensor only
-        // reflects it after a round-trip, so reads in between would be stale.
-        // After a write we return this list until the sensor catches up (or a
-        // timeout passes, so a lost/conflicting write can't get stuck).
-        this._pendingWrite = null;
-        this._pendingWriteAt = 0;
         // Config pins with artwork, once home has resolved them (see
         // setResolvedConfigPins). Until then the raw config entries stand in.
         this._resolvedConfigPins = null;
@@ -74,7 +69,6 @@ export class PinnedItemsManager {
     setAccount(entity) {
         if (!entity || entity === this._entity) return;
         this._entity = entity;
-        this._pendingWrite = null;
         this._resolvedConfigPins = null;
     }
 
@@ -121,19 +115,14 @@ export class PinnedItemsManager {
         });
     }
 
-    /** Effective pinned list: the optimistic write if the sensor hasn't caught up, else the sensor's. */
+    /**
+     * The stored pinned list. Storage answers with our own latest write until
+     * the sensor has caught up with it (see StorageManager), so this is never
+     * stale right after a save.
+     */
     _readItems() {
         const data = this.storageManager?.getData(this._storageKey);
-        const sensorItems = Array.isArray(data) ? data : [];
-        if (this._pendingWrite) {
-            const expired = Date.now() - this._pendingWriteAt > 10000;
-            if (expired || JSON.stringify(sensorItems) === JSON.stringify(this._pendingWrite)) {
-                this._pendingWrite = null; // sensor caught up (or we gave up waiting)
-            } else {
-                return this._pendingWrite;
-            }
-        }
-        return sensorItems;
+        return Array.isArray(data) ? data : [];
     }
 
     updateHass(hass) {
@@ -173,7 +162,7 @@ export class PinnedItemsManager {
     }
 
     get sensorEntity() {
-        return this.storageManager?.config?.sensor || 'sensor.spotify_browser_data';
+        return this.storageManager?.sensorEntity || DEFAULT_STORAGE_SENSOR;
     }
 
     /**
@@ -392,21 +381,15 @@ export class PinnedItemsManager {
 
     async _save(items) {
         if (!this._hasBackend()) return { success: false };
-        // Reflect the new list immediately — BEFORE the network write — so reads
-        // (home, the editor) update instantly instead of waiting for the event to
-        // fire and the sensor's state to round-trip back through hass. Setting this
-        // synchronously (before the first await) lets callers refresh right away.
-        this._pendingWrite = items;
-        this._pendingWriteAt = Date.now();
         try {
-            // Directly save the array of objects (HA attributes handle complex types)
-            const res = await this.storageManager.saveData(this._storageKey, items);
-            // On failure drop the optimistic list so reads fall back to the sensor.
-            if (res && res.success === false) this._pendingWrite = null;
-            return res;
+            // saveData() makes the new list readable synchronously, before the
+            // network write, so callers (home, the editor) can refresh right
+            // away without waiting for the sensor's round trip; a failed write
+            // takes it back. The array of objects is stored as is (HA
+            // attributes handle complex types).
+            return await this.storageManager.saveData(this._storageKey, items);
         } catch (e) {
             console.error('[PinnedItemsManager] Save failed:', e);
-            this._pendingWrite = null;
             return { success: false, error: e.message };
         }
     }

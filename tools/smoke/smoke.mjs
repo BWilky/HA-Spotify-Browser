@@ -183,6 +183,57 @@ for (const vp of [{ name: 'desktop', width: 1400, height: 900 }, { name: 'mobile
   await back(); await sleep(500);
   await page.evaluate(() => window.__setHass(window.__makeHass(9))); await sleep(800);
 
+  // Playlist edit mode on a playlist we own: remove one track, move another,
+  // save — and record exactly which playlist_* service calls that produces.
+  await nav('playlist:pown'); await sleep(2000);
+  const editView = `document.querySelector('spotify-browser-app').router.pageCache.get('playlist:pown').shadowRoot.querySelector('spotify-playlist-view')`;
+  await page.evaluate(`${editView}._enterEditMode()`); await sleep(700);
+  await page.screenshot({ path: path.join(outDir, `${label}-${vp.name}-g-edit-mode.png`) });
+  await page.evaluate(`${editView}._editMode = false`); await sleep(400);
+  P.playlist_edit = await page.evaluate(async () => {
+    const wait = (ms) => new Promise(res => setTimeout(res, ms));
+    const a = document.querySelector('spotify-browser-app');
+    const view = a.router.pageCache.get('playlist:pown')?.shadowRoot?.querySelector('spotify-playlist-view');
+    if (!view) return { error: 'no playlist view' };
+    const before = window.__calls.length;
+    view._enterEditMode(); await view.updateComplete; await wait(300);
+    const ed = () => view.shadowRoot.querySelector('spotify-playlist-editor') || view;
+    const rowsShown = (ed().shadowRoot || view.shadowRoot).querySelectorAll('.edit-row').length;
+    const w = [...ed()._workingItems];
+    w.splice(2, 1);                       // remove the 3rd track
+    const [moved] = w.splice(5, 1); w.splice(1, 0, moved); // move one up
+    ed()._workingItems = w; await wait(100);
+    await ed()._saveEdits(); await wait(800);
+    const calls = window.__calls.slice(before).filter(c => /^playlist_/.test(c.service)).map(c => { const d = { ...c.data }; delete d.entity_id; return [c.service, d]; });
+    return { rowsShown, editModeAfterSave: !!view._editMode, calls };
+  });
+  await back(); await sleep(500);
+
+  // Now-playing controls: click every button of the surface for this layout
+  // and record which services each click calls (desktop sidebar / mobile view).
+  P.player_buttons = await page.evaluate(async (isDesktop) => {
+    const wait = (ms) => new Promise(res => setTimeout(res, ms));
+    const a = document.querySelector('spotify-browser-app');
+    const deep = (root, sel) => { for (const el of root.querySelectorAll('*')) { if (el.matches(sel)) return el; if (el.shadowRoot) { const r = deep(el.shadowRoot, sel); if (r) return r; } } return null; };
+    const flag = isDesktop ? '_queueVisible' : '_nowPlayingVisible';
+    const tag = isDesktop ? 'spotify-sidebar-nowplaying' : 'spotify-now-playing-mobile';
+    a[flag] = true; await wait(1200);
+    const out = [];
+    const count = deep(a.shadowRoot, tag)?.shadowRoot.querySelectorAll('button').length || 0;
+    for (let i = 0; i < count; i++) {
+      a._closeAllPopups?.(); a[flag] = true; await wait(350);
+      const el = deep(a.shadowRoot, tag); el.closeOverlays?.(); await wait(150);
+      const btn = el.shadowRoot.querySelectorAll('button')[i]; if (!btn) { out.push([i, 'missing', []]); continue; }
+      const from = window.__calls.length; const trackBefore = a.playerController?.state?.track?.id;
+      btn.click(); await wait(2300);
+      const services = window.__calls.slice(from).map(c => c.service).sort();
+      out.push([i, (btn.className || '').split(' ')[0], services, a.playerController?.state?.track?.id !== trackBefore ? 'track-changed' : '']);
+    }
+    a._closeAllPopups?.(); a[flag] = false; await wait(400);
+    return out;
+  }, vp.name === 'desktop');
+  await page.evaluate(() => window.__setHass(window.__makeHass(9))); await sleep(1500);
+
   // 6. Track change while open (expected to fetch).
   m = await mark();
   await page.evaluate(() => window.__setHass(window.__makeHass(9))); await sleep(2000);

@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "../../../lit.js";
-import { parseDeviceItems, normalizeDevice, parseSpotifyUri, extrapolatedPosition, formatTime, pickImage, IMG_THUMB } from "../../../utils.js";
+import { parseDeviceItems, normalizeDevice, parseSpotifyUri, formatTime, IMG_THUMB } from "../../../utils.js";
+import { NowPlayingController } from "../../controllers/now-playing-controller.js";
 import "../../common/spotify-slider.js";
 import "../../devices/index.js";
 
@@ -7,9 +8,11 @@ import "../../devices/index.js";
 export class SpotifySidebarNowPlaying extends LitElement {
     static get properties() {
         return {
-            hass: { type: Object },
             api: { type: Object },
             config: { type: Object },
+            // track / isPlaying / isShuffle / isLiked are bound by the parent from
+            // the PlayerController state: they re-render this block when those
+            // change. What is shown is read through the NowPlayingController.
             track: { type: Object },
             isPlaying: { type: Boolean },
             isShuffle: { type: Boolean },
@@ -297,7 +300,17 @@ export class SpotifySidebarNowPlaying extends LitElement {
     constructor() {
         super();
         this._volumeVisible = false;
-        this._progressTimer = null;
+        // `hass` is still assigned by the parent but deliberately not a
+        // declared property, so a Home Assistant tick doesn't re-render this
+        // block. Volume, device id and device name come from the
+        // PlayerController state instead: the parent binds no property that
+        // changes with them, so the controller re-renders for those (`watch`).
+        this._np = new NowPlayingController(this, {
+            interval: 1000,
+            isActive: () => !!this.visible, // the progress tick only runs while on screen
+            renderProgress: (p) => this._renderProgress(p),
+            watch: ['volume', 'deviceId', 'activeDevice'],
+        });
         this._volumeTimeout = null;
         this._lastVolumeUpdate = 0;
         this._pendingVolume = null;
@@ -310,70 +323,33 @@ export class SpotifySidebarNowPlaying extends LitElement {
         this._deviceTimeout = null;
     }
 
-    connectedCallback() {
-        super.connectedCallback();
-        if (this.visible) this._startProgressTimer();
-    }
-
-    updated(changedProperties) {
-        // The 1s progress tick only runs while the sidebar is on screen.
-        if (changedProperties.has('visible')) {
-            if (this.visible) this._startProgressTimer();
-            else this._stopProgressTimer();
-        }
-    }
-
     disconnectedCallback() {
-        super.disconnectedCallback();
-        this._stopProgressTimer();
+        super.disconnectedCallback(); // the progress ticker stops with the controller
         if (this._volumeTimeout) clearTimeout(this._volumeTimeout);
         if (this._volumeThrottleTimer) clearTimeout(this._volumeThrottleTimer);
         if (this._deviceTimeout) clearTimeout(this._deviceTimeout);
         if (this._overlayCloseTimer) clearTimeout(this._overlayCloseTimer);
+        if (this._volumeHoldTimer) clearTimeout(this._volumeHoldTimer);
+        this._volumeHoldTimer = null;
         this._volumeTimeout = null;
         this._volumeThrottleTimer = null;
         this._deviceTimeout = null;
         this._overlayCloseTimer = null;
     }
 
-    _startProgressTimer() {
-        this._stopProgressTimer();
-        this._progressTimer = setInterval(() => this._updateProgress(), 1000);
-        this._updateProgress();
-    }
-
-    _stopProgressTimer() {
-        if (this._progressTimer) {
-            clearInterval(this._progressTimer);
-            this._progressTimer = null;
-        }
-    }
-
-    _updateProgress() {
-        if (!this.hass || !this.config?.entity) return;
-        // Track the entity actually playing (Sonos entity when casting to Sonos).
-        const stateObj = this.playerController?.playbackStateObj?.() || this.hass.states[this.config.entity];
-        if (!stateObj) return;
-
-        const progressBar = this.shadowRoot.getElementById('queue-progress-bar');
+    _renderProgress({ position, duration, held }) {
+        const progressBar = this.shadowRoot?.getElementById('queue-progress-bar');
         if (!progressBar) return;
-
-        let position = 0;
-        let duration = 1;
-
-        if (stateObj.attributes.media_duration) {
-            position = extrapolatedPosition(stateObj);
-            duration = stateObj.attributes.media_duration;
-        } else if (this.track?.duration_ms) {
-            duration = this.track.duration_ms / 1000;
-            position = (this.track.progress_ms || 0) / 1000;
-        }
-
-        if (position > duration) position = duration;
-        const percent = (position / duration) * 100;
-        progressBar.style.width = `${percent}%`;
-
         const cur = this.shadowRoot.getElementById('queue-time-cur');
+        // While a skip/restart settles, hold the bar at 0 instead of showing
+        // the stale position of the outgoing track.
+        if (held) {
+            progressBar.style.width = '0%';
+            if (cur) cur.textContent = '0:00';
+            return;
+        }
+        progressBar.style.width = duration ? `${(position / duration) * 100}%` : '0%';
+
         const rem = this.shadowRoot.getElementById('queue-time-rem');
         const hasDuration = duration > 1;
         if (cur) cur.textContent = hasDuration ? formatTime(position) : '--:--';
@@ -456,7 +432,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
 
         try {
             if (this.deviceManager) {
-                const attributes = this.hass?.states[this.config?.entity]?.attributes || {};
+                const attributes = this.playerController?.sourceAttributes?.() || {};
                 this._devices = await this.deviceManager.fetchMergedDevices(this.api, attributes, { refresh: true });
             } else {
                 const response = await this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true });
@@ -501,6 +477,14 @@ export class SpotifySidebarNowPlaying extends LitElement {
             this._localVolume = e.detail.value;
             this._ignoreUpdatesUntil = Date.now() + 3000;
             this.requestUpdate();
+            // This component no longer re-renders on every Home Assistant
+            // tick, so nothing would drop the held value once the hold ends:
+            // render once then, to show whatever the speaker settled on.
+            if (this._volumeHoldTimer) clearTimeout(this._volumeHoldTimer);
+            this._volumeHoldTimer = setTimeout(() => {
+                this._volumeHoldTimer = null;
+                this.requestUpdate();
+            }, 3050);
         }
 
         if (rateControlFn) {
@@ -532,17 +516,8 @@ export class SpotifySidebarNowPlaying extends LitElement {
     _handleArtClick(e) {
         e.stopPropagation();
 
-        // 1. Try to get context from HASS attributes
-        let contextUri = null;
-        if (this.hass && this.config && this.config.entity) {
-            const stateObj = this.hass.states[this.config.entity];
-            if (stateObj && stateObj.attributes) {
-                contextUri = stateObj.attributes.sp_context_uri || stateObj.attributes.media_context_content_id;
-            }
-        }
-
-        // 2. Try to navigate to Context
-        const context = parseSpotifyUri(contextUri);
+        // 1. Try to navigate to the playing context
+        const context = parseSpotifyUri(this._np.contextUri);
         if (context && ['playlist', 'album', 'artist'].includes(context.type)) {
             this.dispatchEvent(new CustomEvent('navigate', {
                 detail: { pageId: `${context.type}:${context.id}` },
@@ -552,20 +527,23 @@ export class SpotifySidebarNowPlaying extends LitElement {
             return;
         }
 
-        // 3. Fallback to Album (Default Behavior)
-        if (this.track && this.track.album && this.track.album.id) {
+        // 2. Fallback to Album (Default Behavior)
+        const track = this._np.track;
+        if (track?.album?.id) {
             this.dispatchEvent(new CustomEvent('navigate', {
-                detail: { pageId: `album:${this.track.album.id}` },
+                detail: { pageId: `album:${track.album.id}` },
                 bubbles: true,
                 composed: true
             }));
         } else {
-            console.warn('[SidebarNowPlaying] Cannot navigate: Missing album ID and no Context', this.track);
+            console.warn('[SidebarNowPlaying] Cannot navigate: Missing album ID and no Context', track);
         }
     }
 
     render() {
-        if (!this.track || !this.track.name) {
+        const np = this._np;
+        const track = np.track;
+        if (!track || !track.name) {
             return html`
                 <div class="queue-now-playing-row">
                     <div class="queue-item-content" style="opacity:0.5">
@@ -579,13 +557,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
         }
 
         const miniplayer = this.config?.queue?.miniplayer || { enabled: true };
-        // Read from the entity actually driving playback (the Sonos entity when
-        // casting to Sonos), not always SpotifyPlus, so device name/volume stay correct.
-        const stateObj = this.playerController?.playbackStateObj?.() || this.hass?.states[this.config?.entity];
-        const art = pickImage(this.track?.album?.images, IMG_THUMB); // 56px slot
-
-        // Determine Playing State variables for rendering
-        // ...
+        const art = np.artUrl(IMG_THUMB); // 56px slot
 
         return html`
             <div class="queue-now-playing-row">
@@ -594,22 +566,22 @@ export class SpotifySidebarNowPlaying extends LitElement {
                          style="${art ? `background-image: url('${art}')` : 'background-color: #333'}"
                          @click=${this._handleArtClick}></div>
                     <div class="queue-info">
-                        <div class="queue-title active">${this.track?.name || 'Unknown Track'}</div>
-                        <div class="queue-artist">${this.track?.artists?.map(a => a.name).join(', ') || 'Unknown Artist'}</div>
+                        <div class="queue-title active">${track.name || 'Unknown Track'}</div>
+                        <div class="queue-artist">${np.artistLine || 'Unknown Artist'}</div>
                         <button class="queue-device-row" @click=${(e) => { e.stopPropagation(); this.toggleDeviceOverlay(); }}
                                 title="Switch device" aria-label="Switch device">
                             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v9.28a4.39 4.39 0 0 0-1.5-.28 4.5 4.5 0 1 0 4.5 4.5V6h4V3h-7z" fill="none"/><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 6h-8v-1h8v1zm0-3h-8V4h8v1z" fill="none"/><path d="M7 24h2v-2H7v2zm-4 0h2v-2H3v2zm8 0h2v-2h-2v2zM2 9h2v2H2V9zm0 4h2v2H2v-2zm0 4h2v2H2v-2z" fill="none"/><path d="M19 1H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 16H5V3h14v14zM7 10h10v2H7zm0-4h10v2H7z"/></svg>
-                            <span class="device-name-text">${this.playerController?.state?.activeDevice || stateObj?.attributes?.source || 'Device'}</span>
+                            <span class="device-name-text">${np.deviceName || 'Device'}</span>
                         </button>
                     </div>
                     
-                    <button class="queue-play-btn large-side-btn" @click=${() => this.playerController?.pause()}>
-                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="${this.isPlaying ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z'}"/></svg>
+                    <button class="queue-play-btn large-side-btn" @click=${() => np.playPause()}>
+                        <svg viewBox="0 0 24 24"><path fill="currentColor" d="${np.isPlaying ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z'}"/></svg>
                     </button>
                 </div>
                 
                 ${this.renderControls(miniplayer)}
-                ${this.renderFloatingVolume(stateObj)}
+                ${this.renderFloatingVolume()}
                 ${this.renderFloatingDevices()}
 
                 <div class="queue-time-row">
@@ -628,9 +600,10 @@ export class SpotifySidebarNowPlaying extends LitElement {
         // queue.miniplayer: enabled gates the whole row; each button has its
         // own flag (parser fills all six with defaults).
         if (miniplayer.enabled === false) return '';
+        const np = this._np;
         return html`
             <div class="queue-mini-controls">
-                ${miniplayer.shuffle !== false ? html`<button class="mini-btn ${this.isShuffle ? 'is-favorite' : ''}" @click=${() => this.playerController?.toggleShuffle()}>
+                ${miniplayer.shuffle !== false ? html`<button class="mini-btn ${np.isShuffle ? 'is-favorite' : ''}" @click=${() => np.toggleShuffle()}>
                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
                 </button>` : ''}
 
@@ -638,12 +611,12 @@ export class SpotifySidebarNowPlaying extends LitElement {
                     <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v9.28a4.39 4.39 0 0 0-1.5-.28 4.5 4.5 0 1 0 4.5 4.5V6h4V3h-7z" fill="none"/><path d="M20 2H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm-2 6h-8v-1h8v1zm0-3h-8V4h8v1z" fill="none"/><path d="M7 24h2v-2H7v2zm-4 0h2v-2H3v2zm8 0h2v-2h-2v2zM2 9h2v2H2V9zm0 4h2v2H2v-2zm0 4h2v2H2v-2z" fill="none"/><path d="M19 1H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 16H5V3h14v14zM7 10h10v2H7zm0-4h10v2H7z"/></svg>
                 </button>` : ''}
 
-                ${miniplayer.previous !== false ? html`<button class="mini-btn" @click=${() => this.playerController?.prev()}><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>` : ''}
+                ${miniplayer.previous !== false ? html`<button class="mini-btn" @click=${() => np.prev({ allowRestart: true })}><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg></button>` : ''}
 
-                ${miniplayer.next !== false ? html`<button class="mini-btn" @click=${() => this.playerController?.next()}><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>` : ''}
+                ${miniplayer.next !== false ? html`<button class="mini-btn" @click=${() => np.next()}><svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg></button>` : ''}
 
-                ${miniplayer.like !== false ? html`<button class="mini-btn ${this.isLiked ? 'is-favorite' : ''}" @click=${() => this.playerController?.toggleLike()}>
-                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="${this.isLiked ? 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z' : 'M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z'}"/></svg>
+                ${miniplayer.like !== false ? html`<button class="mini-btn ${np.isLiked ? 'is-favorite' : ''}" @click=${() => np.toggleLike()}>
+                    <svg viewBox="0 0 24 24"><path fill="currentColor" d="${np.isLiked ? 'M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z' : 'M16.5 3c-1.74 0-3.41.81-4.5 2.09C10.91 3.81 9.24 3 7.5 3 4.42 3 2 5.42 2 8.5c0 3.78 3.4 6.86 8.55 11.54L12 21.35l1.45-1.32C18.6 15.36 22 12.28 22 8.5 22 5.42 19.58 3 16.5 3zm-4.4 15.55l-.1.1-.1-.1C7.14 14.24 4 11.39 4 8.5 4 6.5 5.5 5 7.5 5c1.54 0 3.04.99 3.57 2.36h1.87C13.46 5.99 14.96 5 16.5 5c2 0 3.5 1.5 3.5 3.5 0 2.89-3.14 5.74-7.9 10.05z'}"/></svg>
                 </button>` : ''}
 
                 ${miniplayer.volume !== false ? html`<button class="mini-btn ${this._volumeVisible ? 'is-favorite' : ''}" @click=${() => this.toggleVolumeOverlay()}>
@@ -653,8 +626,9 @@ export class SpotifySidebarNowPlaying extends LitElement {
         `;
     }
 
-    renderFloatingVolume(stateObj) {
-        let volume = (stateObj?.attributes?.volume_level || 0) * 100;
+    renderFloatingVolume() {
+        // PlayerController volume: read off the entity driving playback.
+        let volume = this.playerController?.state?.volume || 0;
 
         // Optimistic Override
         const optimistic = this.config?.devices?.volume?.optimistic !== false;
@@ -664,7 +638,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
 
         // The Sonos entity has no sp_device_id attribute, so a Sonos target
         // resolves to null here — unknown means volume-capable.
-        const deviceId = stateObj?.attributes?.sp_device_id || null;
+        const deviceId = this._np.deviceId;
         const volDisabled = this.deviceManager?.getVolumeCapability(deviceId) === false;
 
         return html`

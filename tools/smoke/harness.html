@@ -24,6 +24,7 @@ function respond(service, d) {
       const id = d.playlist_id;
       if (id === 'pfail' && !window.__pfailOk) throw Object.assign(new Error('stubbed failure'), { code: 'unknown_error' }); const total = id === 'pbig' ? BIG_TOTAL : 30;
       const pl = { ...playlist(id.replace(/^p/, '')), id, uri: `spotify:playlist:${id}`, name: id === 'pbig' ? 'Big Playlist' : `Playlist ${id}` };
+      if (id === 'pown') pl.owner = { id: 'me', display_name: 'Me' };
       pl.tracks = { total, items: Array.from({ length: Math.min(100, total) }, (_, k) => ({ track: track(k), added_at: '2024-01-01T00:00:00Z' })) };
       return { result: pl, user_profile: { id: 'me' } };
     }

@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "../../lit.js";
-import { fireHaptic, getVibrantColor, extrapolatedPosition, formatTime } from '../../utils.js';
+import { fireHaptic, getVibrantColor, formatTime } from '../../utils.js';
+import { NowPlayingController } from '../controllers/now-playing-controller.js';
 
 /**
  * Full-screen mobile "Now Playing" view, styled after the iOS Spotify app.
@@ -10,7 +11,6 @@ export class SpotifyNowPlayingMobile extends LitElement {
     static get properties() {
         return {
             visible: { type: Boolean, reflect: true },
-            hass: { type: Object },
             config: { type: Object },
             api: { type: Object },
             playerController: { type: Object },
@@ -207,30 +207,31 @@ export class SpotifyNowPlayingMobile extends LitElement {
     constructor() {
         super();
         this.visible = false;
-        this._progressTimer = null;
         this._swiping = false;
         this._committing = false;
-        this._progressHoldUntil = 0;
+        // `hass` is still assigned by the app but deliberately not a declared
+        // property: everything shown here comes from the PlayerController
+        // (re-rendered via `state`), so a Home Assistant tick no longer
+        // re-renders the sheet.
+        this._np = new NowPlayingController(this, {
+            interval: 500,
+            isActive: () => !!this.visible,
+            renderProgress: (p) => this._renderProgress(p),
+        });
         this._onArtMove = this._onArtMove.bind(this);
         this._onArtUp = this._onArtUp.bind(this);
     }
 
-    connectedCallback() {
-        super.connectedCallback();
-        if (this.visible) this._startProgressTimer();
-    }
-
     disconnectedCallback() {
-        super.disconnectedCallback();
-        this._stopProgressTimer();
+        super.disconnectedCallback(); // the progress ticker stops with the controller
         this._cleanupSwipeListeners();
         if (this._commitTimer) clearTimeout(this._commitTimer);
         if (this._commitResetTimer) clearTimeout(this._commitResetTimer);
     }
 
     /**
-     * Skip rendering while the sheet is closed: hass/state change about once a
-     * second during playback. The `visible` flip itself always renders (so the
+     * Skip rendering while the sheet is closed: `state` can change about once
+     * a second during playback. The `visible` flip itself always renders (so the
      * slide plays and opening shows current data); changes that arrived while
      * closed are not replayed, so updated() re-derives them on open.
      */
@@ -239,20 +240,16 @@ export class SpotifyNowPlayingMobile extends LitElement {
     }
 
     updated(changedProps) {
-        if (changedProps.has('visible')) {
-            if (this.visible) {
-                this._startProgressTimer();
-                // Re-verify the like state for the current track each time the
-                // sheet opens, so the heart can't show a stale value.
-                const id = this.state?.track?.id;
-                if (id) this.playerController?.checkTrackFavorites(id);
-            } else {
-                this._stopProgressTimer();
-            }
+        // The progress ticker follows `visible` (see NowPlayingController).
+        if (changedProps.has('visible') && this.visible) {
+            // Re-verify the like state for the current track each time the
+            // sheet opens, so the heart can't show a stale value.
+            const id = this._np.track?.id;
+            if (id) this.playerController?.checkTrackFavorites(id);
         }
         // On open too: the track may have changed while closed (see shouldUpdate).
         if (changedProps.has('state') || (changedProps.has('visible') && this.visible)) {
-            this._updateAccent(this.state?.track?.album?.images?.[0]?.url || '');
+            this._updateAccent(this._np.artUrl());
         }
         // After an optimistic skip re-renders with the new track centered, snap
         // the carousel back to 0 (no transition) so the swap is seamless — the
@@ -268,58 +265,26 @@ export class SpotifyNowPlayingMobile extends LitElement {
     }
 
     /* --- Progress --- */
-    _startProgressTimer() {
-        this._stopProgressTimer();
-        this._progressTimer = setInterval(() => this._updateProgress(), 500);
-        this._updateProgress();
-    }
-    _stopProgressTimer() {
-        if (this._progressTimer) { clearInterval(this._progressTimer); this._progressTimer = null; }
-    }
-
-    _playerPosition() {
-        // Read from the entity actually driving playback (the Sonos entity when
-        // casting to Sonos), not always SpotifyPlus, so the bar tracks correctly.
-        const stateObj = this.playerController?.playbackStateObj?.() || this.hass?.states[this.config?.entity];
-        if (!stateObj) return { position: 0, duration: 0 };
-        const attrs = stateObj.attributes;
-        let duration = attrs.media_duration || (this.state?.track?.duration_ms ? this.state.track.duration_ms / 1000 : 0);
-        let position = extrapolatedPosition(stateObj);
-        if (duration && position > duration) position = duration;
-        return { position, duration };
-    }
-
-    _updateProgress() {
-        if (!this.visible) return;
+    _renderProgress({ position, duration, held }) {
+        const fill = this.shadowRoot?.getElementById('np-bar-fill');
+        const cur = this.shadowRoot?.getElementById('np-time-cur');
         // While a skip/restart settles, silently hold the bar at 0 instead of
         // showing the stale position of the outgoing track.
-        if (this._progressHoldUntil && Date.now() < this._progressHoldUntil) {
-            const fill = this.shadowRoot.getElementById('np-bar-fill');
-            const cur = this.shadowRoot.getElementById('np-time-cur');
+        if (held) {
             if (fill) fill.style.width = '0%';
             if (cur) cur.textContent = '0:00';
             return;
         }
-        const { position, duration } = this._playerPosition();
-        const fill = this.shadowRoot.getElementById('np-bar-fill');
-        const cur = this.shadowRoot.getElementById('np-time-cur');
-        const rem = this.shadowRoot.getElementById('np-time-rem');
+        const rem = this.shadowRoot?.getElementById('np-time-rem');
         if (fill) fill.style.width = duration ? `${Math.min(100, (position / duration) * 100)}%` : '0%';
-        if (cur) cur.textContent = this._fmt(position);
-        if (rem) rem.textContent = duration ? `-${this._fmt(duration - position)}` : '--:--';
+        if (cur) cur.textContent = formatTime(position);
+        if (rem) rem.textContent = duration ? `-${formatTime(duration - position)}` : '--:--';
     }
 
-    _fmt(seconds) { return formatTime(seconds); }
-
     _handleSeek(e) {
-        if (!this.api) return;
-        const { duration } = this._playerPosition();
-        if (!duration) return;
-        const bar = e.currentTarget;
-        const rect = bar.getBoundingClientRect();
-        const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-        const target = ratio * duration;
-        if (this.api.seek) this.api.seek(target);
+        const rect = e.currentTarget.getBoundingClientRect();
+        const ratio = this._np.seekRatio((e.clientX - rect.left) / rect.width);
+        if (ratio === null) return;
         // Optimistic fill
         const fill = this.shadowRoot.getElementById('np-bar-fill');
         if (fill) fill.style.width = `${ratio * 100}%`;
@@ -330,18 +295,16 @@ export class SpotifyNowPlayingMobile extends LitElement {
 
     _playPause() {
         fireHaptic('medium');
-        this.playerController?.pause();
+        this._np.playPause();
     }
     _next() {
         fireHaptic('light');
-        this._holdProgressReset();
-        this.playerController?.skipNext();
+        this._np.next();
     }
     _prev() {
         // The on-screen button keeps native behaviour: restart if >3s in.
         fireHaptic('light');
-        this._holdProgressReset();
-        this.playerController?.skipPrev({ allowRestart: true });
+        this._np.prev({ allowRestart: true });
     }
 
     /* --- Vibrant accent gradient --- */
@@ -362,13 +325,6 @@ export class SpotifyNowPlayingMobile extends LitElement {
     }
 
     /* --- Swipe-to-skip (album art) --- */
-    _holdProgressReset() {
-        this._progressHoldUntil = Date.now() + 2500;
-        const fill = this.shadowRoot.getElementById('np-bar-fill');
-        const cur = this.shadowRoot.getElementById('np-time-cur');
-        if (fill) fill.style.width = '0%';
-        if (cur) cur.textContent = '0:00';
-    }
 
     _cleanupSwipeListeners() {
         window.removeEventListener('pointermove', this._onArtMove);
@@ -446,9 +402,8 @@ export class SpotifyNowPlayingMobile extends LitElement {
             if (this._fired) return;
             this._fired = true;
             fireHaptic('light');
-            this._holdProgressReset();
-            if (dir === 'next') this.playerController?.skipNext();
-            else this.playerController?.skipPrev({ allowRestart: false });
+            if (dir === 'next') this._np.next();
+            else this._np.prev({ allowRestart: false });
             // updated() snaps the carousel back to 0 once the new state renders.
         };
 
@@ -472,72 +427,50 @@ export class SpotifyNowPlayingMobile extends LitElement {
             if (tr) { tr.style.transition = 'none'; tr.style.transform = 'translateX(0)'; }
         }, 1300);
     }
+    // Shuffle and repeat re-pull the queue shortly after (PlayerController).
     _toggleShuffle() {
         fireHaptic('light');
-        this.playerController?.toggleShuffle();
-        this._refreshQueueSoon(); // shuffle reorders what's next
+        this._np.toggleShuffle();
     }
     _toggleLike() {
         fireHaptic('success');
-        this.playerController?.toggleLike();
+        this._np.toggleLike();
     }
     _cycleRepeat() {
         fireHaptic('light');
-        const next = { off: 'all', all: 'one', one: 'off' };
-        const current = this._repeatState();
-        this.api?.fetchSpotifyPlus('player_repeat', { state: next[current] || 'all' }, false);
-        this._refreshQueueSoon(); // repeat changes the upcoming queue
-    }
-
-    /**
-     * Re-pull the queue after a shuffle/repeat toggle so the predicted next
-     * track (carousel + skip) reflects the new order. Two passes give the server
-     * a moment to regenerate the queue.
-     */
-    _refreshQueueSoon() {
-        if (!this.playerController) return;
-        setTimeout(() => this.playerController.refreshQueue(), 500);
-        setTimeout(() => this.playerController.refreshQueue(), 1500);
-    }
-    _repeatState() {
-        const stateObj = this.playerController?.playbackStateObj?.() || this.hass?.states[this.config?.entity];
-        return stateObj?.attributes?.repeat || 'off';
+        this._np.cycleRepeat();
     }
 
     _openDevices() { this.dispatchEvent(new CustomEvent('open-devices', { bubbles: true, composed: true })); }
     _openQueue() { this.dispatchEvent(new CustomEvent('open-queue', { bubbles: true, composed: true })); }
 
     _openMenu() {
-        const track = this.state?.track;
+        const track = this._np.track;
         if (!track) return;
         this.dispatchEvent(new CustomEvent('open-track-menu', {
             detail: {
                 name: track.name,
-                artist: track.artists?.map(a => a.name).join(', ') || '',
+                artist: this._np.artistLine,
                 album: track.album?.name || '',
                 uri: track.uri,
                 id: track.id,
                 image: track.album?.images?.[0]?.url,
-                context: { surface: 'nowplaying', sourceUri: this.playerController?.sourceContextUri() || null }
+                context: { surface: 'nowplaying', sourceUri: this._np.contextUri }
             },
             bubbles: true, composed: true
         }));
     }
 
     render() {
-        const track = this.state?.track;
-        const art = track?.album?.images?.[0]?.url || '';
-        const title = track?.name || 'Nothing playing';
-        const artist = track?.artists?.map(a => a.name).join(', ') || '';
-        const isPlaying = !!this.state?.isPlaying;
-        const isShuffle = !!this.state?.isShuffle;
-        const isLiked = !!this.state?.isLiked;
-        const repeat = this._repeatState();
-        const stateObj = this.playerController?.playbackStateObj?.() || this.hass?.states[this.config?.entity];
-        const deviceName = this.state?.activeDevice || 'This device';
+        const np = this._np;
+        const art = np.artUrl();
+        const title = np.track?.name || 'Nothing playing';
+        const artist = np.artistLine;
+        const { isPlaying, isShuffle, isLiked, repeat } = np;
+        const deviceName = np.deviceName || 'This device';
         // "Connected" (green) when playing on a non-local device
-        const isRemote = !!this.state?.activeDevice;
-        const context = stateObj?.attributes?.media_playlist || 'Now Playing';
+        const isRemote = !!np.deviceName;
+        const context = np.contextName || 'Now Playing';
         // Neighbour artwork for the swipe carousel (already in memory + preloaded).
         const prevArt = this.playerController?.peekPrev?.()?.album?.images?.[0]?.url || '';
         const nextArt = this.playerController?.peekNext?.()?.album?.images?.[0]?.url || '';

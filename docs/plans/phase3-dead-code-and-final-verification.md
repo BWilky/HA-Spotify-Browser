@@ -114,3 +114,20 @@ Still open — left for Phase 4 because each falls out of a planned consolidatio
    - Thumbnail sharpness on a high-density phone and on a wall tablet.
    - Open the overlay after a track changed while it was closed: now-playing, queue and like state are correct within a second or two.
    - Tap a blurred queue row with the volume overlay open: it should dismiss, not play.
+
+## Phase 4 progress
+
+**Wave 1 — done.**
+- Playlist edit mode extracted into `<spotify-playlist-editor>`; the choice of Spotify operations is a pure, tested function (`components/controllers/playlist-edit-plan.js`). A scripted edit-and-save in the browser harness produces the same service calls as before, and edit mode renders pixel-identically.
+- Storage: one pending-write overlay for the whole blob in `StorageManager` (the trigger-template strategy is merged into it). Closes open bug 4 (a pin write followed by a device write reverting the pin).
+- `NowPlayingController` shared by the desktop sidebar and the mobile full-screen view; one `playbackProgress()` for sidebar, mobile view and mini-player. Closes open bug 5. Intended behaviour changes on desktop: Next/Previous are optimistic, Shuffle refreshes the queue, and Previous restarts the current track when more than a few seconds in (as mobile already did).
+- `api.js`: command/check wrappers collapsed onto private helpers; `fetchSpotifyPlus` also accepts an options object. Pinned by a characterization suite written against the old code.
+
+Found during Wave 1, not fixed:
+- In playlist edit mode the app header's buttons (back arrow, close) sit on top of the editor's Cancel / Save bar. Present before the refactor too.
+- `api.js` inconsistencies recorded by the characterization tests: some commands use `callService` and others `callWS`; an empty id list is sent as `ids: ''`; `checkArtistsFollowing` / `checkAlbumFavorites` return raw response shapes while `checkTrackFavorites` normalizes.
+
+**Remaining waves**
+- Wave 2 — app shell: mini-player element and a single player-state subscription (open bugs 1, 2), one toast/alert channel, one device row and transfer path (bug 6), overlay stack with consistent Escape (bug 8), shared volume controller (bug 7), track-menu payload helper (bug 3), the edit-mode header overlap above.
+- Wave 3 — views: shared scroll / like / pin controllers, one list-row template, loader map.
+- Wave 4 — organization: CSS split, folder layout, type-checking config.
