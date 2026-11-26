@@ -2,7 +2,7 @@
 import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { contextViewStyles } from '../styles/spotify-context-view.styles.js';
-import { pageLoaders, pageInPlaylistTracks, loadMore, loadSectionMore, LOAD_FAILED } from './controllers/page-loaders.js';
+import { pageLoaders, pageInPlaylistTracks, loadMore, loadSectionMore, LOAD_FAILED, isCacheable } from './controllers/page-loaders.js';
 import { getPlayingTrackId, getCurrentTrackId, isContextPlaying } from '../utils.js';
 
 // Import new sub-views
@@ -77,6 +77,8 @@ export class SpotifyContextView extends LitElement {
         this._currentUserId = null;
         // Bumped by refresh(): a load started before it is superseded.
         this._loadGeneration = 0;
+        // The load in flight, if any: { generation, options, promise }.
+        this._pendingLoad = null;
         // Derived-from-hass snapshot (plain fields; render binds them and
         // shouldUpdate keeps them fresh before every render pass).
         this._playingTrackId = null;
@@ -111,22 +113,25 @@ export class SpotifyContextView extends LitElement {
      */
     _commit(patch, { replace = false, cache = true, pageId = this.pageId } = {}) {
         if (patch) this._contextData = replace ? patch : { ...this._contextData, ...patch };
-        // A failed page is never cached: a late commit after the failure
-        // (e.g. an artist rail answering after get_artist failed) must not
-        // make the failure what the next visit restores.
-        if (cache && !this._contextData?.loadFailed) SpotifyContextView.cacheSet(pageId, this._contextData);
+        if (!cache) return;
+        // A failed page, or one with a failed rail, is never cached: a late
+        // commit after the failure (e.g. an artist rail answering after
+        // get_artist failed) must not make the failure what the next visit
+        // restores, and an entry cached before it (the artist, before its
+        // albums rail failed) is dropped, so the next visit reads it again.
+        if (isCacheable(this._contextData)) SpotifyContextView.cacheSet(pageId, this._contextData);
+        else SpotifyContextView.invalidate(pageId);
     }
 
     /**
      * The `ctx` a loader in page-loaders.js works through (see there). A
      * load stays current while this view still shows `pageId` and no
      * refresh() has thrown its data away since it started; `isCurrent`
-     * replaces that test (the playlist pager's token). A newer loadPageData()
-     * on the same page does NOT supersede one in flight: both merge into the
-     * same data, and whichever lands keeps the page out of its failed state.
-     * A refresh() does: an older load landing on the refreshed page would
-     * merge into its loading placeholder (and could keep it from showing a
-     * failure).
+     * replaces that test (the playlist pager's token). A later loadPageData()
+     * on the same page starts no second load beside one in flight (see
+     * there). A refresh() supersedes the one in flight: landing on the
+     * refreshed page, it would merge into its loading placeholder (and could
+     * keep it from showing a failure).
      */
     _loadContext(pageId, isCurrent = null) {
         const host = this;
@@ -226,8 +231,27 @@ export class SpotifyContextView extends LitElement {
         const autoEdit = type === 'playlist' && !!this.data?.autoEdit;
         if (autoEdit) this.data.autoEdit = false;
 
-        // 0. Prevent re-fetching if data is already loaded for this instance
-        if (this._contextData && this._contextData.id === id && this._contextData.type === type && !this._contextData.isLoading) {
+        // 0. Nothing to start while this page's data is on its way or here.
+        // updated() calls this on every relevant hass change, also while a
+        // load is in flight (its placeholder, or the Liked Songs shell, says
+        // isLoading) or a load more is (isLoading on loaded data): a load
+        // started then would read the whole page again beside the one under
+        // way. refresh() starts a new generation and empties the data, so it
+        // does load; a failed page is retried that way (updateHeaderState).
+        // isLoading data with no load in flight is a load more: every load
+        // replaces its placeholder before it ends (see _runLoader).
+        const pending = this._pendingLoad;
+        if (pending && pending.generation === this._loadGeneration) {
+            if (autoEdit) {
+                // Still on the placeholder: the loader's first commit carries
+                // the intent (merged in here, the placeholder would no longer
+                // be the one the failure check below looks for).
+                if (this._contextData?.isLoading) pending.options.autoEdit = true;
+                else this._contextData = { ...this._contextData, autoEdit: true };
+            }
+            return pending.promise;
+        }
+        if (this._contextData && this._contextData.id === id && this._contextData.type === type) {
             if (autoEdit) { this._contextData = { ...this._contextData, autoEdit: true }; }
             return;
         }
@@ -259,6 +283,18 @@ export class SpotifyContextView extends LitElement {
                 get lastFmApiKey() { return host.config?.integrations?.lastfm?.api_key; },
             },
         });
+        const load = this._pendingLoad = { generation: this._loadGeneration, options: ctx.options, promise: null };
+        load.promise = this._runLoader(type, ctx, placeholder).finally(() => {
+            if (this._pendingLoad === load) this._pendingLoad = null;
+        });
+        return load.promise;
+    }
+
+    /**
+     * Run the page type's loader on `ctx`, then judge the load (see
+     * page-loaders.js): a placeholder nobody replaced becomes LOAD_FAILED.
+     */
+    async _runLoader(type, ctx, placeholder) {
         let background;
         try {
             if (Object.prototype.hasOwnProperty.call(pageLoaders, type)) {
@@ -274,9 +310,9 @@ export class SpotifyContextView extends LitElement {
 
         // Every successful loader replaces the placeholder. If it is still
         // here, the read failed (a failed call returns null): say so instead
-        // of sitting on "Loading..." — which also re-ran this load on every
-        // player change. Not cached; refresh() or returning to the page
-        // (updateHeaderState) retries.
+        // of sitting on "Loading..." (which loadPageData would take for a
+        // load more under way). Not cached; refresh() or returning to the
+        // page (updateHeaderState) retries.
         if (this._contextData === placeholder) {
             this._contextData = { ...placeholder, ...LOAD_FAILED };
         }

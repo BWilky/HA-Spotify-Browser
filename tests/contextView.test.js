@@ -161,6 +161,149 @@ test('Liked Songs, a section and a discography whose read fails: failed state, n
     }
 });
 
+// ------------------------------------------------ B9: hass ticks mid-load --
+
+/** What Lit hands updated() on a hass change (the ones shouldUpdate lets through). */
+const hassTick = (view, n = 1) => { for (let i = 0; i < n; i++) view.updated(new Map([['hass', {}]])); };
+const countCalls = (api, method, service) => api.calls.filter(c => c[0] === method && (!service || c[1] === service)).length;
+
+test('the first load starts as soon as pageId, hass and api are all there', async () => {
+    const api = stubApi({ getTrackFavorites: { result: { items: [], total: 0 } }, getCurrentUserId: 'u' });
+    const view = new SpotifyContextView();
+    view.pageId = 'likedsongs';
+    view.updated(new Map([['pageId', undefined]]));
+    view.hass = {};
+    view.updated(new Map([['hass', undefined]]));
+    assert.equal(api.calls.length, 0, 'no api yet: nothing');
+    view.api = api;
+    view.updated(new Map([['api', undefined]]));
+    assert.equal(countCalls(api, 'getTrackFavorites'), 1);
+    assert.equal(view._contextData.name, 'Liked Songs');
+});
+
+test('Liked Songs: hass ticks while its first read is in flight start no second load (B9)', async () => {
+    const read = deferred();
+    const api = stubApi({ getTrackFavorites: () => read.promise, getCurrentUserId: 'u' });
+    const view = makeView('likedsongs', api);
+    view.updated(new Map([['pageId', undefined]]));
+    await flush();
+    assert.equal(view._contextData.isLoading, true, 'the shell is up');
+    hassTick(view, 5);
+    await flush();
+    assert.equal(countCalls(api, 'getTrackFavorites'), 1);
+
+    read.resolve({ result: { items: [playlistItem(1)], total: 1 } });
+    await view.loadPageData(); // the load in flight
+    assert.equal(view._contextData.isLoading, false);
+    assert.equal(view._contextData.tracks.items.length, 1);
+    assert.equal(SpotifyContextView.stateCache.get('likedsongs'), view._contextData);
+    assert.equal(countCalls(api, 'getTrackFavorites'), 1);
+    assert.equal(view._pendingLoad, null);
+});
+
+test('a page on its loading placeholder: hass ticks start no second load, and an edit intent arriving meanwhile is kept (B9)', async () => {
+    const read = deferred();
+    const api = stubApi({
+        'fetchSpotifyPlus:get_playlist': () => read.promise,
+        checkUserFollowsPlaylist: [false],
+    });
+    const view = makeView('playlist:p1', api);
+    view.updated(new Map([['pageId', undefined]]));
+    assert.equal(view._contextData.name, 'Loading...');
+    hassTick(view, 3);
+    view.data = { autoEdit: true }; // the library's "Edit Playlist" on this page while it loads
+    hassTick(view);
+    assert.equal(view.data.autoEdit, false, 'the intent is consumed');
+    read.resolve({ result: playlistObj('p1'), user_profile: { id: 'me' } });
+    await view.loadPageData();
+    assert.equal(countCalls(api, 'fetchSpotifyPlus', 'get_playlist'), 1);
+    assert.equal(view._contextData.autoEdit, true, 'carried by the load in flight');
+    assert.equal(view._contextData.isLoading, false);
+});
+
+test('a page whose read fails while hass ticks: one read, then the failed state (retried on return, as before) (B9)', async () => {
+    const read = deferred();
+    const api = stubApi({ 'fetchSpotifyPlus:get_playlist': () => read.promise });
+    const view = makeView('playlist:p1', api);
+    view.updated(new Map([['pageId', undefined]]));
+    hassTick(view, 3);
+    read.resolve(null);
+    await view.loadPageData();
+    await flush();
+    assert.equal(view._contextData.loadFailed, true);
+    assert.equal(countCalls(api, 'fetchSpotifyPlus', 'get_playlist'), 1);
+});
+
+test('a refresh while the first load is in flight starts a new one; the old answer is dropped', async () => {
+    const reads = [deferred(), deferred()];
+    let n = 0;
+    const api = stubApi({ getTrackFavorites: () => reads[n++].promise, getCurrentUserId: 'u' });
+    const view = makeView('likedsongs', api);
+    const first = view.loadPageData();
+    await flush();
+    const second = view.refresh();
+    await flush();
+    assert.equal(countCalls(api, 'getTrackFavorites'), 2);
+    hassTick(view, 3);
+    assert.equal(countCalls(api, 'getTrackFavorites'), 2, 'ticks start nothing beside the refresh');
+    reads[0].resolve({ result: { items: [playlistItem(1)], total: 1 } });
+    reads[1].resolve({ result: { items: [playlistItem(2), playlistItem(3)], total: 2 } });
+    await Promise.all([first, second]);
+    assert.deepEqual(view._contextData.tracks.items, [playlistItem(2), playlistItem(3)]);
+});
+
+test('hass ticks during a load more: no cache restore, no second load more, no duplicated tracks (B9)', async () => {
+    const more = deferred();
+    const api = stubApi({
+        getTrackFavorites: ({ offset }) => (offset === 0
+            ? { result: { items: range(50, playlistItem), total: 120 } }
+            : more.promise),
+        getCurrentUserId: 'u',
+    });
+    const view = makeView('likedsongs', api);
+    await view.loadPageData();
+    const loading = view._handleLoadMore();
+    assert.equal(view._contextData.isLoading, true);
+    hassTick(view, 3);
+    assert.equal(view._contextData.isLoading, true, 'still loading more: the cached page (isLoading false) is not put back');
+    await view._handleLoadMore(); // the view scrolls on: refused while one is under way
+    assert.deepEqual(api.calls.filter(c => c[0] === 'getTrackFavorites').map(c => c[1].offset), [0, 50]);
+
+    more.resolve({ result: { items: range(50, playlistItem, 50), total: 120 } });
+    await loading;
+    assert.deepEqual(view._contextData.tracks.items, range(100, playlistItem));
+    assert.equal(view._contextData.offset, 100);
+});
+
+// ---------------------------------------- B13: a failed artist albums rail --
+
+test('artist page whose albums rail fails: shown as failed, not cached (and an earlier entry dropped)', async () => {
+    const albums = deferred();
+    const api = stubApi({
+        'fetchSpotifyPlus:get_artist': { result: { id: 'ar1', name: 'Artist 1', type: 'artist' } },
+        'fetchPaginated:get_artist_albums': () => albums.promise,
+        'fetchSpotifyPlus:get_artist_top_tracks': { result: [] },
+        'fetchPaginated:search_tracks': { items: [], total: 0, offset: 10 },
+        searchPlaylists: { result: { items: [] } },
+    });
+    const view = makeView('artist:ar1', api);
+    await view.loadPageData();
+    await flush();
+    assert.ok(SpotifyContextView.stateCache.has('artist:ar1'), 'cached as the artist and rails land');
+
+    albums.resolve({ items: [], total: 0, offset: 10, failed: true });
+    await flush();
+    assert.deepEqual(view._contextData.albums, []);
+    assert.equal(view._contextData.albumsFailed, true);
+    assert.equal(SpotifyContextView.stateCache.has('artist:ar1'), false);
+
+    // A new instance of the page (the router evicted this one) reads it again.
+    const again = makeView('artist:ar1', api);
+    const before = countCalls(api, 'fetchSpotifyPlus', 'get_artist');
+    await again.loadPageData();
+    assert.equal(countCalls(api, 'fetchSpotifyPlus', 'get_artist'), before + 1);
+});
+
 test('the user id is a plain field: setting it does not ask for a render', async () => {
     const view = makeView('playlist:p1', stubApi({}));
     let requests = 0;

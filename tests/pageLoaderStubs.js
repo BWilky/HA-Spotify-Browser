@@ -1,6 +1,7 @@
 // Stubs for driving components/controllers/page-loaders.js under node --test:
 // a recording api, Spotify-shaped canned data, and a host that implements the
 // loader `ctx` the way spotify-context-view does.
+import { isCacheable } from '../src/components/controllers/page-loaders.js';
 
 export const img = (seed) => [640, 300, 64].map(w => ({ url: `https://img.test/${w}/${seed}.png`, width: w, height: w }));
 export const artist = (i) => ({ id: `ar${i}`, uri: `spotify:artist:ar${i}`, name: `Artist ${i}`, type: 'artist', images: img(`ar${i}`), genres: ['indie'] });
@@ -62,9 +63,11 @@ export const flush = () => new Promise(r => setImmediate(r));
 
 /**
  * A host with spotify-context-view's ctx semantics: commit merges into
- * `host.data` (or replaces it), writes `host.cache` unless `cache: false`,
- * and refuses once the load is superseded (`host.supersede()`). Each call to
- * commit is logged in `host.commits` as { patch, options, applied }.
+ * `host.data` (or replaces it), writes `host.cache` unless `cache: false` —
+ * or, when the data may not be cached (isCacheable: a failed page or rail),
+ * drops the page's entry — and refuses once the load is superseded
+ * (`host.supersede()`). Each call to commit is logged in `host.commits` as
+ * { patch, options, applied }.
  */
 export function makeHost({ pageId, type, id, api, options = {}, user = { id: null }, data } = {}) {
     const host = {
@@ -86,7 +89,10 @@ export function makeHost({ pageId, type, id, api, options = {}, user = { id: nul
         commit(patch, opts = {}) {
             if (!isCurrent()) { host.commits.push({ patch: clone(patch), options: opts, applied: false }); return false; }
             if (patch) host.data = opts.replace ? patch : { ...host.data, ...patch };
-            if (opts.cache !== false) host.cache.set(pageId, host.data);
+            if (opts.cache !== false) {
+                if (isCacheable(host.data)) host.cache.set(pageId, host.data);
+                else host.cache.delete(pageId);
+            }
             host.commits.push({ patch: clone(patch), options: opts, applied: true });
             return true;
         },

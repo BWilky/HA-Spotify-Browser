@@ -1,5 +1,6 @@
 import { dedupeRecentAlbums } from './home-content.js';
 import { playlistSortParams } from '../../utils.js';
+import { isPlaylistOwner } from '../playlist-actions.js';
 
 /*
  * Data loading for the pages spotify-context-view hosts: one loader per page
@@ -40,11 +41,15 @@ import { playlistSortParams } from '../../utils.js';
  * merged in). A loader that has replaced the placeholder already (Liked
  * Songs shows its own shell while loading) or shares its body with load
  * more (sections) commits LOAD_FAILED itself, uncached. A failed page is
- * never cached, and showing it again retries it. A loader may resolve to a
- * function, which the host calls straight after that judgement: the artist
- * page, when the artist itself failed, wires its rails there, so a rail that
- * already answered cannot replace the placeholder first and leave the page
- * on "Loading...".
+ * never cached, and showing it again retries it; nor is a page with a failed
+ * rail (see isCacheable). A loader may resolve to a function, which the host
+ * calls straight after that judgement: the artist page, when the artist
+ * itself failed, wires its rails there, so a rail that already answered
+ * cannot replace the placeholder first and leave the page on "Loading...".
+ *
+ * A load more whose read fails changes nothing but isLoading (uncached): the
+ * page keeps its `hasMore`, so scrolling on retries it. Only a read that
+ * worked and came back empty ends the paging.
  */
 
 const LIKED_SONGS_IMAGE = 'https://t.scdn.co/images/3099b3803ad9496896c43f22fe9be8c4.png';
@@ -53,6 +58,18 @@ const LIKED_SONGS_IMAGE = 'https://t.scdn.co/images/3099b3803ad9496896c43f22fe9b
 export const LOAD_FAILED = Object.freeze({
     isLoading: false, hasMore: false, loadFailed: true, name: "Couldn't load this page"
 });
+
+/** What a load more whose read failed commits (uncached): `hasMore` stays as it was. */
+const LOAD_MORE_FAILED = Object.freeze({ isLoading: false });
+
+/**
+ * Whether page data may go in the page cache: not a failed page, nor an
+ * artist page whose albums rail failed (`albumsFailed`). The host drops the
+ * page's entry instead, so the next visit reads it again.
+ */
+export function isCacheable(data) {
+    return !!data && !data.loadFailed && !data.albumsFailed;
+}
 
 async function playlist(ctx) {
     // No `fields` filter: the full object carries owner.id,
@@ -70,7 +87,7 @@ async function playlist(ctx) {
             || (await ctx.api.getCurrentUserId())
             || null;
     }
-    const isOwner = !!user.id && result.owner?.id === user.id;
+    const isOwner = isPlaylistOwner(result, user.id);
     const totalTracks = result.tracks?.total ?? (result.tracks?.items?.length || 0);
 
     // Follow state only matters for playlists we don't own
@@ -223,11 +240,14 @@ async function artist(ctx) {
     }
 
     const wireRails = () => {
-        albumsPromise.then(({ items }) => {
+        albumsPromise.then(({ items, failed }) => {
             // Always resolve the rail's loading state, even when the artist
             // has zero results under Spotify's "album" group classification
-            // (e.g. an artist whose only releases are singles/EPs).
-            ctx.commit({ albums: items });
+            // (e.g. an artist whose only releases are singles/EPs). A read
+            // that failed is not "no releases": the rail is resolved the same
+            // way (albums: []) but marked, and the page is not cached with it
+            // (isCacheable), so the next visit reads it again.
+            ctx.commit(failed ? { albums: [], albumsFailed: true } : { albums: items });
         });
 
         topTracksPromise.then(tracks => {
@@ -392,10 +412,14 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
             // The recent-tracks endpoint is cursor-based and capped (~50 items),
             // so this section loads a single page only.
             const res = await ctx.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: limit });
-            if (offset === 0 && res?.result?.items) {
+            if (res?.result?.items) {
                 read = true;
-                newItems = dedupeRecentAlbums(res.result.items);
-                total = newItems.length;
+                // A later offset (never asked for: the first page is all
+                // there is) adds nothing, and so ends the paging.
+                if (offset === 0) {
+                    newItems = dedupeRecentAlbums(res.result.items);
+                    total = newItems.length;
+                }
             }
         } else if (sectionId === 'favorites') {
             title = 'Your Favorite Playlists';
@@ -447,11 +471,13 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
             }
         }
 
-        // The first page could not be read: the failed state, not an empty
-        // section (which would be cached). (`title`: an unknown section id
-        // makes no read and still shows an empty page, as before.)
-        if (offset === 0 && !read && title) {
-            ctx.commit(LOAD_FAILED, { cache: false });
+        // The page could not be read. The first one: the failed state, not
+        // an empty section (which would be cached). A later one: not the end
+        // of the list either, so `hasMore` stays and scrolling on retries.
+        // (`title`: an unknown section id makes no read and still shows an
+        // empty page, as before.)
+        if (!read && title) {
+            ctx.commit(offset === 0 ? LOAD_FAILED : LOAD_MORE_FAILED, { cache: false });
             return;
         }
 
@@ -500,7 +526,7 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
 
     } catch (e) {
         console.error('Error loading section data:', e);
-        ctx.commit(offset === 0 ? LOAD_FAILED : { isLoading: false, hasMore: false }, { cache: false });
+        ctx.commit(offset === 0 ? LOAD_FAILED : LOAD_MORE_FAILED, { cache: false });
     }
 }
 
@@ -538,8 +564,13 @@ export async function loadMore(ctx) {
             const res = await ctx.api.getTrackFavorites({ limit, offset, sort_result: false });
             const current = ctx.current();
             if (!current) return;
-            newItems = res?.result?.items || [];
-            total = res?.result?.total || total;
+            // A failed read (null) is not the end of the list.
+            if (!Array.isArray(res?.result?.items)) {
+                ctx.commit(LOAD_MORE_FAILED, { cache: false });
+                return;
+            }
+            newItems = res.result.items;
+            total = res.result.total || total;
 
             // Liked Songs renders via spotify-playlist-view, which reads
             // tracks.items (not .items). Append there.
@@ -559,6 +590,11 @@ export async function loadMore(ctx) {
                 include_groups: 'album,single,compilation',
                 offset: offset
             }, limit);
+            // Nothing could be read: not the end of the discography.
+            if (paged.failed) {
+                ctx.commit(LOAD_MORE_FAILED, { cache: false });
+                return;
+            }
             newItems = paged.items;
             total = paged.total || total;
         }
@@ -580,7 +616,7 @@ export async function loadMore(ctx) {
 
     } catch (e) {
         console.error('[ContextView] Load More Failed:', e);
-        ctx.commit({ isLoading: false }, { cache: false });
+        ctx.commit(LOAD_MORE_FAILED, { cache: false });
     }
 }
 

@@ -221,3 +221,15 @@ test('appearance.desktop: a blank or whitespace-only size keeps the default (was
         assert.match(warned, new RegExp(`"appearance\\.desktop\\.${key}" is empty`), key);
     }
 });
+
+test('appearance.desktop: sizes are trimmed before px is decided (was " 10 px") (B11)', () => {
+    assert.deepEqual(desktop({ width: ' 10 ', height: ' 50% ', margin: ' 2rem ', margin_top: '\t8\n', margin_left: 'calc(100% - 4px)' }), {
+        mode: 'fixed', width: '10px', height: '50%', fullscreen: false,
+        margin_top: '8px', margin_bottom: '2rem', margin_left: 'calc(100% - 4px)', margin_right: '2rem',
+    });
+    // Unchanged: numbers, numeric strings, units, and non-strings.
+    assert.deepEqual(desktop({ width: 0, height: '0', margin: 12.5, margin_right: '1e2' }), {
+        mode: 'fixed', width: '0px', height: '0px', fullscreen: false,
+        margin_top: '12.5px', margin_bottom: '12.5px', margin_left: '12.5px', margin_right: '1e2px',
+    });
+});

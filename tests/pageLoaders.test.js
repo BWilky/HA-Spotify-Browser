@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    pageLoaders, pageInPlaylistTracks, loadMore, loadSection, loadSectionMore, hydrateSimilarArtists, LOAD_FAILED
+    pageLoaders, pageInPlaylistTracks, loadMore, loadSection, loadSectionMore, hydrateSimilarArtists, LOAD_FAILED, isCacheable
 } from '../src/components/controllers/page-loaders.js';
 import { SpotifyApi } from '../src/api.js';
+import { isPlaylistOwner } from '../src/components/playlist-actions.js';
 import {
     stubApi, makeHost, deferred, flush, placeholder, range,
     artist, album, track, playlistItem, playlistObj
@@ -129,6 +130,25 @@ test('playlist followed and collaborative: isFollowing true and edit rights', as
     assert.deepEqual(host.commits[1].patch, { canEditItems: true, followPending: false, isFollowing: true });
     assert.equal(host.data.canEditItems, true);
     assert.equal(host.data.followPending, false);
+});
+
+test('playlist ownership is playlist-actions\' isPlaylistOwner rule (S16)', async () => {
+    const owners = [{ id: 'me' }, { id: 'other' }, {}, undefined, { id: '' }];
+    for (const owner of owners) {
+        for (const userId of ['me', null]) {
+            const pl = { ...playlistObj('po'), owner };
+            const api = stubApi({
+                'fetchSpotifyPlus:get_playlist': { result: pl },
+                getCurrentUserId: userId,
+                checkUserFollowsPlaylist: [false],
+            });
+            const host = makeHost({ pageId: 'playlist:po', type: 'playlist', id: 'po', api });
+            await pageLoaders.playlist(host.ctx);
+            const label = `owner ${JSON.stringify(owner)}, user ${userId}`;
+            assert.equal(host.data.isOwner, isPlaylistOwner(pl, userId), label);
+            assert.equal(host.data.isOwner, userId === 'me' && owner?.id === 'me', label);
+        }
+    }
 });
 
 test('playlist follow check with no answer: no isFollowing and no edit rights (no earlier answer is reused)', async () => {
@@ -453,6 +473,52 @@ test('artist superseded after the artist landed: later rails are refused', async
     assert.equal(host.data.albums, null);
 });
 
+test('artist albums rail read fails: marked failed (albums [] as before), and the page is not cached (B13)', async () => {
+    const { api, d } = artistStub();
+    const host = makeHost({ pageId: 'artist:ar1', type: 'artist', id: 'ar1', api, options: {} });
+    const loading = pageLoaders.artist(host.ctx);
+    d.artist.resolve({ result: artist(1) });
+    await loading;
+    d.top.resolve({ result: range(14, track) });
+    await flush();
+    assert.ok(host.cached, 'the artist and its first rails are cached as they land');
+
+    d.albums.resolve({ items: [], total: 0, offset: 10, failed: true });
+    await flush();
+    assert.deepEqual(host.commits.find(c => 'albums' in c.patch).patch, { albums: [], albumsFailed: true });
+    assert.deepEqual(host.data.albums, [], 'the view gets the same shape as for no releases');
+    assert.equal(host.data.albumsFailed, true, 'but can tell the two apart');
+    assert.equal(host.cached, undefined, 'the entry cached before the failure is dropped');
+
+    d.playlists.resolve({ result: { items: [{ id: 'p1' }] } });
+    await flush();
+    assert.deepEqual(host.data.playlists, [{ id: 'p1' }]);
+    assert.equal(host.cached, undefined, 'a later rail does not cache the page either');
+});
+
+test('artist albums rail: releases, or genuinely none, commit just `albums` and are cached', async () => {
+    for (const [answer, albums] of [[{ items: range(3, album), total: 3, offset: 10 }, range(3, album)], [{ items: [], total: 0, offset: 10 }, []]]) {
+        const { api, d } = artistStub();
+        const host = makeHost({ pageId: 'artist:ar1', type: 'artist', id: 'ar1', api, options: {} });
+        const loading = pageLoaders.artist(host.ctx);
+        d.artist.resolve({ result: artist(1) });
+        await loading;
+        d.albums.resolve(answer);
+        await flush();
+        assert.deepEqual(host.commits.find(c => 'albums' in c.patch).patch, { albums });
+        assert.equal('albumsFailed' in host.data, false);
+        assert.equal(host.cached, host.data);
+    }
+});
+
+test('isCacheable: not a failed page, nor one with a failed rail', () => {
+    assert.equal(isCacheable({ id: 'x' }), true);
+    assert.equal(isCacheable({ id: 'x', albums: [] }), true);
+    assert.equal(isCacheable({ id: 'x', ...LOAD_FAILED }), false);
+    assert.equal(isCacheable({ id: 'x', albums: [], albumsFailed: true }), false);
+    assert.equal(isCacheable(null), false);
+});
+
 // ---------------------------------------------------- artist discography --
 
 const discographyApi = (extra = {}) => stubApi({
@@ -526,12 +592,15 @@ test('discography of an artist with no releases (a read that worked): the empty 
     assert.equal(host.cached, host.data);
 });
 
-test('discography load more: an empty page ends paging uncached; a throw only clears isLoading', async (t) => {
+test('discography load more: an empty page ends paging uncached; a throw or a failed read only clears isLoading', async (t) => {
     t.mock.method(console, 'error', () => {});
     let mode = 'ok';
     const api = discographyApi();
     const original = api.fetchPaginated;
-    api.fetchPaginated = (...a) => mode === 'ok' ? original(...a) : mode === 'empty' ? Promise.resolve({ items: [], total: 0, offset: 0 }) : Promise.reject(new Error('boom'));
+    api.fetchPaginated = (...a) => mode === 'ok' ? original(...a)
+        : mode === 'empty' ? Promise.resolve({ items: [], total: 0, offset: 0 })
+            : mode === 'failed' ? Promise.resolve({ items: [], total: 0, offset: 100, failed: true })
+                : Promise.reject(new Error('boom'));
     const host = makeHost({ pageId: 'artist-discography:ar1', type: 'artist-discography', id: 'ar1', api, options: { artistName: 'N' } });
     await pageLoaders['artist-discography'](host.ctx);
     const cached = host.cached;
@@ -540,6 +609,13 @@ test('discography load more: an empty page ends paging uncached; a throw only cl
     await loadMore(host.ctx);
     assert.deepEqual(host.commits.at(-1), { patch: { isLoading: false }, options: { cache: false }, applied: true });
     assert.equal(host.data.hasMore, true);
+
+    // fetchPaginated's `failed`: nothing could be read, which is not the end (B10).
+    mode = 'failed';
+    await loadMore(host.ctx);
+    assert.deepEqual(host.commits.at(-1), { patch: { isLoading: false }, options: { cache: false }, applied: true });
+    assert.equal(host.data.hasMore, true);
+    assert.equal(host.data.items.length, 50);
 
     mode = 'empty';
     await loadMore(host.ctx);
@@ -640,6 +716,40 @@ test('liked songs superseded: the list is not committed', async () => {
     await loading;
     assert.equal(host.applied.length, 1, 'only the shell, committed before');
     assert.equal(host.cached, undefined);
+});
+
+test('liked songs load more read fails (null): the list stays, paging does not end (uncached), scrolling on retries (B10)', async () => {
+    let failing = false;
+    const api = likedApi(120);
+    const works = api.getTrackFavorites;
+    api.getTrackFavorites = (...a) => (failing ? (api.calls.push(['getTrackFavorites', ...a]), Promise.resolve(null)) : works(...a));
+    const host = makeHost({ pageId: 'likedsongs', type: 'likedsongs', id: 'me', api });
+    await pageLoaders.likedsongs(host.ctx);
+    const page1 = host.data;
+
+    failing = true;
+    await loadMore(host.ctx);
+    assert.deepEqual(host.commits.at(-1), { patch: { isLoading: false }, options: { cache: false }, applied: true });
+    assert.deepEqual(host.data, { ...page1, isLoading: false });
+    assert.equal(host.data.hasMore, true);
+    assert.equal(host.cached, page1, 'not cached as exhausted');
+
+    failing = false;
+    await loadMore(host.ctx);
+    assert.deepEqual(api.calls.filter(c => c[0] === 'getTrackFavorites').map(c => c[1].offset), [0, 50, 50]);
+    assert.deepEqual(host.data.tracks.items, range(100, playlistItem));
+    assert.equal(host.data.hasMore, true);
+    assert.equal(host.cached, host.data);
+});
+
+test('liked songs load more that worked but came back empty: paging ends', async () => {
+    const api = likedApi(120);
+    const host = makeHost({ pageId: 'likedsongs', type: 'likedsongs', id: 'me', api });
+    await pageLoaders.likedsongs(host.ctx);
+    api.getTrackFavorites = async () => ({ result: { items: [], total: 120 } });
+    await loadMore(host.ctx);
+    assert.equal(host.data.hasMore, false);
+    assert.equal(host.data.tracks.items.length, 50);
 });
 
 test('liked songs load more superseded: nothing appended', async () => {
@@ -753,18 +863,55 @@ test('section read that worked but is empty: an empty section, cached', async ()
     assert.equal(host.cached, host.data);
 });
 
-test('section load more read fails: the list stays, paging ends (unchanged)', async () => {
-    const api = stubApi({ 'fetchSpotifyPlus:get_playlist_favorites': (p) => (p.offset === 0
-        ? { result: { items: range(50, (i) => playlistObj(`p${i}`)), total: 70 } } : null) });
-    const host = makeHost({ pageId: 'section:favorites', type: 'section', id: 'favorites', api });
-    await pageLoaders.section(host.ctx);
-    await loadSectionMore(host.ctx);
-    assert.equal(host.data.loadFailed, undefined);
-    assert.equal(host.data.items.length, 50);
-    assert.equal(host.data.hasMore, false);
+test('section load more read fails: the list stays, paging does not end (uncached), and scrolling on retries (B10)', async (t) => {
+    t.mock.method(console, 'error', () => {});
+    const failures = [null, { result: null }, { result: {} }, () => Promise.reject(new Error('down'))];
+    const sections = [
+        ['favorites', 'get_playlist_favorites', (p) => ({ result: { items: range(Math.max(0, Math.min(p.limit, 70 - p.offset)), (i) => playlistObj(`p${i}`), p.offset), total: 70 } }), 50, 70],
+        ['albums', 'get_album_favorites', (p) => ({ result: { items: range(Math.max(0, Math.min(p.limit, 70 - p.offset)), (i) => ({ album: album(i) }), p.offset), total: 70 } }), 50, 70],
+        ['artists', 'get_artists_followed', (p) => {
+            const all = range(33, artist, 1);
+            const start = p.after ? all.findIndex(a => a.id === p.after) + 1 : 0;
+            return { result: { artists: { items: all.slice(start, start + p.limit), total: all.length } } };
+        }, 15, 30],
+    ];
+    for (const [id, service, works, firstPage, afterRetry] of sections) {
+        for (const failure of failures) {
+            let failing = false;
+            const api = stubApi({ [`fetchSpotifyPlus:${service}`]: (p) => (failing ? (typeof failure === 'function' ? failure() : failure) : works(p)) });
+            const host = makeHost({ pageId: `section:${id}`, type: 'section', id, api });
+            await pageLoaders.section(host.ctx);
+            const page1 = host.data;
+            assert.equal(page1.items.length, firstPage);
+            assert.equal(page1.hasMore, true);
+
+            failing = true;
+            await loadSectionMore(host.ctx);
+            const label = `${id} ${typeof failure === 'function' ? 'throws' : JSON.stringify(failure)}`;
+            assert.deepEqual(host.commits.at(-1), { patch: { isLoading: false }, options: { cache: false }, applied: true }, label);
+            assert.deepEqual(host.data, { ...page1, isLoading: false }, `${label}: list, offset, total, hasMore and cursor as they were`);
+            assert.equal(host.data.loadFailed, undefined, label);
+            assert.equal(host.cached, page1, `${label}: the cache keeps the last page that worked`);
+
+            // Scrolling on asks for the same page again (same offset / cursor).
+            failing = false;
+            await loadSectionMore(host.ctx);
+            assert.deepEqual(api.calls.at(-1), api.calls.at(-2), `${label}: the retry repeats the failed request`);
+            assert.equal(host.data.items.length, afterRetry, label);
+            assert.equal(host.cached, host.data, label);
+        }
+    }
 });
 
-test('section read throws: logged, the failed state uncached; a load more throwing only ends paging', async (t) => {
+test('section recent at a later offset (never asked for): a read that worked ends the paging', async () => {
+    const api = stubApi({ 'fetchSpotifyPlus:get_player_recent_tracks': { result: { items: [{ track: track(1) }] } } });
+    const host = makeHost({ pageId: 'section:recent', api, data: { type: 'section', id: 'recent', items: [album(1)], offset: 1, hasMore: true } });
+    await loadSection(host.ctx, 'recent', 1);
+    assert.equal(host.data.hasMore, false);
+    assert.deepEqual(host.data.items, [album(1)]);
+});
+
+test('section read throws: logged, the failed state uncached; a load more throwing only clears isLoading', async (t) => {
     const errors = t.mock.method(console, 'error', () => {});
     const api = stubApi({ 'fetchSpotifyPlus:get_playlist_favorites': () => Promise.reject(new Error('nope')) });
     const host = makeHost({ pageId: 'section:favorites', type: 'section', id: 'favorites', api });
@@ -774,7 +921,8 @@ test('section read throws: logged, the failed state uncached; a load more throwi
 
     const more = makeHost({ pageId: 'section:favorites', api, data: { type: 'section', id: 'favorites', items: [{ id: 'p0' }], offset: 50, hasMore: true } });
     await loadSection(more.ctx, 'favorites', 50);
-    assert.deepEqual(more.commits, [{ patch: { isLoading: false, hasMore: false }, options: { cache: false }, applied: true }]);
+    assert.deepEqual(more.commits, [{ patch: { isLoading: false }, options: { cache: false }, applied: true }]);
+    assert.equal(more.data.hasMore, true);
 });
 
 test('section superseded: the page is not committed', async () => {

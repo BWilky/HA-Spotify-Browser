@@ -124,21 +124,22 @@ const enumOf = (values, fallback) => (v, path) => {
 };
 
 /**
- * css size: bare numbers / numeric strings become px. A blank string is no
- * size: undefined, so the field keeps its default (it used to become 'px').
+ * css size: bare numbers / numeric strings become px. Strings are trimmed
+ * first (' 10 ' is '10px', not ' 10 px'). A blank string is no size:
+ * undefined, so the field keeps its default (it used to become 'px').
  * @param {any} v
  * @param {string} [path]  for the warning
  */
 const cssSize = (v, path = 'appearance.desktop') => {
     if (v === undefined || v === null) return null;
-    if (typeof v === 'string' && v.trim() === '') {
+    if (typeof v === 'number') return `${v}px`;
+    if (typeof v !== 'string') return String(v);
+    const s = v.trim();
+    if (s === '') {
         warnOnce(path, `"${path}" is empty — using the default.`);
         return undefined;
     }
-    if (typeof v === 'number') return `${v}px`;
-    // @ts-expect-error -- lib types isNaN(number); its ToNumber coercion of a numeric string is the point here
-    if (typeof v === 'string' && !isNaN(v)) return `${v}px`;
-    return String(v);
+    return Number.isNaN(Number(s)) ? s : `${s}px`;
 };
 
 const hashStr = (v) => {

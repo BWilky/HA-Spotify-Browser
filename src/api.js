@@ -766,8 +766,7 @@ export class SpotifyApi {
 
         if (specificDevice) {
             // specificDevice may be a device object (from a pending-play replay,
-            // so Sonos/brand detection works) or a bare id string (internal
-            // track fallback).
+            // so Sonos/brand detection works) or a bare device id string.
             resolvedDeviceObj = typeof specificDevice === 'object' ? specificDevice : null;
             deviceToUse = resolvedDeviceObj ? resolvedDeviceObj.id : specificDevice;
         } else {
@@ -865,14 +864,12 @@ export class SpotifyApi {
                         params.offset_uri = offset_uri;
                     }
 
-                    // Enable throwOnError to catch validation errors
-                    const res = await this.fetchSpotifyPlus('player_media_play_context', params, { expectResponse: false, throwOnError: true });
-
-                    if (!res && offset_uri) {
-                        console.warn("[SpotifyAPI] Context jump failed. Falling back to Track Play.");
-                        return await this.playMedia(extraOptions.offset_uri, 'track', deviceIdToTry);
-                    }
-                    if (!res) return { success: false, error: "Call Failed" };
+                    // throwOnError: a failed call throws (it never returns a
+                    // falsy value), so it lands in the catch below with the
+                    // error itself, for the caller and the classification
+                    // after executePlay. A rejected context or offset is no
+                    // exception: there is no play-the-track-alone fallback.
+                    await this.fetchSpotifyPlus('player_media_play_context', params, { expectResponse: false, throwOnError: true });
 
                     // Trigger Scan on Success
                     this.triggerScan();
@@ -880,9 +877,8 @@ export class SpotifyApi {
                 }
                 else if (type === 'likedsongs') {
                     params.shuffle = true;
-                    // Enable throwOnError
-                    const res = await this.fetchSpotifyPlus('player_media_play_track_favorites', params, { expectResponse: false, throwOnError: true });
-                    if (!res) return { success: false, error: "Call Failed" };
+                    // throwOnError, as above.
+                    await this.fetchSpotifyPlus('player_media_play_track_favorites', params, { expectResponse: false, throwOnError: true });
 
                     // Trigger Scan on Success
                     this.triggerScan();
@@ -894,9 +890,8 @@ export class SpotifyApi {
                         const uriArray = Array.isArray(uri) ? uri : [uri];
                         params.uris = uriArray.join(',');
 
-                        // Enable throwOnError
-                        const res = await this.fetchSpotifyPlus('player_media_play_tracks', params, { expectResponse: false, throwOnError: true });
-                        if (!res) return { success: false, error: "Call Failed" };
+                        // throwOnError, as above.
+                        await this.fetchSpotifyPlus('player_media_play_tracks', params, { expectResponse: false, throwOnError: true });
                     } else {
                         const contentId = Array.isArray(uri) ? uri[0] : uri;
                         // Active-device single-track play: drive the Sonos entity
