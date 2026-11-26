@@ -7,14 +7,13 @@ export const popupsStyles = css`
      * separate layers of the app's stack, and the desktop device picker —
      * rendered by the app root, not in here — sits between them:
      *
-     *   230000  toasts          ("Scanning for devices..." shows over the picker)
-     *   229500  device picker   (--spf-sheet-z on <spotify-popup-devices>, set in the root template)
-     *   229000  alert backdrop  (over the device manager at 212000 and every default sheet at 215000)
+     *   241000  toasts          (status messages stay readable over anything)
+     *   240000  alert backdrop  (always on top: over the device picker at
+     *                            229500, the playlist create sheet at 230000,
+     *                            the device manager, every default sheet and
+     *                            the context menu at 215000)
      *
-     * This is the order the three had when the picker lived inside this
-     * element (then one z-index 230000 layer holding all of them), and all
-     * three stay under the playlist create sheet (230000, later in the root
-     * template) as before. Keep the numbers together when changing one.
+     * Keep the numbers together when changing one.
      */
     :host {
         /* OVERRIDE shared-styles 0x0 */
@@ -25,8 +24,8 @@ export const popupsStyles = css`
         z-index: auto;
         pointer-events: none; /* Let clicks pass through empty areas */
     }
-    .popup-backdrop { z-index: 229000; }
-    .toast-container { z-index: 230000; }
+    .popup-backdrop { z-index: 240000; }
+    .toast-container { z-index: 241000; }
 
     /* --- Reusable Alert Modal --- */
     .alert-content {

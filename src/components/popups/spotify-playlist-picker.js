@@ -292,6 +292,7 @@ export class SpotifyPlaylistPicker extends LitElement {
         fireHaptic('light');
         try {
             let added = 0;
+            let failed = 0;
             let removedFromLiked = false;
 
             if (likedChanged && this.track?.id) {
@@ -301,6 +302,8 @@ export class SpotifyPlaylistPicker extends LitElement {
                 if (res.success) {
                     if (this._likedSelected) added++;
                     else removedFromLiked = true;
+                } else {
+                    failed++;
                 }
             }
 
@@ -315,6 +318,8 @@ export class SpotifyPlaylistPicker extends LitElement {
                 if (res.success) {
                     added++;
                     this._dispatchChanged(pl.id);
+                } else {
+                    failed++;
                 }
             }
 
@@ -346,7 +351,10 @@ export class SpotifyPlaylistPicker extends LitElement {
                 return;
             }
 
-            if (added) this._toast(summary(added));
+            // The api sends these over the websocket, so Home Assistant shows no
+            // error of its own: a failure has to be said here.
+            if (failed) this._toast(added || removedFromLiked ? `${added ? summary(added) : 'Removed from Liked Songs'} — some changes failed` : "Couldn't save — try again.");
+            else if (added) this._toast(summary(added));
             else if (removedFromLiked) this._toast('Removed from Liked Songs');
             this._close();
         } finally {

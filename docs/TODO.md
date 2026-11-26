@@ -4,7 +4,7 @@ A running list of improvements for this codebase: duplicated code that can share
 
 Paths are relative to the repo root (source lives under `src/`). Background: `docs/plans/architecture-review.md`, `docs/plans/phase3-dead-code-and-final-verification.md`, `docs/plans/HANDOFF.md`.
 
-**Now:** wave A of the cleanup is running (four agents on separate files) — the `[~]` items. Next wave: S7, S9, S10, S12, P2, P4.
+**Now:** wave A and decisions D1–D6 are done. Next: S7, S8, S9, S10, S12, S15/S17, P2, P4.
 
 Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs the owner's decision · `[-]` decided against (reason given)
 
@@ -12,7 +12,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 - [x] **D1 Subtitle wording, one style**: lists (Library, Search, "See All") read "Playlist • Owner", "Album • Artists", "Song • Artists", "Artist"; Home cards read just the owner / artists; the artist discography reads "2015 • Album" (or "• Single", etc.). Replaces `SUBTITLE_STYLE`'s per-screen variants. — **Done (e9f894d):** one rule with three styles (`list`, `card`, `discography`); `library` / `search` / `section` remain as aliases of `list` until the library call site is updated.
 - [x] **D2 Toast when a pin is pushed off** the full list: "Removed X to make room". — **Done (c3d6c87):** `evictedPinMessage` toast from the playlist page, artist page, Library rows and add-by-URI.
-- [ ] **D3 Alerts always on top**, including over the desktop device picker.
+- [x] **D3 Alerts always on top**, including over the desktop device picker. — **Done (c438377):** alert backdrop at 240000 and toasts at 241000, above every sheet, the device picker and the create sheet.
 - [x] **D4 One playlist "…" menu**: the Library row offers the same actions as the playlist page (Edit, Make Private/Public, Collaborative, Pin, Delete for the owner; Remove from Your Library and Pin otherwise), and "Playlist deleted" is shown from both places. — **Done (c3d6c87):** Library row menu matches the playlist page (owner: edit, privacy, collaborative, pin, delete; follower: remove from library, pin); "Playlist deleted" from both.
 - [x] **D5 Collaborators get "Edit Playlist"** where they are allowed to edit (collaborative playlist they follow). — **Done (c3d6c87):** "Edit Playlist" shown wherever the user may edit tracks (collaborative playlists they follow).
 - [x] **D6 Discography page uses the app header** like every other page (drop its own sticky header and back arrow). — **Done (e9f894d):** the discography page uses the app header (one back button, title in the header, opaque from the start) and the shared list-page scroll handling.
@@ -55,7 +55,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 ## Bugs and robustness
 
 - [x] **B14 Follow/unfollow from the playlist page does not refresh the library**: `_toggleFollowPlaylist` (`spotify-playlist-view.js` ~894) sends no `playlist-changed`, so a cached library Playlists list is stale until refreshed (delete and edit do refresh it). — **Done (c3d6c87):** follow/unfollow sends `playlist-changed` `follow`/`unfollow`; the app only refreshes the library list for those.
-- [ ] **B8 Silent like failure in the playlist picker**: after B4's switch to the websocket path, the picker's Liked Songs toggle (`src/components/popups/spotify-playlist-picker.js` ~298) shows nothing when the save fails (the now-playing heart got a message in 05b0ac7).
+- [x] **B8 Silent like failure in the playlist picker**: after B4's switch to the websocket path, the picker's Liked Songs toggle (`src/components/popups/spotify-playlist-picker.js` ~298) shows nothing when the save fails (the now-playing heart got a message in 05b0ac7). — **Done (c438377):** the playlist picker reports failed Liked Songs saves and playlist adds ("Couldn't save — try again.", or "… — some changes failed").
 - [x] **B9 Duplicate load while a page is loading**: `spotify-context-view` re-runs `loadPageData` on every relevant hass change while the page still has `isLoading: true` (e.g. the Liked Songs shell), starting a second full load (`src/components/spotify-context-view.js` ~90). — **Done (617605b):** a load in flight for the page is not started again by later hass ticks; `refresh()` still supersedes it.
 - [x] **B10 Failed "See All" load-more stops paging for good**: it commits and caches `hasMore: false` (`page-loaders.js` ~485); discography and Liked Songs load-more do not cache a failure. — **Done (617605b):** a failed load-more keeps `hasMore` (uncached), so scrolling retries.
 - [x] **B11 `cssSize(' 10 ')`** gives `' 10 px'` (invalid CSS) (`config_parser.js` ~140). — **Done (617605b):** sizes are trimmed first.
