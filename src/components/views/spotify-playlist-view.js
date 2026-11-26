@@ -8,6 +8,7 @@ import { HeroScrollController } from '../controllers/hero-scroll-controller.js';
 import { TrackLikesController } from '../controllers/track-likes-controller.js';
 import { OptimisticPlaybackController } from '../controllers/optimistic-playback-controller.js';
 import { PinStateController } from '../controllers/pin-state-controller.js';
+import { playlistMenuItems, openActionMenu, togglePlaylistFlag, confirmDeletePlaylist } from '../playlist-actions.js';
 import './spotify-playlist-editor.js';
 
 // Stable empty list, so "no tracks yet" doesn't look like a new array each render.
@@ -925,138 +926,36 @@ export class SpotifyPlaylistView extends LitElement {
 
     /* --- PLAYLIST MANAGEMENT (header menu + edit mode) --- */
 
-    /** Playlist header "..." menu; items depend on ownership. */
+    /** Playlist header "..." menu (playlist-actions.js); items depend on ownership. */
     _openHeaderMenu(e) {
         e?.stopPropagation();
         const data = this.data;
         if (!data) return;
-        const isOwner = !!data.isOwner;
-        const items = [];
-        if (isOwner) {
-            items.push({ id: 'pm-edit', label: 'Edit Playlist', icon: 'pencil' });
-            items.push(data.public !== false
-                ? { id: 'pm-toggle-public', label: 'Make Private', icon: 'lock' }
-                : { id: 'pm-toggle-public', label: 'Make Public', icon: 'lock' });
-            items.push(data.collaborative
-                ? { id: 'pm-toggle-collab', label: 'Remove Collaborative', icon: 'people' }
-                : { id: 'pm-toggle-collab', label: 'Make Collaborative', icon: 'people' });
-        } else {
-            items.push(this._isFollowing
-                ? { id: 'pm-unfollow', label: 'Remove from Your Library', icon: 'heart-filled' }
-                : { id: 'pm-follow', label: 'Add to Your Library', icon: 'heart' });
-        }
-        if (this._pin.entity) {
-            items.push({ id: 'pm-pin', label: this._pin.isPinned ? 'Unpin from Home' : 'Pin to Home', icon: 'pin' });
-        }
-        if (isOwner) {
-            items.push({ id: 'pm-delete', label: 'Delete Playlist', icon: 'trash', danger: true });
-        }
-        this.dispatchEvent(new CustomEvent('open-context-menu', {
-            detail: {
-                header: {
-                    image: data.images?.[0]?.url || '',
-                    name: data.name,
-                    subtitle: data.owner?.display_name || 'Playlist'
-                },
-                items,
-                anchor: e?.currentTarget?.getBoundingClientRect?.() || null,
-                onAction: (id) => this._handleHeaderMenuAction(id)
+        openActionMenu(this, {
+            header: {
+                image: data.images?.[0]?.url || '',
+                name: data.name,
+                subtitle: data.owner?.display_name || 'Playlist'
             },
-            bubbles: true,
-            composed: true
-        }));
-    }
-
-    _handleHeaderMenuAction(action) {
-        switch (action) {
-            case 'pm-edit':
-                this._enterEditMode();
-                break;
-            case 'pm-toggle-public':
-                this._togglePlaylistFlag('public');
-                break;
-            case 'pm-toggle-collab':
-                this._togglePlaylistFlag('collaborative');
-                break;
-            case 'pm-pin':
-                this._pin.toggle();
-                break;
-            case 'pm-follow':
-            case 'pm-unfollow':
-                this._toggleFollowPlaylist();
-                break;
-            case 'pm-delete':
-                this._confirmDelete();
-                break;
-        }
-    }
-
-    /**
-     * Flip public/collaborative from the header menu (Spotify's "Make private"
-     * style). playlist_change requires ALL FOUR fields, so current name and
-     * description ride along; Spotify forces collaborative playlists private,
-     * mirrored here on both sides of the toggle.
-     */
-    async _togglePlaylistFlag(flag) {
-        const data = this.data;
-        if (!data?.id || !this.api) return;
-        let isPublic = data.public !== false;
-        let collaborative = !!data.collaborative;
-        if (flag === 'public') {
-            isPublic = !isPublic;
-            if (isPublic) collaborative = false; // collaborative must stay private
-        } else {
-            collaborative = !collaborative;
-            if (collaborative) isPublic = false;
-        }
-        const res = await this.api.changePlaylistDetails(data.id, {
-            name: data.name,
-            description: data.description || '',
-            isPublic,
-            collaborative
+            items: playlistMenuItems(data, {
+                surface: 'page',
+                isOwner: !!data.isOwner,
+                isFollowing: this._isFollowing,
+                canPin: !!this._pin.entity,
+                isPinned: this._pin.isPinned,
+            }),
+            anchor: e?.currentTarget?.getBoundingClientRect?.() || null,
+            // Read this.data when chosen, as the menu may outlive a data swap.
+            actions: {
+                'edit': () => this._enterEditMode(),
+                'toggle-public': () => togglePlaylistFlag(this, this.api, this.data, 'public'),
+                'toggle-collab': () => togglePlaylistFlag(this, this.api, this.data, 'collaborative'),
+                'pin': () => this._pin.toggle(),
+                'follow': () => this._toggleFollowPlaylist(),
+                'unfollow': () => this._toggleFollowPlaylist(),
+                'delete': () => confirmDeletePlaylist(this, this.api, this.data, { successToast: 'Playlist deleted' }),
+            },
         });
-        if (!res.success) {
-            this._toast("Couldn't update playlist settings");
-            return;
-        }
-        const finalPublic = collaborative ? false : isPublic;
-        this._toast(flag === 'public'
-            ? (finalPublic ? 'Playlist is now public' : 'Playlist is now private')
-            : (collaborative ? 'Playlist is now collaborative' : 'Collaborative turned off'));
-        this.dispatchEvent(new CustomEvent('playlist-changed', {
-            detail: {
-                playlistId: data.id,
-                action: 'edit',
-                patch: { public: finalPublic, collaborative }
-            },
-            bubbles: true,
-            composed: true
-        }));
-    }
-
-    _confirmDelete() {
-        this.dispatchEvent(new CustomEvent('show-alert', {
-            detail: {
-                title: 'Delete playlist?',
-                message: `"${this.data.name}" will be removed from Your Library.`,
-                confirmText: 'Delete',
-                onConfirm: async () => {
-                    const res = await this.api.unfollowPlaylist(this.data.id);
-                    if (res.success) {
-                        this._toast('Playlist deleted');
-                        this.dispatchEvent(new CustomEvent('playlist-changed', {
-                            detail: { playlistId: this.data.id, action: 'delete' },
-                            bubbles: true,
-                            composed: true
-                        }));
-                    } else {
-                        this._toast("Couldn't delete playlist");
-                    }
-                }
-            },
-            bubbles: true,
-            composed: true
-        }));
     }
 
     /* --- EDIT MODE --- */

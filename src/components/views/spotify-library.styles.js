@@ -42,6 +42,7 @@ export const libraryStyles = css`
         background: linear-gradient(135deg, #4a35d6 0%, #8d7bf0 100%);
         display: flex; align-items: center; justify-content: center;
     }
+    /* Sizes and colours the shared heartIcon(true) (its 18px / currentColor attributes give way). */
     .art.liked svg { width: 26px; height: 26px; fill: #fff; }
     /* Flex so the Liked Songs row can lead its subtitle with a pin icon. */
     .sub { display: flex; align-items: center; gap: 5px; }

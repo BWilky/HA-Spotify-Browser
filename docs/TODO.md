@@ -10,13 +10,16 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 ## Needs a decision
 
+- [?] **D4 Playlist menus differ by place** (kept as-is behind options in `playlist-actions.js`): the library row menu has no "Remove from Your Library" for followed playlists and no privacy/collaborative toggles, and orders items differently from the playlist page; "Playlist deleted" is toasted only when deleting from the playlist page.
+- [?] **D5 Collaborators cannot reach edit mode**: a collaborator on a followed collaborative playlist is allowed to edit (`canEditItems`), but "Edit Playlist" is only offered to the owner.
+
 - [?] **D1 Subtitle wording** differs by screen (`SUBTITLE_STYLE` in `src/components/media-templates.js`). A playlist reads "Playlist • Bob" (library, search), "By Bob" ("See All", discography) or "Bob" (home cards). Suggested: lists use Spotify's "Type • who" form, home cards just "who", discography "2015 • Album/Single".
 - [?] **D2 Toast when a pin is pushed off** the full list ("Removed X to make room"). Today the eviction is silent.
 - [?] **D3 Alert stacking**: an alert opens under the desktop device picker (inherited layering). One number to flip if an alert should always be on top.
 
 ## Shared helpers / duplicated code
 
-- [~] **S1 Playlist actions written twice** — delete confirmation, pin toggle and the owner/non-owner menus exist in both `src/components/views/spotify-playlist-view.js` and `src/components/views/spotify-library.js`. One `playlist-actions.js` helper.
+- [x] **S1 Playlist actions written twice** — delete confirmation, pin toggle and the owner/non-owner menus exist in both `src/components/views/spotify-playlist-view.js` and `src/components/views/spotify-library.js`. One `playlist-actions.js` helper. — **Done (f51d08c):** `src/components/playlist-actions.js` (menus, pin, privacy/collaborative, delete, edit entry) used by both; 156 recorded user steps identical before and after. Library Liked Songs heart uses `heartIcon(true)`.
 - [x] **S2 Artist view carousels** — the "title + carousel + skeleton-or-cards" block appears three times in `src/components/views/spotify-artist-view.js`; `renderCarouselSection` (media-templates) already exists. — **Done (b89c6b5):** artist rails use `renderCarouselSection` (`ARTIST_CAROUSEL` options).
 - [x] **S3 Artist view track-menu payload** is still hand-built; `openTrackMenu` / `trackMenuDetail` (`src/components/track-menu.js`) exist. — **Done (b89c6b5):** artist top tracks use `openTrackMenu` (thumbnail image).
 - [~] **S4 Section and discography pages** run their own scroll/header/load-more code instead of `HeroScrollController`. — **Section page done (b89c6b5).** Discography left: it sends no header events and its 6-line load-more check is synchronous; moving it would add options and change load-more timing by a frame, for no line saving.
@@ -29,6 +32,9 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - [~] **S11 Header CSS duplicated**: most of the block moved from `sharedStyles` into `src/components/spotify-header.js` is re-declared and overridden by `spotify-header.styles.js`.
 - [ ] **S12 Single-consumer rules still in `sharedStyles`** (home `.section-title`/`.section-grid`/`.scroll-btn`/`.recent-grid-layout`; playlist `.track-row.with-art`, `.track-name`, `.track-artist`, `.track-action-btn.is-favorite`, mobile `.hero-title`; context-list mobile `.list-container`; tracklist `.queue-list` in the scrollbar list). Move each beside its component where cascade order allows.
 - [~] **S13 Connect sheet vs picker polish**: the picker has four row rules (tap highlight, `:active`, ellipsis, svg no-shrink) the Connect sheet lacks; the Connect sheet's active-device card ignores custom device icons; the type line wording differs (`deviceTypeLabel` vs raw type).
+
+- [ ] **S16 Pin toggle and owner rule repeated**: `PinStateController.toggle` (`src/components/controllers/pin-state-controller.js` ~58) repeats `togglePin` from `playlist-actions.js` (same `pinned-changed` event and "Pinning Failed" alert); `page-loaders.js` ~65 repeats `isPlaylistOwner`.
+- [ ] **S17 More icon duplicates (views and popups)**: check mark ×3 (`spotify-playlist-view.js` ~603, `now-playing-mobile.js` ~507, `spotify-playlist-picker.js` ~376); shuffle ×2 in `spotify-playlist-view.js` (~609, ~617) plus variants in the two now-playing surfaces; sort arrows ×2 (`spotify-library.js` ~405, `spotify-playlist-picker.js` ~403); search magnifier at four sizes (library, header, search, playlist picker); the playlist picker's Liked Songs heart could use `heartIcon(true)`.
 
 ## Dead code
 
@@ -48,6 +54,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 ## Bugs and robustness
 
+- [ ] **B14 Follow/unfollow from the playlist page does not refresh the library**: `_toggleFollowPlaylist` (`spotify-playlist-view.js` ~894) sends no `playlist-changed`, so a cached library Playlists list is stale until refreshed (delete and edit do refresh it).
 - [ ] **B8 Silent like failure in the playlist picker**: after B4's switch to the websocket path, the picker's Liked Songs toggle (`src/components/popups/spotify-playlist-picker.js` ~298) shows nothing when the save fails (the now-playing heart got a message in 05b0ac7).
 - [ ] **B9 Duplicate load while a page is loading**: `spotify-context-view` re-runs `loadPageData` on every relevant hass change while the page still has `isLoading: true` (e.g. the Liked Songs shell), starting a second full load (`src/components/spotify-context-view.js` ~90).
 - [ ] **B10 Failed "See All" load-more stops paging for good**: it commits and caches `hasMore: false` (`page-loaders.js` ~485); discography and Liked Songs load-more do not cache a failure.

@@ -3,8 +3,12 @@ import { sharedStyles } from '../../styles/shared-styles.js';
 import { listRowStyles, filterPillStyles } from '../../styles/list-row.styles.js';
 import { libraryStyles } from './spotify-library.styles.js';
 import { getItemImage, isContextPlaying, getPlayerStateObj, getLibrarySort, setLibrarySort, IMG_THUMB } from '../../utils.js';
-import { menuIcon } from '../common/icons.js';
+import { menuIcon, heartIcon } from '../common/icons.js';
 import { renderListRow, renderRowSkeletons, renderEmptyState, itemSubtitle, SUBTITLE_STYLE } from '../media-templates.js';
+import {
+    playlistMenuItems, playlistMenuState, openActionMenu, togglePin, playlistPinItem,
+    openPlaylistEditor, confirmDeletePlaylist,
+} from '../playlist-actions.js';
 
 // Filter pills. `null` = the default "Recents" view; the rest map to a saved /
 // followed bucket. The integration has no podcast/show support, so no Podcasts.
@@ -13,8 +17,6 @@ const FILTERS = [
     { type: 'album', label: 'Albums' },
     { type: 'artist', label: 'Artists' },
 ];
-
-const HEART_SVG = html`<svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>`;
 
 const PAGE_SIZE = 50;
 // A–Z can't page incrementally (the integration sorts each fetched page
@@ -444,7 +446,7 @@ class SpotifyLibrary extends LitElement {
     _renderLikedRow() {
         return html`
             <div class="row" @click=${this._navigateLiked}>
-                <div class="art liked">${HEART_SVG}</div>
+                <div class="art liked">${heartIcon(true)}</div>
                 <div class="info">
                     <div class="name">Liked Songs</div>
                     <div class="sub">
@@ -468,38 +470,29 @@ class SpotifyLibrary extends LitElement {
         });
     }
 
-    /** Context menu for a library row (playlist: pin/edit/delete; album: go to artist). */
+    /**
+     * Context menu for a library row. Playlist: pin, and edit/delete when it
+     * is yours (playlist-actions.js); album: go to artist.
+     */
     async _openRowMenu(e, item, type) {
         e.stopPropagation();
         const anchor = e.currentTarget.getBoundingClientRect();
-        const items = [];
-        const actions = {};
+        let items = [];
+        let actions = {};
 
         if (type === 'playlist') {
-            const canPin = !!(this.pinned?.canEdit() && this.pinned.sensorEntity);
-            const [userId, pinnedItems] = await Promise.all([
-                this.api.getCurrentUserId().catch(() => null),
-                canPin ? this.pinned.getItems().catch(() => []) : Promise.resolve([]),
-            ]);
-            if (canPin) {
-                const isPinned = !!pinnedItems.find(p => p.id === item.id);
-                items.push({ id: 'lm-pin', label: isPinned ? 'Unpin from Home' : 'Pin to Home', icon: 'pin' });
-                actions['lm-pin'] = () => this._togglePinItem(item);
-            }
-            if (userId && item.owner?.id === userId) {
-                items.push({ id: 'lm-edit', label: 'Edit Playlist', icon: 'pencil' });
-                actions['lm-edit'] = () => this.dispatchEvent(new CustomEvent('navigate', {
-                    detail: { pageId: `playlist:${item.id}`, data: { title: item.name, type: 'playlist', autoEdit: true } },
-                    bubbles: true, composed: true
-                }));
-                items.push({ id: 'lm-delete', label: 'Delete Playlist', icon: 'trash', danger: true });
-                actions['lm-delete'] = () => this._confirmDeletePlaylist(item);
-            }
+            const state = await playlistMenuState(this.api, this.pinned, item);
+            items = playlistMenuItems(item, { surface: 'row', ...state });
+            actions = {
+                'pin': () => togglePin(this, this.pinned, playlistPinItem(item)),
+                'edit': () => openPlaylistEditor(this, item),
+                'delete': () => confirmDeletePlaylist(this, this.api, item, { cancelText: 'Cancel' }),
+            };
         } else if (type === 'album') {
             const artist = (item.artists || []).find(a => a.id);
             if (artist) {
                 items.push({ id: 'lm-artist', label: 'Go to Artist', icon: 'artist' });
-                actions['lm-artist'] = () => this.dispatchEvent(new CustomEvent('navigate', {
+                actions.artist = () => this.dispatchEvent(new CustomEvent('navigate', {
                     detail: { pageId: `artist:${artist.id}`, data: { title: artist.name, type: 'artist', subtitle: 'Artist' } },
                     bubbles: true, composed: true
                 }));
@@ -507,58 +500,12 @@ class SpotifyLibrary extends LitElement {
         }
         if (!items.length) return;
 
-        this.dispatchEvent(new CustomEvent('open-context-menu', {
-            detail: {
-                header: { image: getItemImage(item, type, IMG_THUMB), name: item.name, subtitle: type === 'playlist' ? 'Playlist' : 'Album' },
-                items,
-                anchor,
-                onAction: (id) => actions[id]?.(),
-            },
-            bubbles: true, composed: true
-        }));
-    }
-
-    async _togglePinItem(item) {
-        const result = await this.pinned.toggle({
-            id: item.id,
-            type: 'playlist',
-            name: item.name,
-            images: item.images,
-            uri: item.uri,
-            description: item.description
+        openActionMenu(this, {
+            header: { image: getItemImage(item, type, IMG_THUMB), name: item.name, subtitle: type === 'playlist' ? 'Playlist' : 'Album' },
+            items,
+            anchor,
+            actions,
         });
-        if (result.success) {
-            this.dispatchEvent(new CustomEvent('pinned-changed', { bubbles: true, composed: true }));
-        } else {
-            this.dispatchEvent(new CustomEvent('show-alert', {
-                detail: { title: 'Pinning Failed', message: result.error || 'Unknown error', confirmText: 'OK', size: 'mini' },
-                bubbles: true, composed: true
-            }));
-        }
-    }
-
-    _confirmDeletePlaylist(item) {
-        this.dispatchEvent(new CustomEvent('show-alert', {
-            detail: {
-                title: 'Delete playlist?',
-                message: `"${item.name}" will be removed from Your Library.`,
-                confirmText: 'Delete',
-                cancelText: 'Cancel',
-                onConfirm: async () => {
-                    const res = await this.api.unfollowPlaylist(item.id);
-                    if (!res?.success) {
-                        this.dispatchEvent(new CustomEvent('show-toast', {
-                            detail: { message: "Couldn't delete playlist" }, bubbles: true, composed: true
-                        }));
-                        return;
-                    }
-                    this.dispatchEvent(new CustomEvent('playlist-changed', {
-                        detail: { playlistId: item.id, action: 'delete' }, bubbles: true, composed: true
-                    }));
-                }
-            },
-            bubbles: true, composed: true
-        }));
     }
 }
 
