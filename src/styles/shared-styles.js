@@ -112,16 +112,11 @@ export const sharedStyles = css`
 
     /* ================= MOBILE STYLES ================= */
     @media (max-width: 768px) {
-        .hero-title { font-size: 2rem !important; }
-
         /* Ensure view containers are padded above mini player and bottom nav */
         .scroll-content {
             padding-bottom: calc(130px + var(--spf-safe-bottom, 0px)) !important;
         }
         .main-scroll-container {
-            padding-bottom: calc(130px + var(--spf-safe-bottom, 0px)) !important;
-        }
-        .list-container {
             padding-bottom: calc(130px + var(--spf-safe-bottom, 0px)) !important;
         }
     }
@@ -147,19 +142,17 @@ export const sharedStyles = css`
            Our text ran a touch larger than the native app. shared-styles is
            imported into every component's shadow root, so reducing these shared
            text primitives here scales them app-wide. This is the single place to
-           tune mobile text sizing. */
+           tune mobile text sizing.
+           NOTE: the base .media-title / .media-subtitle rules further down
+           come later in this sheet and win, so these two have no effect. */
         .media-title { font-size: var(--spf-text-base, 13.5px); }
         .media-subtitle { font-size: var(--spf-text-xs, 11px); }
-        .section-title { font-size: var(--spf-text-md, 15px); }
-        .track-name { font-size: var(--spf-text-base, 13.5px); }
-        .track-artist { font-size: var(--spf-text-sm, 12px); }
     }
 
     /* --- Content Components --- */
-    .section-title { font-size: var(--spf-text-lg, 17px); font-weight: 700; margin-bottom: 16px; margin-top: 32px; }
-    .section-title:first-child { margin-top: 0; }
+    /* .section-title, .section-grid and the carousel .scroll-btn live in
+       components/spotify-home.styles.js (home is their only consumer). */
     .section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; margin-top: 32px; }
-    .section-header .section-title { margin: 0; }
     .see-all-btn { background: none; border: none; color: var(--spf-text-sub); font-weight: 700; cursor: pointer; font-size: var(--spf-text-sm, 12px); letter-spacing: 1px; text-transform: uppercase; transition: color 0.2s; }
     .see-all-btn:hover { color: var(--spf-text-main); text-decoration: underline; }
 
@@ -173,17 +166,6 @@ export const sharedStyles = css`
     .carousel-layout::-webkit-scrollbar { height: 6px; background: transparent; }
     .carousel-layout:hover::-webkit-scrollbar-thumb { background: var(--spf-scroll-thumb); border-radius: 4px; }
     .carousel-layout .media-card { min-width: 125px; width: 125px; flex-shrink: 0; }
-
-    .section-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); gap: 20px; }
-
-    .scroll-btn {
-        position: absolute; top: 45%; transform: translateY(-50%); z-index: 2;
-        background: rgba(0,0,0,0.7); color: var(--spf-text-main); border: none; border-radius: 50%; 
-        width: 32px; height: 32px; cursor: pointer;
-        display: flex; align-items: center; justify-content: center;
-        opacity: 0; transition: opacity 0.3s; right: -10px;
-    }
-    .carousel-wrapper:hover .scroll-btn { opacity: 1; }
 
     /* Media Card */
     .media-card {
@@ -248,10 +230,12 @@ export const sharedStyles = css`
     /* Hero & artist-pill styles live in spotify-context-view.styles.js
        (playlist/artist views are the only consumers and import it).
        .recent-grid-layout lives in components/spotify-home.styles.js (home is
-       the only consumer); the scrollbar rules below still reference it. */
+       the only consumer), its share of the scrollbar rules below too. */
 
     /* Track Rows (also consumed by spotify-context-list, which imports only
-       sharedStyles — keep these here) */
+       sharedStyles — keep these here). The playlist layout's own text and
+       like-button rules (.track-name, .track-artist, .is-favorite) are in
+       views/spotify-playlist-view.js, their only consumer. */
     .track-row {
         overflow: visible;
         display: grid;
@@ -263,23 +247,18 @@ export const sharedStyles = css`
         min-height: 56px;
         box-sizing: border-box;
     }
-    .track-row.with-art { grid-template-columns: 40px 48px 1fr auto; }
 
     @media (hover: hover) { 
         .track-row:hover { background: var(--spf-hover-white); } 
         .track-row:active { background: var(--spf-active-white); }
     }
     
-    .track-row.playing .track-name { color: var(--spf-brand); }
     .track-num { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); text-align: center; }
     
     .track-art-small {
         width: 40px; height: 40px; background-size: cover; background-position: center;
         border-radius: 4px; background-color: var(--spf-skeleton-bg);
     }
-
-    .track-name { color: var(--spf-text-main); font-size: var(--spf-text-md, 15px); }
-    .track-artist { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); }
 
     .track-actions-right {
         display: flex;
@@ -291,8 +270,6 @@ export const sharedStyles = css`
     
     .track-action-btn { background: transparent; border: none; color: var(--spf-text-sub); cursor: pointer; padding: 8px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: color 0.2s, background 0.2s; }
     @media (hover: hover) { .track-action-btn:hover { color: var(--spf-text-main); background: var(--spf-hover-white); } }
-    .track-action-btn.is-favorite { color: var(--spf-brand); }
-    .track-action-btn.is-favorite svg { fill: var(--spf-brand); }
     
     
     /* Artist / Skeleton Styles */
@@ -305,12 +282,15 @@ export const sharedStyles = css`
     /* ================================================= */
     /* SCROLLBAR STYLING (Floating & Hover Only)        */
     /* ================================================= */
-    /* The .page entries of these selector lists (the router's page
-       elements, root shadow root only) are in spotify-browser-app.styles.js. */
+    /* The other entries of these selector lists moved beside their only
+       consumer: .page (the router's page elements, root shadow root only) to
+       spotify-browser-app.styles.js, .queue-list to
+       components/players/sidebar/queue.js, .recent-grid-layout to
+       components/spotify-home.styles.js. */
 
     /* 1. Mobile/Touch: Native Overlay (Fade on scroll) */
     @media (max-width: 768px) {
-        .queue-list, .carousel-layout, .recent-grid-layout, .scroll-content {
+        .carousel-layout, .scroll-content {
             scrollbar-width: none; /* Hide standard bars */
             -ms-overflow-style: none;
         }
@@ -319,7 +299,7 @@ export const sharedStyles = css`
 
     /* 2. Desktop: Invisible Track + Floating Thumb */
     @media (min-width: 769px) {
-        .queue-list, .carousel-layout, .recent-grid-layout, .scroll-content {
+        .carousel-layout, .scroll-content {
             /* Try to force overlay (Chrome/Edge feature) */
             overflow-y: overlay !important;
             
@@ -330,7 +310,7 @@ export const sharedStyles = css`
         }
 
         /* Firefox Hover */
-        .queue-list:hover, .scroll-content:hover {
+        .scroll-content:hover {
             scrollbar-color: rgba(255,255,255,0.2) transparent;
         }
 
@@ -359,7 +339,6 @@ export const sharedStyles = css`
         }
 
         /* Show Thumb on Container Hover */
-        .queue-list:hover::-webkit-scrollbar-thumb,
         .scroll-content:hover::-webkit-scrollbar-thumb {
             background-color: rgba(255, 255, 255, 0.25); /* Visible Grey */
         }

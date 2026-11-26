@@ -98,9 +98,13 @@ export class SpotifyArtistView extends LitElement {
             dedupe: true,
         });
         // Each follow / unfollow is re-checked 3 s later (pending re-checks
-        // are cancelled on disconnect).
+        // are cancelled on disconnect), for the artist it was made on (B16):
+        // every successful toggle queues its artist id and gets exactly one
+        // re-check, and the re-checks fire in toggle order.
+        this._followVerifyIds = [];
+        this._followCheck = 0; // bumped per follow check and per toggle (B15)
         this._follow = new FollowStateController(this, {
-            verify: () => this.api.checkArtistsFollowing(this.data.id),
+            verify: () => this._verifyFollow(this._followVerifyIds.shift()),
             onCorrected: () => console.warn("[SpotifyArtistView] Follow state mismatch detected after verification. Correcting."),
         });
     }
@@ -108,6 +112,11 @@ export class SpotifyArtistView extends LitElement {
     connectedCallback() {
         super.connectedCallback();
         this._pin.check();
+    }
+
+    disconnectedCallback() {
+        super.disconnectedCallback(); // FollowStateController drops its pending re-checks
+        this._followVerifyIds = [];
     }
 
     updated(changedProperties) {
@@ -133,19 +142,39 @@ export class SpotifyArtistView extends LitElement {
 
     async _checkFollowStatus() {
         if (!this.api || !this.data) return;
-        const isFollowing = await this.api.checkArtistsFollowing(this.data.id);
+        // B15: only the latest check, for the artist still shown, may set the
+        // button; a later check or a toggle supersedes an answer on its way.
+        const check = ++this._followCheck;
+        const artistId = this.data.id;
+        const isFollowing = await this.api.checkArtistsFollowing(artistId);
+        if (check !== this._followCheck || this.data?.id !== artistId) return;
         if (isFollowing !== null) {
             this._follow.following = isFollowing;
         }
     }
 
+    /**
+     * The re-check of a toggle made on `artistId` (the controller's verify):
+     * null, so no correction, once the page shows another artist (B16).
+     */
+    async _verifyFollow(artistId) {
+        if (!artistId || !this.api || this.data?.id !== artistId) return null;
+        const following = await this.api.checkArtistsFollowing(artistId);
+        return this.data?.id === artistId ? following : null;
+    }
+
     /** Follow button: optimistic (FollowStateController), an alert when it fails. */
     async _toggleFollow() {
         if (!this.api || !this.data) return;
+        // The artist shown now: the call and its re-check are for this one.
+        const artistId = this.data.id;
+        this._followCheck++; // a follow check still on its way no longer applies (B15)
         const ok = await this._follow.toggle(async (follow) => {
             const result = follow
-                ? await this.api.followArtist(this.data.id)
-                : await this.api.unfollowArtist(this.data.id);
+                ? await this.api.followArtist(artistId)
+                : await this.api.unfollowArtist(artistId);
+            // A success gets one re-check (verify above), which reads this id.
+            if (result.success) this._followVerifyIds.push(artistId);
             return result.success;
         });
         if (ok) return;

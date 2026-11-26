@@ -3,6 +3,36 @@ import { LitElement, html, css } from "../lit.js";
 export const homeStyles = css`
     :host { display: block; }
 
+    /* Moved from sharedStyles (home is their only consumer: the artist page's
+       rails pass their own header and no scroll button, and never expand).
+       First in this sheet, so their place in the cascade is unchanged. */
+    .section-title { font-size: var(--spf-text-lg, 17px); font-weight: 700; margin-bottom: 16px; margin-top: 32px; }
+    .section-title:first-child { margin-top: 0; }
+    .section-header .section-title { margin: 0; }
+
+    .section-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); gap: 20px; }
+
+    .scroll-btn {
+        position: absolute; top: 45%; transform: translateY(-50%); z-index: 2;
+        background: rgba(0,0,0,0.7); color: var(--spf-text-main); border: none; border-radius: 50%;
+        width: 32px; height: 32px; cursor: pointer;
+        display: flex; align-items: center; justify-content: center;
+        opacity: 0; transition: opacity 0.3s; right: -10px;
+    }
+    .carousel-wrapper:hover .scroll-btn { opacity: 1; }
+
+    /* The pills grid's share of sharedStyles' desktop scrollbar treatment.
+       Its scrollbar-width (thin) and mobile entry (scrollbar-width: none)
+       are left out: .recent-grid-layout below sets scrollbar-width: none and
+       comes later. */
+    @media (min-width: 769px) {
+        .recent-grid-layout {
+            overflow-y: overlay !important;
+            scrollbar-color: transparent transparent;
+            transition: scrollbar-color 0.3s;
+        }
+    }
+
     /* Tighten the gap above the first home section (Pinned) on mobile + desktop.
        The page already pads down past the header; the extra scroll-content top
        padding + first section margin pushed content too far down. */

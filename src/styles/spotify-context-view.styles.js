@@ -116,8 +116,9 @@ export const contextViewStyles = css`
     .track-info-middle { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
     .track-title { font-size: var(--spf-text-base, 13.5px); font-weight: 700; color: var(--spf-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-    /* Track Rows — the base rules (columns, hover, text colours) live in
-       shared-styles.js; this block only carries the context-view overrides. */
+    /* Track Rows — the base rules (columns, hover) live in shared-styles.js
+       and the text colours in views/spotify-playlist-view.js; this block only
+       carries the context-view overrides. */
     .track-row {
         overflow: visible;
         display: grid;
@@ -205,15 +206,6 @@ export const contextViewStyles = css`
             height: 48px !important;
             border-radius: 4px;
             object-fit: cover;
-        }
-
-        /* Shared list template renders number + art-div (4 children). */
-        .track-row.with-art {
-            grid-template-columns: auto auto 1fr auto !important;
-        }
-        .track-art-small {
-            width: 48px !important;
-            height: 48px !important;
         }
 
         /* Clean track text (sized to match the native app's mobile list). */

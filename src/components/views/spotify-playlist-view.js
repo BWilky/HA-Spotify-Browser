@@ -30,7 +30,6 @@ export class SpotifyPlaylistView extends LitElement {
             currentTrackId: { type: String },
             isPlaying: { type: Boolean },
             pinnedSensorState: { type: Object },
-            _currentUserId: { type: String, state: true },
             _albumLiked: { type: Boolean, state: true },   // album saved to library
             _artistInfo: { type: Object, state: true },    // album's primary artist { id, name, image }
             _genrePills: { type: Array, state: true }, // Liked Songs filter pills: [{ label, genre }]
@@ -42,6 +41,17 @@ export class SpotifyPlaylistView extends LitElement {
     static get styles() {
         return [
             sharedStyles,
+            css`
+                /* Track-row rules that sat in sharedStyles but only render
+                   here (renderTrackRowTemplate's playlist layout). Kept
+                   between sharedStyles and contextViewStyles: their place in
+                   the cascade before they moved. */
+                .track-row.playing .track-name { color: var(--spf-brand); }
+                .track-name { color: var(--spf-text-main); font-size: var(--spf-text-md, 15px); }
+                .track-artist { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); }
+                .track-action-btn.is-favorite { color: var(--spf-brand); }
+                .track-action-btn.is-favorite svg { fill: var(--spf-brand); }
+            `,
             contextViewStyles,
             heroPageStyles,
             css`
@@ -99,6 +109,17 @@ export class SpotifyPlaylistView extends LitElement {
                 }
                 .hero-btn-icon:hover { color: white; }
                 .hero-btn-menu svg { fill: currentColor; width: 26px; height: 26px; }
+
+                /* Follow heart (a playlist you don't own): a round outlined
+                   button instead of contextViewStyles' FOLLOW pill. Comes after
+                   .hero-btn-fav:hover, so its border stays put on hover. */
+                .hero-btn-fav.follow-heart {
+                    margin-left: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.3);
+                    border-radius: 50%; width: 56px; height: 56px;
+                    display: flex; align-items: center; justify-content: center;
+                    cursor: pointer; color: white; transition: all 0.2s ease;
+                }
+                .hero-btn-fav.follow-heart.following { color: #1DB954; }
 
                 /* Album save button — mirrors the now-playing like button: an
                    outlined circle with a checkmark that fills green when saved. */
@@ -326,7 +347,8 @@ export class SpotifyPlaylistView extends LitElement {
             onNearBottom: () => this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true })),
         });
         this._follow = new FollowStateController(this);
-        this._currentUserId = null;
+        this._followCheck = 0;     // bumped per follow check and per toggle (B15)
+        this._currentUserId = null; // cache for the network follow check; never rendered
         this._pin = new PinStateController(this, {
             // Liked Songs is the mandatory user-library pin.
             getPinId: () => this.data.type === 'likedsongs' ? 'user-library' : this.data.id,
@@ -453,6 +475,12 @@ export class SpotifyPlaylistView extends LitElement {
 
     async _checkFollowStatus() {
         if (!this.data || this.data.type !== 'playlist' || !this.api) return;
+        // B15: only the latest check, for the playlist still shown, may set the
+        // heart; a later check or a toggle supersedes an answer still on its way.
+        const check = ++this._followCheck;
+        const playlistId = this.data.id;
+        const current = () => check === this._followCheck
+            && this.data?.type === 'playlist' && this.data.id === playlistId;
 
         // Your own playlist is always "in your library" — the heart is hidden
         // and delete lives in the header menu instead.
@@ -472,11 +500,13 @@ export class SpotifyPlaylistView extends LitElement {
             try {
                 this._currentUserId = await this.api.getCurrentUserId();
             } catch (e) { }
+            if (!current()) return;
         }
 
-        if (this._currentUserId && this.data.id) {
+        if (this._currentUserId && playlistId) {
             try {
-                const follows = await this.api.checkUserFollowsPlaylist(this.data.id, this._currentUserId);
+                const follows = await this.api.checkUserFollowsPlaylist(playlistId, this._currentUserId);
+                if (!current()) return;
                 if (follows && Array.isArray(follows) && follows.length > 0) this._follow.following = follows[0];
             } catch (e) { }
         }
@@ -621,7 +651,7 @@ export class SpotifyPlaylistView extends LitElement {
                                         ` : ''}
                                         ${playBtnTpl}
                                         ${data.type === 'playlist' && !data.isOwner ? html`
-                                            <button class="hero-btn-fav" @click=${this._toggleFollowPlaylist} style="margin-left: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: ${this._follow.following ? '#1DB954' : 'white'}; transition: all 0.2s ease;">
+                                            <button class="hero-btn-fav follow-heart ${this._follow.following ? 'following' : ''}" @click=${this._toggleFollowPlaylist}>
                                                 ${heartToggleIcon(this._follow.following, 28)}
                                             </button>
                                         ` : ''}
@@ -903,6 +933,7 @@ export class SpotifyPlaylistView extends LitElement {
         e?.stopPropagation();
         const playlistId = this.data?.id;
         if (!playlistId || !this.api) return;
+        this._followCheck++; // a follow check still on its way no longer applies (B15)
 
         await this._follow.toggle(async (follow) => {
             if (!await setPlaylistFollowed(this, this.api, { id: playlistId }, follow)) return false;
