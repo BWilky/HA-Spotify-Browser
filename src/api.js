@@ -96,6 +96,10 @@ export class SpotifyApi {
     // How long identical requests keep joining a read that has not landed yet.
     static READ_CACHE_PENDING_MS = 30000;
 
+    // Tracks the shared recently-played read asks for (getRecentTracks): the
+    // player keeps 30; home's row shows the first 20 of them.
+    static RECENT_TRACKS_LIMIT = 30;
+
     // Cap for the genre / track-art memos (a few short strings per entry).
     static DERIVED_MEMO_MAX_ENTRIES = 500;
 
@@ -153,6 +157,8 @@ export class SpotifyApi {
         // Spotify account) and is rebuilt on account switch, so one account's
         // responses can never be served to another.
         this._readCache = new Map();
+        // The latest recently-played read: { startedAt, promise } (see getRecentTracks).
+        this._recentRead = null;
         this._readyScanTimer = null;
         this._readyScanPromise = null;
         this._onSocketReady = () => { this._socketReady = true; this._resumedAt = Date.now(); };
@@ -307,13 +313,44 @@ export class SpotifyApi {
 
     /**
      * Forget every cached catalog read, plus the genre / track-art memos
-     * derived from them, so the next read hits SpotifyPlus again. A request
-     * already in flight still answers its own callers but is not remembered.
+     * derived from them and the shared recently-played read, so the next read
+     * hits SpotifyPlus again. A request already in flight still answers its
+     * own callers but is not remembered.
      */
     clearReadCache() {
         this._readCache.clear();
         this._artistGenreCache?.clear();
         this._trackArtCache?.clear();
+        this._recentRead = null;
+    }
+
+    /**
+     * The account's recently played tracks: get_player_recent_tracks,
+     * RECENT_TRACKS_LIMIT of them, newest first, as fetchSpotifyPlus returns
+     * them (null on failure). Home's "Recently Played" row and the player
+     * (the previous track, the queue sheet's history) both re-read them on
+     * every open, moments apart. `since` (a Date.now() stamp) lets a caller
+     * take the latest read that started at or after it, landed or still in
+     * flight, instead of asking again; without it the call always reads
+     * afresh (a track change must not be answered from before it), and that
+     * read is the one later callers share. A failed read is not shared. Each
+     * caller gets its own copy of the response.
+     * @param {{since?: number|null}} [options]
+     */
+    getRecentTracks({ since = null } = {}) {
+        const copy = (json) => (typeof json === 'string' ? JSON.parse(json) : null);
+        const last = this._recentRead;
+        if (since !== null && last && last.startedAt >= since) return last.promise.then(copy);
+
+        const entry = { startedAt: Date.now(), promise: null };
+        const drop = () => { if (this._recentRead === entry) this._recentRead = null; };
+        entry.promise = this.fetchSpotifyPlus('get_player_recent_tracks', { limit: SpotifyApi.RECENT_TRACKS_LIMIT })
+            .then((res) => {
+                if (res == null) { drop(); return null; }
+                return JSON.stringify(res);
+            }, (e) => { drop(); throw e; });
+        this._recentRead = entry;
+        return entry.promise.then(copy);
     }
 
     /**
@@ -591,11 +628,16 @@ export class SpotifyApi {
      * away: the result ends at the empty page, as it always did. With no
      * `total` in the response nothing can be planned ahead, so it stays one
      * page at a time.
+     *
+     * Resolves to `{ items, total, offset }`, plus `failed: true` when the
+     * first call came back with no result at all (failed): an empty list
+     * then means "could not read", not "there is nothing".
      */
     async fetchPaginated(service, baseParams, desiredTotal, maxLimit = SpotifyApi.MAX_PAGE_LIMIT) {
         const items = [];
         let offset = baseParams.offset || 0;
         let total = null;
+        let failed = false;
         while (items.length < desiredTotal) {
             if (total !== null && offset >= total) break;
             // The next call is always known. The ones after it are known up
@@ -612,6 +654,7 @@ export class SpotifyApi {
             }
             const results = await Promise.all(batch.map(p =>
                 this.fetchSpotifyPlus(service, { ...baseParams, limit: p.limit, offset: p.offset })));
+            if (items.length === 0 && total === null && !results[0]?.result) failed = true;
 
             let done = false;
             for (let i = 0; i < batch.length && !done; i++) {
@@ -623,7 +666,8 @@ export class SpotifyApi {
             }
             if (done) break;
         }
-        return { items, total: total ?? items.length, offset };
+        const out = { items, total: total ?? items.length, offset };
+        return failed ? { ...out, failed: true } : out;
     }
 
     /** True only when the HA WebSocket is genuinely connected and ready. */
@@ -824,7 +868,7 @@ export class SpotifyApi {
                     // Enable throwOnError to catch validation errors
                     const res = await this.fetchSpotifyPlus('player_media_play_context', params, { expectResponse: false, throwOnError: true });
 
-                    if ((!res || res.error) && offset_uri) {
+                    if (!res && offset_uri) {
                         console.warn("[SpotifyAPI] Context jump failed. Falling back to Track Play.");
                         return await this.playMedia(extraOptions.offset_uri, 'track', deviceIdToTry);
                     }
@@ -990,14 +1034,26 @@ export class SpotifyApi {
     }
 
     /**
-     * Fire-and-forget SpotifyPlus command via hass.callService: `{ success: true }`
-     * once HA accepts it, else `{ success: false, error }` with a console.error
-     * "<label> failed:". `buildData` returns the service data minus entity_id and
-     * runs inside the try, so a bad argument fails the same way a refused call does.
+     * A service call over the WebSocket (`call_service`, the message
+     * hass.callService sends) without hass.callService's own failure toast.
+     * For calls whose callers report a failure themselves: through
+     * hass.callService the user would get Home Assistant's toast as well.
+     */
+    _callServiceQuietly(domain, service, serviceData) {
+        return this.hass.callWS({ type: 'call_service', domain, service, service_data: serviceData });
+    }
+
+    /**
+     * Fire-and-forget SpotifyPlus command: `{ success: true }` once HA accepts
+     * it, else `{ success: false, error }` with a console.error "<label>
+     * failed:". `buildData` returns the service data minus entity_id and runs
+     * inside the try, so a bad argument fails the same way a refused call
+     * does. Sent with _callServiceQuietly: every caller that shows the
+     * outcome reports a failure itself.
      */
     async _command(service, label, buildData) {
         try {
-            await this.hass.callService('spotifyplus', service, {
+            await this._callServiceQuietly('spotifyplus', service, {
                 entity_id: this.entityId,
                 ...buildData()
             });
@@ -1014,21 +1070,65 @@ export class SpotifyApi {
     }
 
     /**
-     * Shared body of checkArtistsFollowing / checkAlbumFavorites: the raw
-     * `result` of a check_* service (single non-list id -> that id's entry),
-     * null when there is no result, and null plus a console.error
-     * "<label> failed:" if anything throws.
+     * Whether `ids` (one id, a comma-separated string or a list) names any
+     * id. With none, an ids service must not be called: SpotifyPlus then
+     * acts on the playing track / album / artist instead.
+     */
+    _hasIds(ids) {
+        return Array.isArray(ids) ? ids.some(Boolean) : !!ids;
+    }
+
+    /** A save / remove / follow command on `ids`; `{ success: false }` and no call when there are none. */
+    async _idsCommand(service, label, ids) {
+        if (!this.hass || !this._hasIds(ids)) return { success: false };
+        return this._command(service, label, () => ({ ids: this._joinIds(ids) }));
+    }
+
+    /**
+     * The check_* wrappers (artists followed, albums and tracks saved). For
+     * one id (a string without commas) true/false; for a list or a comma
+     * string an {id: bool} map ({} for a list with no ids, which sends
+     * nothing). SpotifyPlus may answer with a list of booleans in id order or
+     * a dict keyed by id, either possibly as JSON text; both are normalized.
+     * Null when there is no hass or id, or when the call fails
+     * (fetchSpotifyPlus has already warned). The catch only ever sees a bad
+     * `ids` argument, logged as "<label> failed:".
      */
     async _checkIds(service, ids, label) {
+        if (!this.hass || !ids) return null;
+        if (!this._hasIds(ids)) return {};
         try {
-            const idsParam = this._joinIds(ids);
+            const idList = Array.isArray(ids) ? ids.slice() : String(ids).split(',');
+            const idsParam = idList.join(',');
             const res = await this.fetchSpotifyPlus(service, { ids: idsParam });
-            if (res?.result) {
-                // If checking single ID, return single boolean
-                if (!Array.isArray(ids) && !idsParam.includes(',')) return res.result[idsParam];
-                return res.result;
+
+            let result = res?.result ?? res;
+            if (typeof result === 'string') {
+                try { result = JSON.parse(result); } catch (e) { /* leave as-is */ }
             }
-            return null;
+            if (result == null) return null;
+
+            // SpotifyPlus may return either a list of booleans (in id order, like
+            // the raw Spotify API) or a dict keyed by id. Normalize to {id: bool}.
+            const truthy = (v) => v === true || v === 'true';
+            let map = {};
+            if (Array.isArray(result)) {
+                idList.forEach((id, i) => { map[id] = truthy(result[i]); });
+            } else if (typeof result === 'object') {
+                for (const [k, v] of Object.entries(result)) map[k] = truthy(v);
+                // If the dict isn't actually keyed by our ids, fall back to order.
+                if (idList.length && !idList.some(id => id in map)) {
+                    const vals = Object.values(result);
+                    map = {};
+                    idList.forEach((id, i) => { map[id] = truthy(vals[i]); });
+                }
+            } else if (typeof result === 'boolean') {
+                map[idList[0]] = result;
+            }
+
+            // Single id -> boolean; multiple -> the {id: bool} map.
+            const single = !Array.isArray(ids) && !idsParam.includes(',');
+            return single ? (map[idList[0]] === true) : map;
         } catch (e) {
             console.error(`${label} failed:`, e);
             return null;
@@ -1093,7 +1193,8 @@ export class SpotifyApi {
     }
 
     async checkUserFollowsPlaylist(playlistId, userIds) {
-        if (!this.hass || !playlistId || !userIds) return null;
+        // No user ids: SpotifyPlus would check the current user instead.
+        if (!this.hass || !playlistId || !this._hasIds(userIds)) return null;
         try {
             const idsParam = this._joinIds(userIds);
             const res = await this.fetchSpotifyPlus('check_playlist_followers', {
@@ -1274,60 +1375,21 @@ export class SpotifyApi {
     // --- ARTIST FOLLOW MANAGEMENT ---
 
     async followArtist(ids) {
-        if (!this.hass || !ids) return { success: false };
-        return this._command('follow_artists', 'Follow Artist', () => ({ ids: this._joinIds(ids) }));
+        return this._idsCommand('follow_artists', 'Follow Artist', ids);
     }
 
     async unfollowArtist(ids) {
-        if (!this.hass || !ids) return { success: false };
-        return this._command('unfollow_artists', 'Unfollow Artist', () => ({ ids: this._joinIds(ids) }));
+        return this._idsCommand('unfollow_artists', 'Unfollow Artist', ids);
     }
 
+    /** True/false (single id) or an id→bool map (several), or null on failure (see _checkIds). */
     async checkArtistsFollowing(ids) {
-        if (!this.hass || !ids) return null;
-        // The response structure is tricky:
-        // "result": { "artistID": true }
         return this._checkIds('check_artists_following', ids, 'Check Artists Following');
     }
 
+    /** True/false (single id) or an id→bool map (several), or null on failure (see _checkIds). */
     async checkTrackFavorites(ids) {
-        if (!this.hass || !ids) return null;
-        try {
-            const idList = Array.isArray(ids) ? ids.slice() : String(ids).split(',');
-            const idsParam = idList.join(',');
-            const res = await this.fetchSpotifyPlus('check_track_favorites', { ids: idsParam });
-
-            let result = res?.result ?? res;
-            if (typeof result === 'string') {
-                try { result = JSON.parse(result); } catch (e) { /* leave as-is */ }
-            }
-            if (result == null) return null;
-
-            // SpotifyPlus may return either a list of booleans (in id order, like
-            // the raw Spotify API) or a dict keyed by id. Normalize to {id: bool}.
-            const truthy = (v) => v === true || v === 'true';
-            let map = {};
-            if (Array.isArray(result)) {
-                idList.forEach((id, i) => { map[id] = truthy(result[i]); });
-            } else if (typeof result === 'object') {
-                for (const [k, v] of Object.entries(result)) map[k] = truthy(v);
-                // If the dict isn't actually keyed by our ids, fall back to order.
-                if (idList.length && !idList.some(id => id in map)) {
-                    const vals = Object.values(result);
-                    map = {};
-                    idList.forEach((id, i) => { map[id] = truthy(vals[i]); });
-                }
-            } else if (typeof result === 'boolean') {
-                map[idList[0]] = result;
-            }
-
-            // Single id -> boolean; multiple -> the {id: bool} map.
-            const single = !Array.isArray(ids) && !idsParam.includes(',');
-            return single ? (map[idList[0]] === true) : map;
-        } catch (e) {
-            console.error("Check Track Favorites failed:", e);
-            return null;
-        }
+        return this._checkIds('check_track_favorites', ids, 'Check Track Favorites');
     }
 
     async getTrackFavorites(options = {}) {
@@ -1398,29 +1460,24 @@ export class SpotifyApi {
     }
 
     async saveTrackFavorites(ids) {
-        if (!this.hass || !ids) return { success: false };
-        return this._command('save_track_favorites', 'Save Track Favorites', () => ({ ids: this._joinIds(ids) }));
+        return this._idsCommand('save_track_favorites', 'Save Track Favorites', ids);
     }
 
     async removeTrackFavorites(ids) {
-        if (!this.hass || !ids) return { success: false };
-        return this._command('remove_track_favorites', 'Remove Track Favorites', () => ({ ids: this._joinIds(ids) }));
+        return this._idsCommand('remove_track_favorites', 'Remove Track Favorites', ids);
     }
 
-    /** True/false (single id) or an id→bool map (multiple), or null on failure. */
+    /** True/false (single id) or an id→bool map (several), or null on failure (see _checkIds). */
     async checkAlbumFavorites(ids) {
-        if (!this.hass || !ids) return null;
         return this._checkIds('check_album_favorites', ids, 'Check Album Favorites');
     }
 
     async saveAlbumFavorites(ids) {
-        if (!this.hass || !ids) return { success: false };
-        return this._command('save_album_favorites', 'Save Album Favorites', () => ({ ids: this._joinIds(ids) }));
+        return this._idsCommand('save_album_favorites', 'Save Album Favorites', ids);
     }
 
     async removeAlbumFavorites(ids) {
-        if (!this.hass || !ids) return { success: false };
-        return this._command('remove_album_favorites', 'Remove Album Favorites', () => ({ ids: this._joinIds(ids) }));
+        return this._idsCommand('remove_album_favorites', 'Remove Album Favorites', ids);
     }
 
     async setVolume(volumeLevel, { silent = false } = {}) {
@@ -1439,7 +1496,8 @@ export class SpotifyApi {
         }
 
         try {
-            await this.hass.callService('media_player', 'volume_set', {
+            // Quietly: a failure is reported below (or, `silent`, deliberately not at all).
+            await this._callServiceQuietly('media_player', 'volume_set', {
                 entity_id: entityId,
                 volume_level: volumeLevel
             });

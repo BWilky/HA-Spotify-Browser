@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { playbackProgress } from '../src/utils.js';
+import { playbackProgress, extrapolatedPosition } from '../src/utils.js';
 
 const T0 = Date.parse('2026-01-01T12:00:00Z');
 const at = (ms) => new Date(T0 + ms).toISOString();
@@ -75,4 +75,36 @@ test('missing inputs return zeros', () => {
 
 test('no entity but a track: the track fallback still applies', () => {
     assert.deepEqual(playbackProgress(null, { duration_ms: 200000, progress_ms: 20000 }, T0), { position: 20, duration: 200 });
+});
+
+// --- Which timestamp the position counts from (media_position_updated_at) ---
+
+test('an attribute-only update (volume) moves last_updated but not the position: no rewind', () => {
+    // Position 30 measured at T0; a volume change 20 s later re-stamps last_updated only.
+    const s = entity({ updated: 20000, media_position_updated_at: at(0) });
+    assert.deepEqual(playbackProgress(s, null, T0 + 25000), { position: 55, duration: 200 });
+});
+
+test('media_position_updated_at is what the position counts from, without `now` too', () => {
+    const s = { state: 'playing', last_updated: new Date(Date.now()).toISOString(),
+        attributes: { media_position: 10, media_position_updated_at: new Date(Date.now() - 4000).toISOString() } };
+    assert.equal(extrapolatedPosition(s), 14);
+});
+
+test('without media_position_updated_at, last_updated is the fallback', () => {
+    const s = { state: 'playing', last_updated: new Date(Date.now() - 3000).toISOString(), attributes: { media_position: 10 } };
+    assert.equal(extrapolatedPosition(s), 13);
+    assert.deepEqual(playbackProgress(entity({ updated: 1000 }), null, T0 + 6000), { position: 35, duration: 200 });
+});
+
+test('an unreadable media_position_updated_at falls back to last_updated; no timestamp at all: no extrapolation', () => {
+    assert.deepEqual(playbackProgress(entity({ media_position_updated_at: 'garbage' }), null, T0 + 5000), { position: 35, duration: 200 });
+    const bare = { state: 'playing', attributes: { media_position: 10 } };
+    assert.equal(extrapolatedPosition(bare), 10);
+    assert.deepEqual(playbackProgress({ ...bare, attributes: { ...bare.attributes, media_duration: 100 } }, null, T0), { position: 10, duration: 100 });
+});
+
+test('paused: neither timestamp moves the position', () => {
+    const s = entity({ state: 'paused', updated: 20000, media_position_updated_at: at(0) });
+    assert.deepEqual(playbackProgress(s, null, T0 + 60000), { position: 30, duration: 200 });
 });

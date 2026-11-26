@@ -5,7 +5,7 @@ import { Router } from '../src/router.js';
 // Build a router with a fake container and a no-op transition so navigateTo
 // can run under plain node (no DOM). Pages are plain objects in the cache.
 function makeRouter() {
-    const router = new Router({}, {}, {});
+    const router = new Router({}, {});
     router._executeTransition = () => {};
     return router;
 }
@@ -100,7 +100,7 @@ test('same-page navigation does not run an exit animation on or hide the page', 
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const children = new Set();
     const container = { contains: (el) => children.has(el), appendChild: (el) => children.add(el) };
-    const router = new Router({}, container, { appearance: { animations: { page_transition: 'slide' } } });
+    const router = new Router(container, { appearance: { animations: { page_transition: 'slide' } } });
     const page = fakeElement();
     router.pageCache.set('library', page);
     children.add(page);
@@ -312,4 +312,17 @@ test('a page rebuilt under the same id does not inherit a dropped page\'s edit s
     router.dropPage('playlist:2'); // the playlist was deleted
     router.navigateTo('playlist:2');
     assert.equal(router.isEditing(), false);
+});
+
+test('re-showing a cached context page hands it the new data; its pageId (the cache key) is not rewritten', () => {
+    const router = makeRouter();
+    const writes = [];
+    const page = { _id: 'artist:a1', data: null, requestUpdate() {},
+        get pageId() { return this._id; }, set pageId(v) { writes.push(v); this._id = v; } };
+    router.pageCache.set('artist:a1', page);
+    const data = { title: 'A' };
+    router.navigateTo('artist:a1', data);
+    assert.equal(page.data, data);
+    assert.equal(page.pageId, 'artist:a1');
+    assert.deepEqual(writes, []);
 });

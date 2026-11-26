@@ -3,6 +3,10 @@
 // as it stood before those wrappers were folded into shared helpers: every
 // expectation here records what the methods did then (which HA call, with
 // what data, what came back, what was logged), so the refactor must keep it.
+// Changed on purpose since (B4 in docs/TODO.md): commands go over callWS
+// (their callers report a failure themselves; hass.callService added Home
+// Assistant's own toast), no ids means no call, and the artist / album
+// checks answer in the track check's normalized shape.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { SpotifyApi } from '../src/api.js';
@@ -59,8 +63,13 @@ function spyTransport(api, reply = () => true) {
 }
 
 // ---------------------------------------------------------------------------
-// Command wrappers (callService on the spotifyplus domain)
+// Command wrappers (call_service over callWS on the spotifyplus domain)
 // ---------------------------------------------------------------------------
+
+/** The websocket message hass.callService would send, as the api now sends it itself. */
+function commandPayload(service, data) {
+    return { type: 'call_service', domain: 'spotifyplus', service, service_data: data };
+}
 
 const COMMANDS = [
     {
@@ -124,14 +133,14 @@ const COMMANDS = [
 for (const c of COMMANDS) {
     const tag = `${c.name}(${JSON.stringify(c.args)})`;
 
-    test(`${tag} makes exactly one spotifyplus callService and returns { success: true }`, async (t) => {
+    test(`${tag} makes exactly one spotifyplus call_service over callWS (no HA toast) and returns { success: true }`, async (t) => {
         const con = captureConsole(t);
-        const { api, calls } = makeApi({ svc: () => ({ ignored: true }) });
+        const { api, calls } = makeApi({ ws: () => ({ ignored: true }) });
         const res = await api[c.name](...c.args);
         assert.deepEqual(res, { success: true });
-        assert.deepEqual(calls, [['callService', 'spotifyplus', c.service, c.data]]);
+        assert.deepEqual(calls, [['callWS', commandPayload(c.service, c.data)]]);
         // Key order is part of the payload HA receives; keep it stable too.
-        assert.deepEqual(Object.keys(calls[0][3]), Object.keys(c.data));
+        assert.deepEqual(Object.keys(calls[0][1].service_data), Object.keys(c.data));
         assert.deepEqual(con.errors(), []);
         assert.deepEqual(con.warns(), []);
     });
@@ -139,7 +148,7 @@ for (const c of COMMANDS) {
     test(`${tag} on failure logs one console.error and returns { success: false, error }`, async (t) => {
         const con = captureConsole(t);
         const err = haError('nope');
-        const { api, calls } = makeApi({ svc: failWith(err) });
+        const { api, calls } = makeApi({ ws: failWith(err) });
         const res = await api[c.name](...c.args);
         assert.equal(res.success, false);
         assert.equal(res.error, err);
@@ -177,10 +186,14 @@ test('command wrappers bail out on a missing id with no call', async () => {
     assert.equal(calls.length, 0);
 });
 
-test('an empty id array is not a missing id: the call goes out with ids ""', async () => {
+test('an id list with no ids is a missing id: { success: false } and no call (SpotifyPlus would act on the playing item)', async () => {
     const { api, calls } = makeApi();
-    assert.deepEqual(await api.saveTrackFavorites([]), { success: true });
-    assert.deepEqual(calls, [['callService', 'spotifyplus', 'save_track_favorites', { entity_id: ENTITY, ids: '' }]]);
+    for (const name of ['followArtist', 'unfollowArtist', 'saveTrackFavorites', 'removeTrackFavorites', 'saveAlbumFavorites', 'removeAlbumFavorites']) {
+        for (const none of [[], [''], [null, undefined]]) {
+            assert.deepEqual(await api[name](none), { success: false }, `${name}(${JSON.stringify(none)})`);
+        }
+    }
+    assert.equal(calls.length, 0);
 });
 
 test('an id list that cannot be joined still resolves to { success: false } with a console.error', async (t) => {
@@ -205,41 +218,54 @@ function checkPayload(service, ids) {
     };
 }
 
-// [label, ids argument, ids sent, ws reply, expected result]
-const SIMPLE_CHECK_CASES = [
-    ['single id, dict keyed by id (true)', 'x1', 'x1', { response: { result: { x1: true } } }, true],
-    ['single id, dict keyed by id (false)', 'x1', 'x1', { response: { result: { x1: false } } }, false],
-    ['single id, dict not keyed by it', 'x1', 'x1', { response: { result: { other: true } } }, undefined],
-    ['single id, list of booleans', 'x1', 'x1', { response: { result: [true] } }, undefined],
-    ['single id, empty dict', 'x1', 'x1', { response: { result: {} } }, undefined],
-    ['single id, JSON string result', 'x1', 'x1', { response: { result: '{"x1":true}' } }, undefined],
-    ['single id, string "true" value', 'x1', 'x1', { response: { result: { x1: 'true' } } }, 'true'],
-    ['single id in an array, dict', ['x1'], 'x1', { response: { result: { x1: true } } }, { x1: true }],
-    ['two ids, dict', ['x1', 'x2'], 'x1,x2', { response: { result: { x1: true, x2: false } } }, { x1: true, x2: false }],
-    ['two ids, list', ['x1', 'x2'], 'x1,x2', { response: { result: [true, false] } }, [true, false]],
-    ['comma string, dict', 'x1,x2', 'x1,x2', { response: { result: { x1: true } } }, { x1: true }],
-    ['two ids, JSON string', ['x1', 'x2'], 'x1,x2', { response: { result: '[true]' } }, '[true]'],
-    ['result false', 'x1', 'x1', { response: { result: false } }, null],
-    ['result null', 'x1', 'x1', { response: { result: null } }, null],
-    ['result 0', ['x1', 'x2'], 'x1,x2', { response: { result: 0 } }, null],
-    ['no result key', 'x1', 'x1', { response: { other: 1 } }, null],
-    ['empty response (whole ws reply returned)', 'x1', 'x1', { response: null }, null],
-    ['ws reply with result at top level', 'x1', 'x1', { result: { x1: true } }, true],
-    ['empty array input', [], '', { response: { result: { a: true } } }, { a: true }]
+// [label, ids argument, ids sent, ws reply, expected result]. What
+// checkTrackFavorites always answered; checkArtistsFollowing and
+// checkAlbumFavorites answer the same now (they returned the raw `result`:
+// e.g. `undefined` for a list or an unkeyed dict, 'true' for a string value,
+// null for a result of false / null / missing, the dict for a comma string).
+const CHECK_CASES = [
+    ['single id, dict', 't1', 't1', { response: { result: { t1: true } } }, true],
+    ['single id, dict false', 't1', 't1', { response: { result: { t1: false } } }, false],
+    ['single id, dict "true" string', 't1', 't1', { response: { result: { t1: 'true' } } }, true],
+    ['single id, list', 't1', 't1', { response: { result: [true] } }, true],
+    ['single id, boolean', 't1', 't1', { response: { result: true } }, true],
+    ['single id, boolean false', 't1', 't1', { response: { result: false } }, false],
+    ['single id, dict not keyed (falls back to order)', 't1', 't1', { response: { result: { zzz: true } } }, true],
+    ['single id, empty dict', 't1', 't1', { response: { result: {} } }, false],
+    ['single id, JSON string list', 't1', 't1', { response: { result: '[true]' } }, true],
+    ['single id, JSON string dict', 't1', 't1', { response: { result: '{"t1":true}' } }, true],
+    ['single id, unparsable string', 't1', 't1', { response: { result: 'garbage' } }, false],
+    ['single id, number', 't1', 't1', { response: { result: 7 } }, false],
+    ['single id, result null (whole response used)', 't1', 't1', { response: { result: null } }, false],
+    ['single id, response null (whole ws reply used)', 't1', 't1', { response: null }, false],
+    ['single id, response without result', 't1', 't1', { response: { t1: true } }, true],
+    ['single id, ws reply with result at top level', 't1', 't1', { result: { t1: true } }, true],
+    ['single in array, dict', ['t1'], 't1', { response: { result: { t1: true } } }, { t1: true }],
+    ['two ids, list', ['t1', 't2'], 't1,t2', { response: { result: [true, 'false'] } }, { t1: true, t2: false }],
+    ['two ids, list short', ['t1', 't2'], 't1,t2', { response: { result: [true] } }, { t1: true, t2: false }],
+    ['two ids, dict', ['t1', 't2'], 't1,t2', { response: { result: { t1: true, t2: false } } }, { t1: true, t2: false }],
+    ['two ids, partial dict', ['t1', 't2'], 't1,t2', { response: { result: { t2: 'true' } } }, { t2: true }],
+    ['two ids, unkeyed dict', ['t1', 't2'], 't1,t2', { response: { result: { a: false, b: true } } }, { t1: false, t2: true }],
+    ['two ids, boolean', ['t1', 't2'], 't1,t2', { response: { result: true } }, { t1: true }],
+    ['two ids, result 0', ['t1', 't2'], 't1,t2', { response: { result: 0 } }, {}],
+    ['two ids, JSON string dict', ['t1', 't2'], 't1,t2', { response: { result: '{"t1":true}' } }, { t1: true }],
+    ['comma string, list', 't1,t2', 't1,t2', { response: { result: [false, true] } }, { t1: false, t2: true }],
+    ['comma string, dict', 't1,t2', 't1,t2', { response: { result: { t1: true } } }, { t1: true }],
+    ['a number id is sent as its string', 5, '5', { response: { result: { 5: true } } }, true]
 ];
 
-const SIMPLE_CHECKS = [
+const CHECKS = [
     { name: 'checkArtistsFollowing', service: 'check_artists_following', label: 'Check Artists Following' },
-    { name: 'checkAlbumFavorites', service: 'check_album_favorites', label: 'Check Album Favorites' }
+    { name: 'checkAlbumFavorites', service: 'check_album_favorites', label: 'Check Album Favorites' },
+    { name: 'checkTrackFavorites', service: 'check_track_favorites', label: 'Check Track Favorites' }
 ];
 
-for (const m of SIMPLE_CHECKS) {
-    for (const [label, ids, sent, reply, expected] of SIMPLE_CHECK_CASES) {
+for (const m of CHECKS) {
+    for (const [label, ids, sent, reply, expected] of CHECK_CASES) {
         test(`${m.name}: ${label}`, async (t) => {
             const con = captureConsole(t);
             const { api, calls } = makeApi({ ws: () => reply });
-            const res = await api[m.name](ids);
-            assert.deepEqual(res, expected);
+            assert.deepEqual(await api[m.name](ids), expected);
             assert.deepEqual(calls, [['callWS', checkPayload(m.service, sent)]]);
             assert.deepEqual(con.errors(), []);
             assert.deepEqual(con.warns(), []);
@@ -254,6 +280,12 @@ for (const m of SIMPLE_CHECKS) {
         assert.equal(calls.length, 0);
     });
 
+    test(`${m.name}: a list with no ids answers {} with no call (SpotifyPlus would check the playing item)`, async () => {
+        const { api, calls } = makeApi({ ws: () => ({ response: { result: { playing: true } } }) });
+        for (const none of [[], [''], [null]]) assert.deepEqual(await api[m.name](none), {}, JSON.stringify(none));
+        assert.equal(calls.length, 0);
+    });
+
     test(`${m.name}: a failed call warns once (via fetchSpotifyPlus) and returns null`, async (t) => {
         const con = captureConsole(t);
         const err = haError('down');
@@ -264,71 +296,16 @@ for (const m of SIMPLE_CHECKS) {
         assert.deepEqual(con.warns(), [[`[SpotifyAPI] Failed Call [${m.service}]:`, JSON.stringify(err, null, 2)]]);
     });
 
-    test(`${m.name}: a non-string, non-array id that gets a result logs console.error and returns null`, async (t) => {
+    test(`${m.name}: ids that cannot be joined log console.error ("${m.label} failed:") and return null, with no call`, async (t) => {
         const con = captureConsole(t);
-        const { api, calls } = makeApi({ ws: () => ({ response: { result: { 5: true } } }) });
-        assert.equal(await api[m.name](5), null);
-        assert.deepEqual(calls, [['callWS', checkPayload(m.service, 5)]]);
+        const { api, calls } = makeApi();
+        assert.equal(await api[m.name]([Symbol('x')]), null);
+        assert.equal(calls.length, 0);
         assert.equal(con.errors().length, 1);
         assert.equal(con.errors()[0][0], `${m.label} failed:`);
         assert.ok(con.errors()[0][1] instanceof TypeError);
     });
 }
-
-const TRACK_CHECK_CASES = [
-    ['single id, dict', 't1', 't1', { response: { result: { t1: true } } }, true],
-    ['single id, dict false', 't1', 't1', { response: { result: { t1: false } } }, false],
-    ['single id, dict "true" string', 't1', 't1', { response: { result: { t1: 'true' } } }, true],
-    ['single id, list', 't1', 't1', { response: { result: [true] } }, true],
-    ['single id, boolean', 't1', 't1', { response: { result: true } }, true],
-    ['single id, boolean false', 't1', 't1', { response: { result: false } }, false],
-    ['single id, dict not keyed (falls back to order)', 't1', 't1', { response: { result: { zzz: true } } }, true],
-    ['single id, JSON string list', 't1', 't1', { response: { result: '[true]' } }, true],
-    ['single id, unparsable string', 't1', 't1', { response: { result: 'garbage' } }, false],
-    ['single id, number', 't1', 't1', { response: { result: 7 } }, false],
-    ['single id, result null (whole response used)', 't1', 't1', { response: { result: null } }, false],
-    ['single id, response null (whole ws reply used)', 't1', 't1', { response: null }, false],
-    ['single id, response without result', 't1', 't1', { response: { t1: true } }, true],
-    ['single in array, dict', ['t1'], 't1', { response: { result: { t1: true } } }, { t1: true }],
-    ['two ids, list', ['t1', 't2'], 't1,t2', { response: { result: [true, 'false'] } }, { t1: true, t2: false }],
-    ['two ids, list short', ['t1', 't2'], 't1,t2', { response: { result: [true] } }, { t1: true, t2: false }],
-    ['two ids, dict', ['t1', 't2'], 't1,t2', { response: { result: { t1: true, t2: false } } }, { t1: true, t2: false }],
-    ['two ids, partial dict', ['t1', 't2'], 't1,t2', { response: { result: { t2: 'true' } } }, { t2: true }],
-    ['two ids, unkeyed dict', ['t1', 't2'], 't1,t2', { response: { result: { a: false, b: true } } }, { t1: false, t2: true }],
-    ['two ids, boolean', ['t1', 't2'], 't1,t2', { response: { result: true } }, { t1: true }],
-    ['two ids, JSON string dict', ['t1', 't2'], 't1,t2', { response: { result: '{"t1":true}' } }, { t1: true }],
-    ['comma string, list', 't1,t2', 't1,t2', { response: { result: [false, true] } }, { t1: false, t2: true }],
-    ['empty array input, list', [], '', { response: { result: [true] } }, {}],
-    ['empty array input, dict', [], '', { response: { result: { a: true } } }, { a: true }]
-];
-
-for (const [label, ids, sent, reply, expected] of TRACK_CHECK_CASES) {
-    test(`checkTrackFavorites: ${label}`, async (t) => {
-        const con = captureConsole(t);
-        const { api, calls } = makeApi({ ws: () => reply });
-        assert.deepEqual(await api.checkTrackFavorites(ids), expected);
-        assert.deepEqual(calls, [['callWS', checkPayload('check_track_favorites', sent)]]);
-        assert.deepEqual(con.errors(), []);
-        assert.deepEqual(con.warns(), []);
-    });
-}
-
-test('checkTrackFavorites: missing ids or hass returns null with no call', async () => {
-    const { api, calls } = makeApi();
-    for (const bad of [undefined, null, '']) assert.equal(await api.checkTrackFavorites(bad), null);
-    api.hass = null;
-    assert.equal(await api.checkTrackFavorites('t1'), null);
-    assert.equal(calls.length, 0);
-});
-
-test('checkTrackFavorites: a failed call warns once and returns null', async (t) => {
-    const con = captureConsole(t);
-    const err = haError('down');
-    const { api } = makeApi({ ws: failWith(err) });
-    assert.equal(await api.checkTrackFavorites(['t1', 't2']), null);
-    assert.deepEqual(con.errors(), []);
-    assert.deepEqual(con.warns(), [['[SpotifyAPI] Failed Call [check_track_favorites]:', JSON.stringify(err, null, 2)]]);
-});
 
 test('checkUserFollowsPlaylist: payload, values of the result, null otherwise', async (t) => {
     const con = captureConsole(t);
@@ -340,9 +317,12 @@ test('checkUserFollowsPlaylist: payload, values of the result, null otherwise', 
     }]]);
     const { api: api2 } = makeApi({ ws: () => ({ response: { result: null } }) });
     assert.equal(await api2.checkUserFollowsPlaylist('pl1', 'u1'), null);
-    const { api: api3 } = makeApi();
+    const { api: api3, calls: calls3 } = makeApi();
     assert.equal(await api3.checkUserFollowsPlaylist('pl1', ''), null);
     assert.equal(await api3.checkUserFollowsPlaylist('', 'u1'), null);
+    // No user ids: no call (SpotifyPlus would check the current user instead).
+    assert.equal(await api3.checkUserFollowsPlaylist('pl1', []), null);
+    assert.equal(calls3.length, 0);
     assert.deepEqual(con.errors(), []);
 });
 

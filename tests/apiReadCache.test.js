@@ -556,3 +556,63 @@ test('the session memos are capped, oldest first', async (t) => {
     assert.equal(await api.getTrackArt('t1'), 't1.jpg');
     assert.equal(calls.length, 4, 'the oldest memo entry was evicted and is looked up again');
 });
+
+// --- The shared recently-played read (getRecentTracks) ---
+
+function recentApi() {
+    let n = 0;
+    const { api, calls } = makeApi((payload) => {
+        if (payload.service !== 'get_player_recent_tracks') throw new Error('unexpected ' + payload.service);
+        return { result: { items: [{ track: { id: `t${++n}` } }] } };
+    });
+    return { api, calls };
+}
+
+test('getRecentTracks reads 30, and without `since` always reads afresh', async (t) => {
+    freezeClock(t);
+    const { api, calls } = recentApi();
+    const a = await api.getRecentTracks();
+    const b = await api.getRecentTracks();
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0].service_data, { entity_id: ENTITY, limit: 30 });
+    assert.equal(calls[0].return_response, true);
+    assert.deepEqual([a.result.items[0].track.id, b.result.items[0].track.id], ['t1', 't2']);
+});
+
+test('getRecentTracks({ since }) takes the latest read that started at or after `since`, landed or in flight', async (t) => {
+    freezeClock(t);
+    const { api, calls } = recentApi();
+    const openedAt = Date.now();
+    const [home, player] = await Promise.all([api.getRecentTracks(), api.getRecentTracks({ since: openedAt })]);
+    assert.equal(calls.length, 1, 'joined while in flight');
+    assert.deepEqual(player, home);
+    assert.notEqual(player, home, 'each caller gets its own copy');
+    player.result.items.push('mutated');
+    assert.equal(home.result.items.length, 1);
+
+    mock.timers.tick(40);
+    assert.deepEqual(await api.getRecentTracks({ since: openedAt }), home, 'landed: still shared');
+    assert.equal(calls.length, 1);
+
+    assert.equal((await api.getRecentTracks({ since: Date.now() })).result.items[0].track.id, 't2', 'started before `since`: a new read');
+    assert.equal(calls.length, 2);
+});
+
+test('getRecentTracks: a failed read is not shared, and clearReadCache forgets the last one', async (t) => {
+    freezeClock(t);
+    t.mock.method(console, 'warn', () => {});
+    let fail = true;
+    const { api, calls } = makeApi(() => {
+        if (fail) throw Object.assign(new Error('down'), { code: 'unknown_error' });
+        return { result: { items: [] } };
+    });
+    const since = Date.now();
+    assert.equal(await api.getRecentTracks(), null);
+    fail = false;
+    assert.deepEqual(await api.getRecentTracks({ since }), { result: { items: [] } });
+    assert.equal(calls.length, 2);
+
+    api.clearReadCache();
+    await api.getRecentTracks({ since });
+    assert.equal(calls.length, 3);
+});

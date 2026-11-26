@@ -193,3 +193,31 @@ test('groups configured as {} or true keep nested defaults', () => {
         }
     });
 });
+
+// --- appearance.desktop sizes (cssSize) ---
+
+const desktop = (d) => withNavigator({}, () => parseAll({ appearance: { desktop: d } }).appearance.desktop);
+
+test('appearance.desktop: numbers and numeric strings become px; other strings pass through', () => {
+    assert.deepEqual(desktop({ width: 1000, height: '700', margin: '2rem', margin_top: 0 }), {
+        mode: 'fixed', width: '1000px', height: '700px', fullscreen: false,
+        margin_top: '0px', margin_bottom: '2rem', margin_left: '2rem', margin_right: '2rem',
+    });
+});
+
+test('appearance.desktop: a blank or whitespace-only size keeps the default (was "px"), with a warning', (t) => {
+    const warn = t.mock.method(console, 'warn', () => {});
+    assert.deepEqual(desktop({ width: '', height: '   ', margin: '', margin_left: ' ', margin_top: '8' }),
+        { ...DEFAULTS_SNAPSHOT.appearance.desktop, margin_top: '8px' },
+        'blank sizes neither override the defaults nor imply the fixed mode');
+    assert.deepEqual(desktop({ mode: 'fixed', width: '\t' }), { ...DEFAULTS_SNAPSHOT.appearance.desktop, mode: 'fixed' });
+    // A blank global margin leaves the 24px cascade; a blank side takes the global one.
+    assert.deepEqual(desktop({ margin: '10', margin_bottom: '' }), {
+        ...DEFAULTS_SNAPSHOT.appearance.desktop,
+        margin_top: '10px', margin_bottom: '10px', margin_left: '10px', margin_right: '10px',
+    });
+    const warned = warn.mock.calls.map(c => c.arguments[0]).join('\n');
+    for (const key of ['width', 'height', 'margin', 'margin_left', 'margin_bottom']) {
+        assert.match(warned, new RegExp(`"appearance\\.desktop\\.${key}" is empty`), key);
+    }
+});

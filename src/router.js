@@ -10,7 +10,8 @@
  */
 
 export class Router extends EventTarget {
-    constructor(host, container, config) {
+    /** `container`: the .page-container the pages are shown in. */
+    constructor(container, config) {
         super();
         this.container = container; // The .page-container element
         this.config = config || {};
@@ -91,10 +92,8 @@ export class Router extends EventTarget {
                 // must apply it, or the previous results are shown (#23).
                 if (data?.query && typeof newPage.search === 'function') newPage.search(data.query);
             } else if (pageId.startsWith('artist:') || pageId.startsWith('album:') || pageId.startsWith('playlist:')) {
-                if (data && newPage.data !== data) {
-                    newPage.pageId = pageId;
-                    newPage.data = data;
-                }
+                // (A cached page's pageId is the key it is cached under.)
+                if (data && newPage.data !== data) newPage.data = data;
             }
         }
 

@@ -257,7 +257,7 @@ class SpotifyBrowserApp extends LitElement {
 
         // Initialize Router
         const container = this.shadowRoot.querySelector('.page-container');
-        this.router = new Router(this, container, this.config);
+        this.router = new Router(container, this.config);
 
 
 
@@ -483,6 +483,8 @@ class SpotifyBrowserApp extends LitElement {
             if (this.router) this.router.updateDependencies({ api: this.api });
             this._loadProfileImage();
         }
+
+        if (changedProperties.has('_isDesktop')) this._syncNeighborArtSize();
 
         if (changedProperties.has('config') && this.config) {
             setDebug(this.config.browser.debug === true);
@@ -1098,6 +1100,7 @@ class SpotifyBrowserApp extends LitElement {
         this.playerController = new PlayerController(this.api);
         this.playerController.updateConfig(this.config);
         this.playerController.setSonosBridge(this.sonosBridge);
+        this._syncNeighborArtSize();
         // Fetch (queue, recents, liked state, art) only while the overlay is
         // open; the open/close branches of updated() flip this afterwards.
         this.playerController.setActive(this._isOpen);
@@ -1111,6 +1114,16 @@ class SpotifyBrowserApp extends LitElement {
         this._turnOnOffPlayers();
 
         this.requestUpdate();
+    }
+
+    /**
+     * Tell the player controller which art size to warm for the next /
+     * previous track: mobile's full-screen carousel (and the mini-player a
+     * skip lands in) shows them large; on desktop they only appear as
+     * thumbnails (sidebar queue rows and now-playing block).
+     */
+    _syncNeighborArtSize() {
+        this.playerController?.setNeighborArtSize(this._isDesktop ? IMG_THUMB : 0);
     }
 
     /**
@@ -1292,9 +1305,12 @@ class SpotifyBrowserApp extends LitElement {
      */
     _refreshCurrentPage() {
         this._toast("Refreshing...");
+        // Taken first: the player's re-read below can then share the recents
+        // read home's section refresh starts.
+        const since = Date.now();
 
         // An explicit refresh must not be served from the api's short-lived
-        // catalog cache (artist/album/track objects).
+        // catalog cache (artist/album/track objects, the shared recents read).
         this.api?.clearReadCache();
 
         const pageId = this.router?.currentPageId;
@@ -1313,7 +1329,7 @@ class SpotifyBrowserApp extends LitElement {
         }
 
         // Now-playing, queue and recents.
-        this._refreshAfterReturn();
+        this._refreshAfterReturn(since);
     }
 
     /** Switch the active Spotify account/entity and rebuild the API stack. */
@@ -1996,16 +2012,24 @@ class SpotifyBrowserApp extends LitElement {
         setTimeout(() => this._refreshAfterReturn(), 0);
     }
 
-    /** Bring now-playing, queue, recents and home up to date (reopen + refocus). */
-    async _refreshAfterReturn() {
+    /**
+     * Bring now-playing, queue, recents and home up to date (reopen, refocus,
+     * Refresh Data). The queue and recents are re-read as of now: a read of
+     * them that started from this moment on is as good as a new one, so
+     * `since` lets these refreshes take the one home's "Recently Played" row
+     * (first open) or the desktop sidebar (shown on open) already made, and
+     * home take the player's.
+     * @param {number} [since]  when the refresh was asked for (default: now)
+     */
+    async _refreshAfterReturn(since = Date.now()) {
         if (!this.api) return;
         await this.api.scanWhenReady();
         // Explicit re-reads: queue/recents live outside hass.states, and the
         // scan only auto-refreshes them when the track actually changed.
-        this.playerController?.refreshQueue();
-        this.playerController?.refreshRecent();
+        this.playerController?.refreshQueue({ since });
+        this.playerController?.refreshRecent({ since });
         // Home is cached across opens; refresh its library sections (throttled).
-        this.router?.pageCache.get('home')?.refreshSections?.();
+        this.router?.pageCache.get('home')?.refreshSections?.({ since });
     }
 }
 

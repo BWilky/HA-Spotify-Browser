@@ -2,7 +2,7 @@ import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { homeStyles } from './spotify-home.styles.js';
 import { renderCardTemplate, renderCardSkeletonTemplate, renderCarouselSection, itemSubtitle, SUBTITLE_STYLE } from './media-templates.js';
-import { loadConfigPins, buildPinnedRow, dedupeRecentAlbums, sectionFetchWindow, homeRefreshDue } from './controllers/home-content.js';
+import { loadConfigPins, buildPinnedRow, dedupeRecentAlbums, sectionFetchWindow, homeRefreshDue, HOME_RECENT_TRACKS } from './controllers/home-content.js';
 import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj, playlistSortParams, IMG_THUMB } from '../utils.js';
 import { playingBarsIcon } from './common/icons.js';
 
@@ -512,17 +512,25 @@ class SpotifyHome extends LitElement {
      * so without this a wall tablet shows whatever loaded with the dashboard.
      * Existing items stay on screen until the new ones arrive, and a failed
      * fetch keeps them. Pinned refreshes itself from its sensor, so it's skipped.
+     * `since`: see fetchSectionData.
+     * @param {{since?: number|null}} [options]
      */
-    refreshSections() {
+    refreshSections({ since = null } = {}) {
         if (!this._hasLoaded || !this.hass || !this.api) return;
         if (!homeRefreshDue(this._lastRefreshAt)) return;
         this._lastRefreshAt = Date.now();
         for (const key of this._getSectionOrder()) {
-            if (key in this._offsets) this.fetchSectionData(key, { replace: true });
+            if (key in this._offsets) this.fetchSectionData(key, { replace: true, since });
         }
     }
 
-    async fetchSectionData(sectionKey, { replace = false } = {}) {
+    /**
+     * Load a section's next page, or (`replace`) re-read it from the start.
+     * `since` (a Date.now() stamp) lets the recently played section take the
+     * recents read the player started at or after it (see
+     * SpotifyApi.getRecentTracks); without it that section reads afresh.
+     */
+    async fetchSectionData(sectionKey, { replace = false, since = null } = {}) {
         if (this._fetching[sectionKey]) return;
         this._fetching[sectionKey] = true;
         this.requestUpdate();
@@ -562,13 +570,16 @@ class SpotifyHome extends LitElement {
             }
             else if (sectionKey === 'recent') {
                 if (offset > 0) return;
-                // Keep this light: it's fetched in parallel with every other home
-                // section (see loadHomeData), and 50 full track objects made this the
-                // heaviest concurrent call — it would intermittently time out and blank
-                // the section. 20 tracks still dedupe to plenty of unique albums.
-                const res = await this.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: 20 });
+                // The one recents read home shares with the player (30 tracks, see
+                // SpotifyApi.getRecentTracks). The row shows the first 20, as when
+                // it asked for 20 itself: kept light because it is fetched in
+                // parallel with every other home section (see loadHomeData), and
+                // 50 full track objects made this the heaviest concurrent call — it
+                // would intermittently time out and blank the section. 20 tracks
+                // still dedupe to plenty of unique albums.
+                const res = await this.api.getRecentTracks({ since });
                 if (res?.result?.items) {
-                    const uniqueItems = dedupeRecentAlbums(res.result.items);
+                    const uniqueItems = dedupeRecentAlbums(res.result.items.slice(0, HOME_RECENT_TRACKS));
                     data = { items: uniqueItems, total: uniqueItems.length }; type = 'album';
                 }
             }

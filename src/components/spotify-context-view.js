@@ -2,7 +2,7 @@
 import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { contextViewStyles } from '../styles/spotify-context-view.styles.js';
-import { pageLoaders, pageInPlaylistTracks, loadMore, loadSectionMore } from './controllers/page-loaders.js';
+import { pageLoaders, pageInPlaylistTracks, loadMore, loadSectionMore, LOAD_FAILED } from './controllers/page-loaders.js';
 import { getPlayingTrackId, getCurrentTrackId, isContextPlaying } from '../utils.js';
 
 // Import new sub-views
@@ -20,9 +20,6 @@ export class SpotifyContextView extends LitElement {
             pageId: { type: String },
             data: { type: Object },
             _contextData: { type: Object, state: true },
-            _isFollowing: { type: Boolean, state: true },
-
-            _currentUserId: { type: String, state: true },
             pinned: { type: Object }, // Add pinned dependency
         };
     }
@@ -75,8 +72,11 @@ export class SpotifyContextView extends LitElement {
     constructor() {
         super();
         this._contextData = null;
-        this._isFollowing = false;
+        // The account's user id, kept for the loaders (ctx.user). Plain:
+        // nothing renders from it.
         this._currentUserId = null;
+        // Bumped by refresh(): a load started before it is superseded.
+        this._loadGeneration = 0;
         // Derived-from-hass snapshot (plain fields; render binds them and
         // shouldUpdate keeps them fresh before every render pass).
         this._playingTrackId = null;
@@ -119,24 +119,28 @@ export class SpotifyContextView extends LitElement {
 
     /**
      * The `ctx` a loader in page-loaders.js works through (see there). A
-     * load stays current while this view still shows `pageId`; `isCurrent`
-     * narrows that (the playlist pager's token). A newer loadPageData() on
-     * the same page does NOT supersede one in flight: both merge into the
+     * load stays current while this view still shows `pageId` and no
+     * refresh() has thrown its data away since it started; `isCurrent`
+     * replaces that test (the playlist pager's token). A newer loadPageData()
+     * on the same page does NOT supersede one in flight: both merge into the
      * same data, and whichever lands keeps the page out of its failed state.
+     * A refresh() does: an older load landing on the refreshed page would
+     * merge into its loading placeholder (and could keep it from showing a
+     * failure).
      */
-    _loadContext(pageId, isCurrent = () => this.pageId === pageId) {
+    _loadContext(pageId, isCurrent = null) {
         const host = this;
+        const generation = this._loadGeneration;
+        const current = isCurrent || (() => host.pageId === pageId && host._loadGeneration === generation);
         return {
             get api() { return host.api; },
             user: {
                 get id() { return host._currentUserId; },
                 set id(v) { host._currentUserId = v; },
-                get isFollowing() { return host._isFollowing; },
-                set isFollowing(v) { host._isFollowing = v; },
             },
-            current: () => (isCurrent() ? host._contextData : null),
+            current: () => (current() ? host._contextData : null),
             commit: (patch, options) => {
-                if (!isCurrent()) return false;
+                if (!current()) return false;
                 host._commit(patch, { ...options, pageId });
                 return true;
             },
@@ -145,19 +149,24 @@ export class SpotifyContextView extends LitElement {
     }
 
     /**
-     * Context for the playlist background pager. A token guards against
-     * overlapping pagers when the user navigates away and back: the newest
-     * pager wins, and refresh() clears the token so the old one stops.
+     * Context for the playlist background pager. One pager per page id, across
+     * every view instance (SpotifyContextView.pagerTokens): the newest claim
+     * wins, so a page revisited mid-page-in, or rebuilt by the router while
+     * the instance it evicted is still paging, pages it once. refresh() and
+     * clearAll() stop it too.
      */
     _pagerContext(pageId) {
         const token = Symbol('playlist-pager');
-        this._playlistPagerToken = token;
-        return this._loadContext(pageId, () => this._playlistPagerToken === token && this.pageId === pageId);
+        SpotifyContextView.pagerTokens.set(pageId, token);
+        return this._loadContext(pageId, () => SpotifyContextView.pagerTokens.get(pageId) === token && this.pageId === pageId);
     }
 
     // Static cache for persistence across navigations (LRU, capped)
     static stateCache = new Map();
     static MAX_CACHE_ENTRIES = 30;
+
+    // The token of the playlist pager running for each page id (see _pagerContext).
+    static pagerTokens = new Map();
 
     static cacheSet(pageId, data) {
         if (this.stateCache.has(pageId)) this.stateCache.delete(pageId);
@@ -172,9 +181,14 @@ export class SpotifyContextView extends LitElement {
         this.stateCache.delete(pageId);
     }
 
-    /** Drop everything — required on account switch (keys are account-blind). */
+    /**
+     * Drop everything — required on account switch (keys are account-blind).
+     * Running pagers stop too: they would put the previous account's pages
+     * back into the cache.
+     */
     static clearAll() {
         this.stateCache.clear();
+        this.pagerTokens.clear();
     }
 
     /**
@@ -189,7 +203,8 @@ export class SpotifyContextView extends LitElement {
             return;
         }
         SpotifyContextView.invalidate(this.pageId);
-        this._playlistPagerToken = null;
+        SpotifyContextView.pagerTokens.delete(this.pageId);
+        this._loadGeneration++;
         this._contextData = null;
         await this.loadPageData();
     }
@@ -263,10 +278,7 @@ export class SpotifyContextView extends LitElement {
         // player change. Not cached; refresh() or returning to the page
         // (updateHeaderState) retries.
         if (this._contextData === placeholder) {
-            this._contextData = {
-                ...placeholder, isLoading: false, hasMore: false, loadFailed: true,
-                name: "Couldn't load this page"
-            };
+            this._contextData = { ...placeholder, ...LOAD_FAILED };
         }
 
         // Commits that may land at any moment start only now (see page-loaders.js).

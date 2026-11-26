@@ -383,3 +383,26 @@ test('fetchPaginated makes the same calls and returns the same result as one pag
     }
     assert.equal(cases, 960);
 });
+
+test('fetchPaginated flags a first call that failed (failed: true), unlike a list that is genuinely empty', async (t) => {
+    t.mock.method(console, 'warn', () => {});
+    const run = async (reply) => {
+        const hass = { callWS: async () => reply() };
+        return new SpotifyApi(hass, 'media_player.test').fetchPaginated('get_artist_albums', { artist_id: 'a1' }, 50);
+    };
+    assert.deepEqual(await run(() => { throw new Error('down'); }), { items: [], total: 0, offset: 10, failed: true });
+    assert.deepEqual(await run(() => ({ response: { result: null } })), { items: [], total: 0, offset: 10, failed: true });
+    assert.deepEqual(await run(() => ({ response: { result: { items: [], total: 0 } } })), { items: [], total: 0, offset: 10 });
+});
+
+test('fetchPaginated: a later page failing is not a failed read', async (t) => {
+    t.mock.method(console, 'warn', () => {});
+    const available = makeItems(30);
+    let n = 0;
+    const hass = { callWS: async ({ service_data: { limit, offset } }) => {
+        if (n++ === 0) return { response: { result: { items: available.slice(offset, offset + limit) } } }; // no total: one page at a time
+        throw new Error('down');
+    } };
+    const res = await new SpotifyApi(hass, 'media_player.test').fetchPaginated('search_tracks', { criteria: 'x' }, 30);
+    assert.deepEqual(res, { items: available.slice(0, 10), total: 10, offset: 20 });
+});

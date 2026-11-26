@@ -1,4 +1,4 @@
-import { parseSpotifyUri, spotifyUriFromContentId, extrapolatedPosition } from '../../utils.js';
+import { parseSpotifyUri, spotifyUriFromContentId, extrapolatedPosition, pickImage } from '../../utils.js';
 
 /** @typedef {import('../../utils.js').SpotifyItem} SpotifyItem */
 
@@ -62,6 +62,9 @@ export class PlayerController extends EventTarget {
         this._eosTimer = null;
         this._eosFiredFor = null; // Track id whose end-of-track refresh already ran (null = armed)
         this._queueFetchId = 0; // Invalidates in-flight queue refreshes
+        /** @type {{id: number, at: number}|null} the latest queue read (see refreshQueue's `since`) */
+        this._queueRead = null;
+        this._neighborArtPx = 0; // See setNeighborArtSize()
         this._transferHoldTrack = null; // Track shown while a device transfer settles
         this._transferHoldUntil = 0;
         this._active = true; // See setActive()
@@ -167,6 +170,18 @@ export class PlayerController extends EventTarget {
     /** Attach the Sonos integration bridge (used for Sonos queue routing). */
     setSonosBridge(bridge) {
         this.sonosBridge = bridge;
+    }
+
+    /**
+     * The art size to warm for the next / previous track (see
+     * _preloadNeighborArt): the smallest variant at least `minPx` wide, as
+     * pickImage picks it. 0 (the default) is the largest, for a layout that
+     * shows the neighbours large (the mobile full-screen carousel); the app
+     * passes the thumbnail size where they only appear as thumbnails.
+     * @param {number} minPx
+     */
+    setNeighborArtSize(minPx) {
+        this._neighborArtPx = Number(minPx) || 0;
     }
 
     /**
@@ -483,8 +498,19 @@ export class PlayerController extends EventTarget {
 
     /* --- DATA FETCHING --- */
 
-    async refreshQueue() {
+    /**
+     * Re-read the queue. With `since` (a Date.now() stamp) nothing is read if
+     * a queue read that started at or after it still stands (landed or in
+     * flight, and not superseded by a newer refresh or an optimistic
+     * action): the app's refresh on open passes the moment of opening, and
+     * the desktop sidebar, shown on open, has just read the queue itself.
+     * Without `since` it always reads.
+     * @param {{since?: number|null}} [options]
+     */
+    async refreshQueue({ since = null } = {}) {
         if (!this.api) return;
+        const last = this._queueRead;
+        if (since !== null && last && last.at >= since && last.id === this._queueFetchId) return;
 
         // Sonos owns its own local queue; SpotifyPlus's get_player_queue_info is
         // empty/stale for it. Read the live queue from the HA Sonos integration.
@@ -493,7 +519,7 @@ export class PlayerController extends EventTarget {
             return this._refreshSonosQueue(sonos.entity);
         }
 
-        const fetchId = ++this._queueFetchId;
+        const fetchId = this._beginQueueRead();
         try {
             const res = await this.api.fetchSpotifyPlus('get_player_queue_info');
             // Drop stale responses (a newer refresh or optimistic action superseded this one)
@@ -508,10 +534,25 @@ export class PlayerController extends EventTarget {
                 // displayed track id (the API's currently_playing can lag behind an
                 // optimistic skip, so we no longer check it directly here).
                 this._updateStateFromHass();
+            } else {
+                this._forgetQueueRead(fetchId);
             }
         } catch (e) {
+            this._forgetQueueRead(fetchId);
             console.error('[PlayerController] Queue fetch failed', e);
         }
+    }
+
+    /** Start a queue read: supersedes any in flight, and is what a later `since` refresh can stand on. */
+    _beginQueueRead() {
+        const id = ++this._queueFetchId;
+        this._queueRead = { id, at: Date.now() };
+        return id;
+    }
+
+    /** A queue read that failed covers no later `since` refresh. */
+    _forgetQueueRead(id) {
+        if (this._queueRead?.id === id) this._queueRead = null;
     }
 
     /**
@@ -521,11 +562,11 @@ export class PlayerController extends EventTarget {
      * index so play-from-queue can map a clicked row back to a queue position.
      */
     async _refreshSonosQueue(entity) {
-        const fetchId = ++this._queueFetchId;
+        const fetchId = this._beginQueueRead();
         try {
             const full = await this.sonosBridge.getQueue(entity);
             if (fetchId !== this._queueFetchId) return; // superseded
-            if (!Array.isArray(full)) return;
+            if (!Array.isArray(full)) { this._forgetQueueRead(fetchId); return; }
 
             // Prefer the Sonos entity's own queue_position (reliable) to find the
             // current track; fall back to matching the playing uri in the queue.
@@ -545,6 +586,7 @@ export class PlayerController extends EventTarget {
             // background (cached per track id) and re-render once art arrives.
             this._enrichSonosArt(fetchId);
         } catch (e) {
+            this._forgetQueueRead(fetchId);
             console.error('[PlayerController] Sonos queue fetch failed', e);
         }
     }
@@ -569,10 +611,18 @@ export class PlayerController extends EventTarget {
         this._setState({ queue: [...this.state.queue] });
     }
 
-    async refreshRecent() {
+    /**
+     * Re-read the recently played tracks (api.getRecentTracks, 30 of them).
+     * `since` (a Date.now() stamp) lets it take a read that started at or
+     * after it, such as the one home's "Recently Played" row made when the
+     * overlay opened; without it (a track change, the queue sheet) it always
+     * reads.
+     * @param {{since?: number|null}} [options]
+     */
+    async refreshRecent({ since = null } = {}) {
         if (!this.api) return;
         try {
-            const res = await this.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: 30 });
+            const res = await this.api.getRecentTracks({ since });
             if (res) {
                 let items = [];
                 if (res.result && res.result.items) items = res.result.items;
@@ -662,13 +712,15 @@ export class PlayerController extends EventTarget {
         if (!track || !track.id) return;
 
         // Optimistic
-        this._setState({ isLiked: !this.state.isLiked });
+        const liked = !this.state.isLiked;
+        this._setState({ isLiked: liked });
 
-        if (this.state.isLiked) {
-            await this.api.saveTrackFavorites(track.id);
-        } else {
-            await this.api.removeTrackFavorites(track.id);
-        }
+        const res = liked
+            ? await this.api.saveTrackFavorites(track.id)
+            : await this.api.removeTrackFavorites(track.id);
+        // The api reports these over the websocket, so Home Assistant shows no
+        // error of its own: say so here (the re-check below puts the heart back).
+        if (res && res.success === false) this.api._notify?.('Failed to update your library.');
         this.checkTrackFavorites(track.id);
     }
 
@@ -789,10 +841,13 @@ export class PlayerController extends EventTarget {
         return extrapolatedPosition(this._lastStateObj);
     }
 
-    /** Warm the browser image cache for the neighbouring tracks' artwork. */
+    /**
+     * Warm the browser image cache for the neighbouring tracks' artwork, at
+     * the size the layout shows them (see setNeighborArtSize).
+     */
     _preloadNeighborArt() {
         [this.peekNext(), this.peekPrev()].forEach(t => {
-            const url = t?.album?.images?.[0]?.url;
+            const url = pickImage(t?.album?.images, this._neighborArtPx);
             if (url) { const img = new Image(); img.src = url; }
         });
     }

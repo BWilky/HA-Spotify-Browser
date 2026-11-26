@@ -19,6 +19,9 @@ export function dedupeRecentAlbums(historyItems = []) {
 /** Items per home section page (first load and each "load more"). */
 export const HOME_PAGE_SIZE = 20;
 
+/** Play-history entries home's "Recently Played" row is built from (before deduping to albums). */
+export const HOME_RECENT_TRACKS = 20;
+
 /** Spotify's per-request max for the library endpoints home uses. */
 const SPOTIFY_MAX_LIMIT = 50;
 

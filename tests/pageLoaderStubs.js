@@ -66,7 +66,7 @@ export const flush = () => new Promise(r => setImmediate(r));
  * and refuses once the load is superseded (`host.supersede()`). Each call to
  * commit is logged in `host.commits` as { patch, options, applied }.
  */
-export function makeHost({ pageId, type, id, api, options = {}, user = { id: null, isFollowing: false }, data } = {}) {
+export function makeHost({ pageId, type, id, api, options = {}, user = { id: null }, data } = {}) {
     const host = {
         pageId, api, user,
         data: data === undefined ? placeholder(type, id) : data,

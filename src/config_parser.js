@@ -123,9 +123,18 @@ const enumOf = (values, fallback) => (v, path) => {
     return fallback;
 };
 
-/** css size: bare numbers / numeric strings become px. */
-const cssSize = (v) => {
+/**
+ * css size: bare numbers / numeric strings become px. A blank string is no
+ * size: undefined, so the field keeps its default (it used to become 'px').
+ * @param {any} v
+ * @param {string} [path]  for the warning
+ */
+const cssSize = (v, path = 'appearance.desktop') => {
     if (v === undefined || v === null) return null;
+    if (typeof v === 'string' && v.trim() === '') {
+        warnOnce(path, `"${path}" is empty — using the default.`);
+        return undefined;
+    }
     if (typeof v === 'number') return `${v}px`;
     // @ts-expect-error -- lib types isNaN(number); its ToNumber coercion of a numeric string is the point here
     if (typeof v === 'string' && !isNaN(v)) return `${v}px`;
@@ -360,12 +369,16 @@ const SCHEMA = {
                 },
                 post: (out, raw) => {
                     const r = raw && typeof raw === 'object' ? raw : {};
+                    // The size given for `key`; undefined when none is (omitted or blank).
+                    const size = (key) => (r[key] !== undefined ? cssSize(r[key], `appearance.desktop.${key}`) : undefined);
                     // width/height imply fixed unless the user set a mode
-                    if (r.mode === undefined && (r.width !== undefined || r.height !== undefined)) out.mode = 'fixed';
+                    if (r.mode === undefined && (size('width') !== undefined || size('height') !== undefined)) out.mode = 'fixed';
                     // global margin cascades; individual sides override
-                    const global = r.margin !== undefined ? cssSize(r.margin) : '24px';
+                    const margin = size('margin');
+                    const global = margin === undefined ? '24px' : margin;
                     for (const side of ['top', 'bottom', 'left', 'right']) {
-                        out[`margin_${side}`] = r[`margin_${side}`] !== undefined ? cssSize(r[`margin_${side}`]) : global;
+                        const own = size(`margin_${side}`);
+                        out[`margin_${side}`] = own === undefined ? global : own;
                     }
                     delete out.margin;
                     return out;

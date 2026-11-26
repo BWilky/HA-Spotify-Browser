@@ -272,17 +272,39 @@ export function getPlayingTrackId(hass, entityId) {
 }
 
 /**
+ * When the entity's `media_position` was measured, in ms since the epoch, or
+ * null. Home Assistant stamps `media_position_updated_at` each time the
+ * integration reports a position (Home Assistant's own media card counts
+ * from it); `last_updated` also moves on any other attribute change (a
+ * volume step) while `media_position` keeps its old value, so counting from
+ * it would rewind the bar. It is only the fallback, for an entity that does
+ * not report the position's time.
+ * @param {{last_updated?: string, attributes?: {media_position_updated_at?: string}}} stateObj
+ * @returns {number|null}
+ */
+function positionMeasuredAt(stateObj) {
+    for (const stamp of [stateObj.attributes?.media_position_updated_at, stateObj.last_updated]) {
+        if (!stamp) continue;
+        const ms = new Date(stamp).getTime();
+        if (Number.isFinite(ms)) return ms;
+    }
+    return null;
+}
+
+/**
  * Current playback position in seconds for a media_player state object,
- * extrapolated forward from the entity's last_updated timestamp while it is
- * playing (HA only refreshes media_position on state changes). Returns the
- * raw (unclamped) position; clamp to media_duration at the call site if needed.
+ * extrapolated forward while it is playing from when the position was
+ * measured (see positionMeasuredAt): HA only updates media_position when the
+ * integration reports it. Returns the raw (unclamped) position; clamp to
+ * media_duration at the call site if needed.
  */
 export function extrapolatedPosition(stateObj) {
     if (!stateObj) return 0;
     const attrs = stateObj.attributes || {};
     let pos = attrs.media_position || 0;
-    if (stateObj.state === 'playing' && attrs.media_position !== undefined && stateObj.last_updated) {
-        pos += (Date.now() - new Date(stateObj.last_updated).getTime()) / 1000;
+    if (stateObj.state === 'playing' && attrs.media_position !== undefined) {
+        const measuredAt = positionMeasuredAt(stateObj);
+        if (measuredAt !== null) pos += (Date.now() - measuredAt) / 1000;
     }
     return pos;
 }
@@ -300,7 +322,7 @@ export function playbackProgress(stateObj, track, now) {
     const attrs = stateObj?.attributes || {};
     let position = extrapolatedPosition(stateObj);
     if (now !== undefined && stateObj?.state === 'playing'
-        && attrs.media_position !== undefined && stateObj.last_updated) {
+        && attrs.media_position !== undefined && positionMeasuredAt(stateObj) !== null) {
         position -= (Date.now() - now) / 1000; // re-anchor the extrapolation at `now`
     }
     let duration = attrs.media_duration || 0;

@@ -17,9 +17,8 @@ import { playlistSortParams } from '../../utils.js';
  *   ctx.options    { autoEdit, artistName, lastFmApiKey }: the playlist's
  *                  one-shot edit intent, the artist name the discography
  *                  page was opened with, the Last.fm key from the config.
- *   ctx.user       { id, isFollowing }: the host's memo of the account's user
- *                  id and of its last playlist-follow answer. Loaders read
- *                  and update it in place.
+ *   ctx.user       { id }: the host's memo of the account's user id. Loaders
+ *                  read and update it in place.
  *   ctx.current()  the page's data as it stands now; null once this load has
  *                  been superseded (what supersedes a load is the host's
  *                  call: see _loadContext in spotify-context-view.js).
@@ -37,14 +36,23 @@ import { playlistSortParams } from '../../utils.js';
  *
  * A loader resolves once the page's first state is decided: committed, or,
  * when the read failed, left alone. The host then judges the load: a loading
- * placeholder nobody replaced becomes its "couldn't load" state. A loader may
- * resolve to a function, which the host calls straight after that judgement:
- * the artist page, when the artist itself failed, wires its rails there, so a
- * rail that already answered cannot replace the placeholder first and leave
- * the page on "Loading...".
+ * placeholder nobody replaced becomes its "couldn't load" state (LOAD_FAILED
+ * merged in). A loader that has replaced the placeholder already (Liked
+ * Songs shows its own shell while loading) or shares its body with load
+ * more (sections) commits LOAD_FAILED itself, uncached. A failed page is
+ * never cached, and showing it again retries it. A loader may resolve to a
+ * function, which the host calls straight after that judgement: the artist
+ * page, when the artist itself failed, wires its rails there, so a rail that
+ * already answered cannot replace the placeholder first and leave the page
+ * on "Loading...".
  */
 
 const LIKED_SONGS_IMAGE = 'https://t.scdn.co/images/3099b3803ad9496896c43f22fe9be8c4.png';
+
+/** What a page whose read failed shows: merged into its data, never cached. */
+export const LOAD_FAILED = Object.freeze({
+    isLoading: false, hasMore: false, loadFailed: true, name: "Couldn't load this page"
+});
 
 async function playlist(ctx) {
     // No `fields` filter: the full object carries owner.id,
@@ -90,12 +98,15 @@ async function playlist(ctx) {
         let isFollowing;
         try {
             const follows = await ctx.api.checkUserFollowsPlaylist(ctx.current().id, user.id);
-            if (follows && Array.isArray(follows) && follows.length > 0) isFollowing = user.isFollowing = !!follows[0];
+            if (follows && Array.isArray(follows) && follows.length > 0) isFollowing = !!follows[0];
         } catch (e) { }
         const current = ctx.current();
         if (!current) return;
+        // Edit rights from this answer only: with none, no isFollowing goes
+        // in (the view asks again) and no edit rights either, rather than an
+        // earlier load's answer that the heart would then contradict.
         ctx.commit({
-            canEditItems: !!current.collaborative && !!user.isFollowing,
+            canEditItems: !!current.collaborative && isFollowing === true,
             followPending: false,
             ...(isFollowing !== undefined ? { isFollowing } : {})
         }, { cache: false });
@@ -306,7 +317,10 @@ async function artistDiscography(ctx) {
         artistName = artistRes?.result?.name || 'Artist';
     }
     const limit = 50;
-    const { items, total } = await ctx.api.fetchPaginated('get_artist_albums', { artist_id: id, include_groups: 'album,single,compilation' }, limit);
+    const { items, total, failed } = await ctx.api.fetchPaginated('get_artist_albums', { artist_id: id, include_groups: 'album,single,compilation' }, limit);
+    // Nothing could be read: leave the placeholder for the host to mark
+    // failed, rather than commit (and cache) an empty discography.
+    if (failed) return;
 
     ctx.commit({
         id,
@@ -332,8 +346,14 @@ async function likedSongs(ctx) {
     if (!shown) return;
     try {
         const res = await ctx.api.getTrackFavorites({ limit: 50, offset: 0, sort_result: false });
-        const items = res?.result?.items || [];
-        const total = res?.result?.total ?? items.length;
+        // A failed read (null) is the failed state, not an empty list. The
+        // shell has replaced the placeholder, so it is committed here.
+        if (!Array.isArray(res?.result?.items)) {
+            ctx.commit(LOAD_FAILED, { cache: false });
+            return;
+        }
+        const items = res.result.items;
+        const total = res.result.total ?? items.length;
         // Use the real user id so the URI matches the playable context
         // we start from a track row (and the hero "is playing" check).
         // `me` is not a valid owner in a playable collection URI.
@@ -348,14 +368,15 @@ async function likedSongs(ctx) {
         });
     } catch (e) {
         console.error('[ContextView] Liked Songs load failed:', e);
-        ctx.commit({ isLoading: false, hasMore: false }, { cache: false });
+        ctx.commit(LOAD_FAILED, { cache: false });
     }
 }
 
 /**
  * One page of a "See All" section (`recent`, `favorites`, `albums`,
  * `artists`): offset 0 starts the list, a later offset appends to it
- * (followed artists page by `cursor`, the last artist id seen).
+ * (followed artists page by `cursor`, the last artist id seen). When the
+ * first page cannot be read the page shows LOAD_FAILED (uncached).
  */
 export async function loadSection(ctx, sectionId, offset, cursor = null) {
     const limit = 50; // Use larger limit for lists?
@@ -363,6 +384,7 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
     let total = null;
     let title = '';
     let nextCursor = null;
+    let read = false; // whether the response held a list (an empty one included)
 
     try {
         if (sectionId === 'recent') {
@@ -371,6 +393,7 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
             // so this section loads a single page only.
             const res = await ctx.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: limit });
             if (offset === 0 && res?.result?.items) {
+                read = true;
                 newItems = dedupeRecentAlbums(res.result.items);
                 total = newItems.length;
             }
@@ -378,6 +401,7 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
             title = 'Your Favorite Playlists';
             const res = await ctx.api.fetchSpotifyPlus('get_playlist_favorites', { limit, offset, ...playlistSortParams() });
             if (res?.result?.items) {
+                read = true;
                 newItems = res.result.items;
                 total = res.result.total;
             }
@@ -386,6 +410,7 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
             // User requested logic for Albums (Offset based)
             const res = await ctx.api.fetchSpotifyPlus('get_album_favorites', { limit, offset });
             if (res?.result?.items) {
+                read = true;
                 // Saved Album object structure: item.album is the album object
                 newItems = res.result.items.map(i => i.album).filter(Boolean);
                 total = res.result.total;
@@ -406,9 +431,11 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
             if (res?.result) {
                 // Check for flattened structure first
                 if (res.result.items) {
+                    read = true;
                     newItems = res.result.items;
                     total = res.result.total;
                 } else if (res.result.artists && res.result.artists.items) {
+                    read = true;
                     newItems = res.result.artists.items;
                     total = res.result.artists.total;
                 }
@@ -418,6 +445,14 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
                     nextCursor = newItems[newItems.length - 1].id;
                 }
             }
+        }
+
+        // The first page could not be read: the failed state, not an empty
+        // section (which would be cached). (`title`: an unknown section id
+        // makes no read and still shows an empty page, as before.)
+        if (offset === 0 && !read && title) {
+            ctx.commit(LOAD_FAILED, { cache: false });
+            return;
         }
 
         // Update State
@@ -465,7 +500,7 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
 
     } catch (e) {
         console.error('Error loading section data:', e);
-        ctx.commit({ isLoading: false, hasMore: false }, { cache: false });
+        ctx.commit(offset === 0 ? LOAD_FAILED : { isLoading: false, hasMore: false }, { cache: false });
     }
 }
 

@@ -47,9 +47,16 @@ function setup(t) {
         fetchSpotifyPlus: async (service) => {
             calls[service] = (calls[service] || 0) + 1;
             if (service === 'get_player_queue_info') return { result: { queue: api.queue } };
-            if (service === 'get_player_recent_tracks') return { result: { items: api.recent } };
             return { success: true };
         },
+        // SpotifyApi.getRecentTracks: counted as the read it stands for
+        // (`since` is recorded; sharing itself is tested in apiReadCache).
+        getRecentTracks: async (options) => {
+            calls.get_player_recent_tracks = (calls.get_player_recent_tracks || 0) + 1;
+            api.recentOptions.push(options);
+            return { result: { items: api.recent } };
+        },
+        recentOptions: [],
         checkTrackFavorites: async () => { calls.check_favorites = (calls.check_favorites || 0) + 1; return api.liked; },
         saveTrackFavorites: async () => { api.liked = true; },
         removeTrackFavorites: async () => { api.liked = false; },
@@ -654,4 +661,114 @@ test('going inactive cancels pending post-toggle refreshes; destroy() does too',
     mock.timers.tick(5000);
     await settle();
     assert.equal(queueCalls(calls), fetched);
+});
+
+/* ---- reads shared on open (`since`) ---- */
+
+test('refreshQueue({ since }) reads only when no queue read started at or after `since` still stands', async (t) => {
+    const { ctrl, api, calls } = await started(t);
+    const base = queueCalls(calls);
+
+    // The desktop sidebar, shown on open, reads the queue; the app's refresh
+    // for that same open (since = the moment of opening) takes it.
+    mock.timers.tick(5000);
+    const openedAt = Date.now();
+    await ctrl.refreshQueue();
+    await ctrl.refreshQueue({ since: openedAt });
+    assert.equal(queueCalls(calls), base + 1);
+
+    // A read from before `since` does not count.
+    mock.timers.tick(10);
+    await ctrl.refreshQueue({ since: Date.now() });
+    assert.equal(queueCalls(calls), base + 2);
+
+    // One still in flight stands too: one read for both.
+    let release;
+    const original = api.fetchSpotifyPlus;
+    api.fetchSpotifyPlus = (service) => new Promise(r => { release = () => r(original(service)); });
+    mock.timers.tick(10);
+    const since = Date.now();
+    const inFlight = ctrl.refreshQueue();
+    await ctrl.refreshQueue({ since });
+    release();
+    await inFlight;
+    api.fetchSpotifyPlus = original;
+    assert.equal(queueCalls(calls), base + 3);
+    assert.equal(ctrl._queueRead.at, since);
+});
+
+test('refreshQueue({ since }) reads again after an optimistic action, or after the read it would take failed', async (t) => {
+    const { ctrl, api, calls } = await started(t);
+    const since = Date.now();
+    await ctrl.refreshQueue();
+    await ctrl.skipNext(); // supersedes that read (its answer would be stale)
+    const before = queueCalls(calls);
+    await ctrl.refreshQueue({ since });
+    assert.equal(queueCalls(calls), before + 1);
+
+    const original = api.fetchSpotifyPlus;
+    api.fetchSpotifyPlus = async (service) => { calls[service] = (calls[service] || 0) + 1; return null; };
+    await ctrl.refreshQueue();
+    api.fetchSpotifyPlus = original;
+    await ctrl.refreshQueue({ since });
+    assert.equal(queueCalls(calls), before + 3, 'a failed read covers nothing');
+});
+
+test('refreshRecent passes `since` to the shared read; a track change always reads afresh', async (t) => {
+    const { ctrl, api } = await started(t);
+    api.recentOptions.length = 0;
+    await ctrl.refreshRecent({ since: 123 });
+    await ctrl.refreshRecent();
+    ctrl.updateHass(hassWith(playerState({ n: 4 })));
+    await settle();
+    assert.deepEqual(api.recentOptions, [{ since: 123 }, { since: null }, { since: null }]);
+});
+
+/* ---- neighbour art preload size ---- */
+
+test('the neighbour art preload takes the size set by setNeighborArtSize (default: the largest)', async (t) => {
+    const preloads = [];
+    globalThis.Image = class { set src(url) { preloads.push(url); } };
+    t.after(() => { delete globalThis.Image; });
+    const art = (n) => [640, 300, 64].map(w => ({ url: `https://img.test/${w}/${n}`, width: w, height: w }));
+    const withArt = (n) => ({ ...track(n), album: { images: art(n) } });
+
+    const { ctrl, api } = setup(t);
+    api.queue = [withArt(1), withArt(2)];
+    api.recent = [{ track: withArt(9) }];
+    ctrl.updateHass(hassWith(playerState()));
+    await settle();
+    preloads.length = 0;
+    ctrl._preloadNeighborArt();
+    assert.deepEqual(preloads, ['https://img.test/640/1', 'https://img.test/640/9'], 'mobile / default: full size');
+
+    preloads.length = 0;
+    ctrl.setNeighborArtSize(64);
+    ctrl._preloadNeighborArt();
+    assert.deepEqual(preloads, ['https://img.test/64/1', 'https://img.test/64/9'], 'desktop: thumbnails');
+
+    preloads.length = 0;
+    ctrl.setNeighborArtSize(128);
+    ctrl._preloadNeighborArt();
+    assert.deepEqual(preloads, ['https://img.test/300/1', 'https://img.test/300/9'], 'high-density thumbnails: the next size up');
+});
+
+test('toggleLike: a failed save shows the card\'s own message and re-checks the heart', async () => {
+    const notes = [];
+    const checks = [];
+    const pc = Object.create(PlayerController.prototype);
+    pc.state = { track: { id: 't1' }, isLiked: false };
+    pc._setState = (patch) => { pc.state = { ...pc.state, ...patch }; };
+    pc.checkTrackFavorites = (id) => checks.push(id);
+    pc.api = {
+        saveTrackFavorites: async () => ({ success: false, error: new Error('boom') }),
+        removeTrackFavorites: async () => ({ success: true }),
+        _notify: (m) => notes.push(m),
+    };
+    await pc.toggleLike();
+    assert.deepEqual(notes, ['Failed to update your library.']);
+    assert.deepEqual(checks, ['t1']);
+    pc.state = { track: { id: 't1' }, isLiked: true };
+    await pc.toggleLike(); // remove succeeds: no message
+    assert.deepEqual(notes, ['Failed to update your library.']);
 });

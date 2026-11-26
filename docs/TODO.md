@@ -36,28 +36,37 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 - [~] **X1 Dead CSS** (no element renders them): `.mobile-drag-handle`, `spotify-queue`, `.grid-layout` (×2), `.list-item-title/-subtitle`, `.track-duration`, `.device-list`, `.media-card.playing .media-title`, `.popup-scroll-content`, `.popup-close-btn`, `.page.has-hero-header`.
 - [~] **X2 Unused helpers**: ~~`renderMediaRowTemplate`~~ (removed b89c6b5), `heldVolume` (utils, replaced by `VolumeController`; its test stays only if the helper does).
-- [~] **X3 Small leftovers**: `Router` constructor's unused `host` parameter; `router.js` same-value `newPage.pageId = pageId` write; `spotify-context-view`'s reactive `_currentUserId` used only as a cache; stale "Driven by spotify-popups" doc comment in `device-picker-large.js`; the "Maybe." comment on the app's `@open-manager` handler.
+- [~] **X3 Small leftovers** (router `host` parameter, same-value `pageId` write and `_currentUserId` done in 05b0ac7): `Router` constructor's unused `host` parameter; `router.js` same-value `newPage.pageId = pageId` write; `spotify-context-view`'s reactive `_currentUserId` used only as a cache; stale "Driven by spotify-popups" doc comment in `device-picker-large.js`; the "Maybe." comment on the app's `@open-manager` handler.
 
 ## Speed and efficiency
 
-- [~] **P1 Duplicate fetches on open**: recents fetched twice (home + the player refresh); on desktop the queue twice (sidebar tab refresh + the app's refresh).
+- [x] **P1 Duplicate fetches on open**: recents fetched twice (home + the player refresh); on desktop the queue twice (sidebar tab refresh + the app's refresh). — **Done (05b0ac7):** recents read once per open via `api.getRecentTracks({ since })`, queue skipped when a read since the open already stands (harness `open_home` 8 → 7 calls; desktop with `queue.open_on_desktop` 2 → 1 queue reads).
 - [ ] **P2 Device scans**: each scan makes two calls (`get_spotify_connect_devices` + `get_player_devices` capability refetch), most callers force `refresh: true`, overlapping scans are not coalesced, and the app, sidebar and device manager each hold their own device list. `DeviceManager` should own the last list, serve it immediately and revalidate single-flight; refetch capabilities only for unknown ids.
-- [~] **P3 Neighbour art preload** loads full-size covers on desktop, where neighbours are only shown at thumbnail size.
+- [x] **P3 Neighbour art preload** loads full-size covers on desktop, where neighbours are only shown at thumbnail size. — **Done (05b0ac7):** `PlayerController.setNeighborArtSize()`: thumbnails on desktop, full size on mobile (desktop 640px requests 18 → 10).
 - [ ] **P4 Bootstrap** (`src/index.js`): a permanent 200 ms `setInterval` copies `hass` into the app; config is read once from whichever dashboard was open at load (after in-app navigation to another dashboard the card does not respond until reload). Needs care: HA-internal APIs.
 - [x] **P5 Artist view header events** are not de-duplicated per scroll frame and parallax is not skipped in lite mode (the playlist view does both). — **Done (b89c6b5):** artist page: header de-duplicated (31 → 9 events per open-and-scroll), lite mode skips parallax.
 
 ## Bugs and robustness
 
+- [ ] **B8 Silent like failure in the playlist picker**: after B4's switch to the websocket path, the picker's Liked Songs toggle (`src/components/popups/spotify-playlist-picker.js` ~298) shows nothing when the save fails (the now-playing heart got a message in 05b0ac7).
+- [ ] **B9 Duplicate load while a page is loading**: `spotify-context-view` re-runs `loadPageData` on every relevant hass change while the page still has `isLoading: true` (e.g. the Liked Songs shell), starting a second full load (`src/components/spotify-context-view.js` ~90).
+- [ ] **B10 Failed "See All" load-more stops paging for good**: it commits and caches `hasMore: false` (`page-loaders.js` ~485); discography and Liked Songs load-more do not cache a failure.
+- [ ] **B11 `cssSize(' 10 ')`** gives `' 10 px'` (invalid CSS) (`config_parser.js` ~140).
+- [ ] **B12 Dead fallbacks in `playMedia`**: the play-the-track-alone fallback and three "Call Failed" returns can never run, because the context play throws (`src/api.js` ~872–899).
+- [ ] **B13 Artist albums rail** could use `fetchPaginated`'s new `failed` flag to show a failure instead of an empty rail.
 - [x] **B6 "Fans Also Like" loading skeletons were square** while the loaded artist cards are round (b89c6b5).
 - [ ] **B7 Discography page shows two back buttons**: it draws its own sticky header with a back arrow right under the app header's back button (`src/components/views/spotify-context-list.js` ~110). Decide which header the page should use.
 
-- [~] **B1 Progress may jump back** after an attribute-only update (e.g. volume): `extrapolatedPosition` (utils) extrapolates from `last_updated`, not `media_position_updated_at`. Suspected — verify which timestamp HA moves on a volume change before changing.
-- [~] **B2 Page loading edge cases** (`src/components/controllers/page-loaders.js`): a refresh issued while a load is in flight can leave the page on "Loading..." if the older load's follow check lands first; Liked Songs, sections and discography show an empty page instead of the failure state when their read fails (and cache it); after a refresh whose follow check returns nothing, `canEditItems` uses the previous answer; two cached instances of the same half-loaded playlist can both page it.
+- [x] **B1 Progress may jump back** after an attribute-only update (e.g. volume): `extrapolatedPosition` (utils) extrapolates from `last_updated`, not `media_position_updated_at`. Suspected — verify which timestamp HA moves on a volume change before changing. — **Done (05b0ac7):** progress counts from `media_position_updated_at`, falling back to `last_updated`.
+- [x] **B2 Page loading edge cases** (`src/components/controllers/page-loaders.js`): a refresh issued while a load is in flight can leave the page on "Loading..." if the older load's follow check lands first; Liked Songs, sections and discography show an empty page instead of the failure state when their read fails (and cache it); after a refresh whose follow check returns nothing, `canEditItems` uses the previous answer; two cached instances of the same half-loaded playlist can both page it. — **Done (05b0ac7):** all four fixed with tests (load counter on refresh; failed Liked Songs/section/discography reads show the failure, uncached; edit rights from this load only; one pager per page id).
 - [x] **B3 Artist view follow-verify timer** is never cleared on disconnect (the like-verify one now is). — **Done (b89c6b5):** follow-verify timers tracked and cleared.
-- [~] **B4 `api.js` inconsistencies** (pinned by `tests/apiCommands.test.js`): some commands use `hass.callService` (HA shows its own failure toast) and others `callWS`; an empty id list is sent as `ids: ''`; `checkArtistsFollowing` / `checkAlbumFavorites` return raw response shapes while `checkTrackFavorites` normalizes; their `catch` blocks never see a failed call; `playMedia` checks a `res.error` that cannot be set.
-- [~] **B5 `cssSize('')`** (config_parser) returns `'px'`.
+- [x] **B4 `api.js` inconsistencies** (pinned by `tests/apiCommands.test.js`): some commands use `hass.callService` (HA shows its own failure toast) and others `callWS`; an empty id list is sent as `ids: ''`; `checkArtistsFollowing` / `checkAlbumFavorites` return raw response shapes while `checkTrackFavorites` normalizes; their `catch` blocks never see a failed call; `playMedia` checks a `res.error` that cannot be set. — **Done (05b0ac7):** empty id lists make no call; the three checks share one normalized shape; dead `res.error` branch removed; commands and setVolume use `call_service` over the websocket so failures show only the card message.
+- [x] **B5 `cssSize('')`** (config_parser) returns `'px'`. — **Done (05b0ac7):** blank sizes are ignored with a config warning.
 
 ## Notes
+
+- `checkUserFollowsPlaylist` logs with `console.warn` while the other checks use `console.error` (`src/api.js` ~1210); left as is.
+- The harness never sets `queue.open_on_desktop`; a probe for the desktop open path exists in an agent's temp folder and could be folded into `tools/smoke`.
 
 - The smoke harness runs in lite mode (`detectLite()` is true in headless Chromium), so parallax is never exercised there.
 - `SUBTITLE_STYLE.mediaRow` now only serves the discography list; rename to `discography` when D1 is decided.
