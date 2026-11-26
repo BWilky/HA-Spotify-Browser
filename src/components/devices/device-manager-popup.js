@@ -274,12 +274,15 @@ export class SpotifyDeviceManagerPopup extends LitElement {
         }
     }
 
+    /** Rescan live devices (on open and on Refresh): a fresh scan, never the cached list. */
     async refreshLive() {
         if (!this.api) return;
         this._isLoadingLive = true;
         try {
-            const result = await this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true });
-            this._liveDevices = parseDeviceItems(result).map(normalizeDevice);
+            const raw = this.deviceManager
+                ? await this.deviceManager.scanLiveDevices(this.api, { refresh: true })
+                : parseDeviceItems(await this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true }));
+            this._liveDevices = raw.map(normalizeDevice);
         } catch (e) {
             console.error("Failed to fetch live devices", e);
         } finally {

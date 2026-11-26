@@ -361,8 +361,10 @@ export class SpotifySidebarNowPlaying extends LitElement {
         if (this._volumeVisible) {
             this._resetVolumeTimeout();
             // Keep the shared volume-capability cache fresh; non-blocking and
-            // only on this user-initiated open — no per-tick work.
-            if (this.deviceManager) this._fetchDevices();
+            // only on this user-initiated open — no per-tick work. A recent
+            // device list will do (DeviceManager refetches capabilities when
+            // the playing device has none).
+            if (this.deviceManager) this._fetchDevices({ refresh: false });
         } else {
             if (this._volumeTimeout) clearTimeout(this._volumeTimeout);
         }
@@ -401,7 +403,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
         }
 
         if (this._devicesVisible) {
-            this._fetchDevices();
+            this._fetchDevices({ refresh: true });
             this._resetDeviceTimeout();
         } else {
             if (this._deviceTimeout) clearTimeout(this._deviceTimeout);
@@ -423,7 +425,8 @@ export class SpotifySidebarNowPlaying extends LitElement {
         }, 8000); // 8 seconds
     }
 
-    async _fetchDevices() {
+    /** Load the merged device list; `refresh` scans now instead of using DeviceManager's recent list. */
+    async _fetchDevices({ refresh }) {
         if (!this.api) return;
         this._loadingDevices = true;
         this.requestUpdate();
@@ -431,7 +434,7 @@ export class SpotifySidebarNowPlaying extends LitElement {
         try {
             if (this.deviceManager) {
                 const attributes = this.playerController?.sourceAttributes?.() || {};
-                this._devices = await this.deviceManager.fetchMergedDevices(this.api, attributes, { refresh: true });
+                this._devices = await this.deviceManager.fetchMergedDevices(this.api, attributes, { refresh });
             } else {
                 const response = await this.api.fetchSpotifyPlus('get_spotify_connect_devices', { refresh: true });
                 this._devices = parseDeviceItems(response).map(normalizeDevice);

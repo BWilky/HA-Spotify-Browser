@@ -1151,7 +1151,11 @@ class SpotifyBrowserApp extends LitElement {
         return this.hass?.states[this.config?.entity]?.attributes || {};
     }
 
-    /** Scan for devices and update picker state. Returns the device list. */
+    /**
+     * Scan for devices and update picker state. Returns the device list.
+     * options.refresh: scan now (opening a picker, the Refresh button);
+     * without it DeviceManager may answer from its recent list.
+     */
     async _scanDevices(options = {}) {
         if (this.deviceManager) {
             this._devices = await this.deviceManager.fetchMergedDevices(this.api, this._playerAttributes(), options);
