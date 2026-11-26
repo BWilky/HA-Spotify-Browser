@@ -8,14 +8,14 @@ Paths are relative to the repo root (source lives under `src/`). Background: `do
 
 Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs the owner's decision · `[-]` decided against (reason given)
 
-## Needs a decision
+## Decisions (owner, 2026-11-26) — to implement
 
-- [?] **D4 Playlist menus differ by place** (kept as-is behind options in `playlist-actions.js`): the library row menu has no "Remove from Your Library" for followed playlists and no privacy/collaborative toggles, and orders items differently from the playlist page; "Playlist deleted" is toasted only when deleting from the playlist page.
-- [?] **D5 Collaborators cannot reach edit mode**: a collaborator on a followed collaborative playlist is allowed to edit (`canEditItems`), but "Edit Playlist" is only offered to the owner.
-
-- [?] **D1 Subtitle wording** differs by screen (`SUBTITLE_STYLE` in `src/components/media-templates.js`). A playlist reads "Playlist • Bob" (library, search), "By Bob" ("See All", discography) or "Bob" (home cards). Suggested: lists use Spotify's "Type • who" form, home cards just "who", discography "2015 • Album/Single".
-- [?] **D2 Toast when a pin is pushed off** the full list ("Removed X to make room"). Today the eviction is silent.
-- [?] **D3 Alert stacking**: an alert opens under the desktop device picker (inherited layering). One number to flip if an alert should always be on top.
+- [~] **D1 Subtitle wording, one style**: lists (Library, Search, "See All") read "Playlist • Owner", "Album • Artists", "Song • Artists", "Artist"; Home cards read just the owner / artists; the artist discography reads "2015 • Album" (or "• Single", etc.). Replaces `SUBTITLE_STYLE`'s per-screen variants.
+- [~] **D2 Toast when a pin is pushed off** the full list: "Removed X to make room".
+- [ ] **D3 Alerts always on top**, including over the desktop device picker.
+- [~] **D4 One playlist "…" menu**: the Library row offers the same actions as the playlist page (Edit, Make Private/Public, Collaborative, Pin, Delete for the owner; Remove from Your Library and Pin otherwise), and "Playlist deleted" is shown from both places.
+- [~] **D5 Collaborators get "Edit Playlist"** where they are allowed to edit (collaborative playlist they follow).
+- [~] **D6 Discography page uses the app header** like every other page (drop its own sticky header and back arrow).
 
 ## Shared helpers / duplicated code
 
