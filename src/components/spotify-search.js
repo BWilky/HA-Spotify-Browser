@@ -4,6 +4,8 @@ import { listRowStyles, filterPillStyles } from '../styles/list-row.styles.js';
 import { getItemImage, IMG_CARD } from '../utils.js';
 import { renderListRow, renderRowSkeletons, renderEmptyState, itemSubtitle, SUBTITLE_STYLE } from './media-templates.js';
 import { openTrackMenu } from './track-menu.js';
+import { menuIcon, playIcon, searchIcon } from './common/icons.js';
+import { FollowStateController } from './controllers/follow-state-controller.js';
 
 // Filter pills. "All" (type null) is the mixed/relevance view. SpotifyPlus
 // search exposes these four content types (no Profiles/Podcasts/Audiobooks),
@@ -28,7 +30,6 @@ class SpotifySearch extends LitElement {
             _results: { type: Object },
             _query: { type: String },
             _filter: { type: String, state: true },     // active pill type, or null = mixed (All)
-            _topFollow: { type: Boolean, state: true },  // follow state of the top-result artist
         };
     }
 
@@ -54,6 +55,7 @@ class SpotifySearch extends LitElement {
                 height: 44px; padding: 0 12px; border-radius: 8px; background: #2a2a2a;
             }
             .m-bar svg { flex: 0 0 auto; }
+            .m-bar > svg { color: var(--spf-text-sub); } /* the magnifier (searchIcon strokes in currentColor) */
             .m-bar input {
                 flex: 1; min-width: 0; border: none; outline: none;
                 background: transparent; color: #fff; font-size: var(--spf-text-md, 15px);
@@ -130,7 +132,8 @@ class SpotifySearch extends LitElement {
         this._results = null;
         this._query = '';
         this._filter = null;
-        this._topFollow = null;
+        // Follow state of the top-result artist; null: not known (no button).
+        this._topFollow = new FollowStateController(this, { initial: null });
         this._isMobile = window.matchMedia('(max-width: 768px)').matches;
     }
 
@@ -160,7 +163,7 @@ class SpotifySearch extends LitElement {
         if (query !== this._query) {
             this._results = null;
             this._filter = null;
-            this._topFollow = null;
+            this._topFollow.following = null;
         }
         this._query = query;
     }
@@ -206,14 +209,14 @@ class SpotifySearch extends LitElement {
     }
 
     async _checkTopFollow() {
-        this._topFollow = null;
+        this._topFollow.following = null;
         const artist = this._topArtist();
         if (!artist?.id || !this.api) return;
         try {
             const res = await this.api.checkArtistsFollowing(artist.id);
-            if (typeof res === 'boolean') this._topFollow = res;
-            else if (Array.isArray(res)) this._topFollow = !!res[0];
-            else if (res && typeof res === 'object') this._topFollow = !!res[artist.id];
+            if (typeof res === 'boolean') this._topFollow.following = res;
+            else if (Array.isArray(res)) this._topFollow.following = !!res[0];
+            else if (res && typeof res === 'object') this._topFollow.following = !!res[artist.id];
         } catch (e) { /* leave unknown */ }
     }
 
@@ -235,7 +238,7 @@ class SpotifySearch extends LitElement {
                 ${this._isMobile ? html`
                     <div class="m-top">
                         <div class="m-bar">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--spf-text-sub)" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                            ${searchIcon(20)}
                             <input id="page-search-input" type="text" placeholder="What do you want to listen to?" @input=${this._onInput}>
                             ${this._query ? html`
                                 <button class="m-clear" @click=${this._clearQuery} aria-label="Clear">
@@ -288,7 +291,7 @@ class SpotifySearch extends LitElement {
 
     _renderTopResult(artist) {
         const img = getItemImage(artist, 'artist', IMG_CARD); // 64px mobile / 80px desktop avatar
-        const following = this._topFollow;
+        const following = this._topFollow.following;
         return html`
             <div class="top-result" @click=${() => this._navigate('artist', artist)}>
                 <div class="top-avatar" style="background-image: url('${img}')"></div>
@@ -304,7 +307,7 @@ class SpotifySearch extends LitElement {
                         ${following ? 'Following' : 'Follow'}
                     </button>` : ''}
                 <button class="play-btn" @click=${(e) => this._playArtist(e, artist)} aria-label="Play">
-                    <svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    ${playIcon()}
                 </button>
             </div>
         `;
@@ -341,7 +344,7 @@ class SpotifySearch extends LitElement {
                 <span class="type-badge">${TYPE_LABEL[type] || ''}</span>
                 ${isTrack ? html`
                     <button class="row-btn" @click=${(e) => this._trackMenu(e, item)} aria-label="More">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
+                        ${menuIcon}
                     </button>
                 ` : html`
                     <button class="row-btn" aria-label="Open">
@@ -371,11 +374,11 @@ class SpotifySearch extends LitElement {
     async _toggleFollow(e, artist) {
         e.stopPropagation();
         if (!this.api || !artist?.id) return;
-        const next = !this._topFollow;
-        this._topFollow = next;
-        const res = next ? await this.api.followArtist(artist.id) : await this.api.unfollowArtist(artist.id);
-        if (!res || res.success === false) {
-            this._topFollow = !next;
+        const ok = await this._topFollow.toggle(async (follow) => {
+            const res = follow ? await this.api.followArtist(artist.id) : await this.api.unfollowArtist(artist.id);
+            return !!res && res.success !== false;
+        });
+        if (!ok) {
             this.dispatchEvent(new CustomEvent('show-toast', {
                 detail: { message: 'Failed to update follow' }, bubbles: true, composed: true
             }));

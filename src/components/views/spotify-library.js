@@ -3,7 +3,7 @@ import { sharedStyles } from '../../styles/shared-styles.js';
 import { listRowStyles, filterPillStyles } from '../../styles/list-row.styles.js';
 import { libraryStyles } from './spotify-library.styles.js';
 import { getItemImage, isContextPlaying, getPlayerStateObj, getLibrarySort, setLibrarySort, IMG_THUMB } from '../../utils.js';
-import { menuIcon, heartIcon } from '../common/icons.js';
+import { menuIcon, heartIcon, sortIcon, searchIcon } from '../common/icons.js';
 import { renderListRow, renderRowSkeletons, renderEmptyState, itemSubtitle, SUBTITLE_STYLE } from '../media-templates.js';
 import {
     playlistMenuItems, playlistMenuState, openActionMenu, togglePin, playlistPinItem,
@@ -429,7 +429,7 @@ class SpotifyLibrary extends LitElement {
                 <div class="l-top">
                     <div class="l-title">Your Library</div>
                     <button class="l-icon-btn" @click=${this._openSearch} aria-label="Search">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                        ${searchIcon(24)}
                     </button>
                     <button class="l-icon-btn" @click=${this._createPlaylist} aria-label="Create playlist" title="Create playlist">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
@@ -443,7 +443,7 @@ class SpotifyLibrary extends LitElement {
                     <button class="pill pill-create" @click=${this._createPlaylist} title="Create playlist">+ New</button>
                     ${this._filter ? html`
                         <button class="pill pill-sort" @click=${this._toggleSort} title="Change sort order">
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v14m0 0l-3-3m3 3l3-3M17 20V6m0 0l-3 3m3-3l3 3"/></svg>
+                            ${sortIcon}
                             ${getLibrarySort(this._filter) === 'alpha' ? 'A–Z' : 'Recents'}
                         </button>` : ''}
                 </div>

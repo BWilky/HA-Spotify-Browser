@@ -3,11 +3,12 @@ import { sharedStyles } from '../../styles/shared-styles.js';
 import { contextViewStyles, heroPageStyles } from '../../styles/spotify-context-view.styles.js';
 import { fireHaptic, pickImage, IMG_THUMB } from '../../utils.js';
 import { renderTrackRowTemplate } from '../media-templates.js';
-import { heartToggleIcon, playIcon, pauseIcon, menuIcon, pinIcon } from '../common/icons.js';
+import { heartToggleIcon, playIcon, pauseIcon, menuIcon, pinIcon, checkIcon, heroShuffleIcon } from '../common/icons.js';
 import { HeroScrollController } from '../controllers/hero-scroll-controller.js';
 import { TrackLikesController } from '../controllers/track-likes-controller.js';
 import { OptimisticPlaybackController } from '../controllers/optimistic-playback-controller.js';
 import { PinStateController } from '../controllers/pin-state-controller.js';
+import { FollowStateController } from '../controllers/follow-state-controller.js';
 import {
     playlistMenuItems, openActionMenu, togglePlaylistFlag, setPlaylistFollowed, confirmDeletePlaylist, canEditPlaylistItems,
 } from '../playlist-actions.js';
@@ -29,7 +30,6 @@ export class SpotifyPlaylistView extends LitElement {
             currentTrackId: { type: String },
             isPlaying: { type: Boolean },
             pinnedSensorState: { type: Object },
-            _isFollowing: { type: Boolean, state: true },
             _currentUserId: { type: String, state: true },
             _albumLiked: { type: Boolean, state: true },   // album saved to library
             _artistInfo: { type: Object, state: true },    // album's primary artist { id, name, image }
@@ -325,7 +325,7 @@ export class SpotifyPlaylistView extends LitElement {
             dedupe: true,
             onNearBottom: () => this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true })),
         });
-        this._isFollowing = false;
+        this._follow = new FollowStateController(this);
         this._currentUserId = null;
         this._pin = new PinStateController(this, {
             // Liked Songs is the mandatory user-library pin.
@@ -457,13 +457,13 @@ export class SpotifyPlaylistView extends LitElement {
         // Your own playlist is always "in your library" — the heart is hidden
         // and delete lives in the header menu instead.
         if (this.data.isOwner) {
-            this._isFollowing = false;
+            this._follow.following = false;
             return;
         }
 
         // The parent context-view already fetched it while loading.
         if (typeof this.data.isFollowing === 'boolean') {
-            this._isFollowing = this.data.isFollowing;
+            this._follow.following = this.data.isFollowing;
             return;
         }
 
@@ -477,7 +477,7 @@ export class SpotifyPlaylistView extends LitElement {
         if (this._currentUserId && this.data.id) {
             try {
                 const follows = await this.api.checkUserFollowsPlaylist(this.data.id, this._currentUserId);
-                if (follows && Array.isArray(follows) && follows.length > 0) this._isFollowing = follows[0];
+                if (follows && Array.isArray(follows) && follows.length > 0) this._follow.following = follows[0];
             } catch (e) { }
         }
     }
@@ -602,13 +602,13 @@ export class SpotifyPlaylistView extends LitElement {
                                 ${isAlbum ? html`
                                     <div class="hero-actions">
                                         <button class="album-save ${this._albumLiked ? 'saved' : ''}" title="${this._albumLiked ? 'Remove from library' : 'Save to library'}" @click=${this._toggleLikeAlbum} aria-label="Save album">
-                                            <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+                                            ${checkIcon}
                                         </button>
                                         ${pinBtnTpl}
                                         <div class="ha-right">
                                             ${playBtnTpl}
                                             <button class="hero-btn-icon hero-btn-shuffle" title="Shuffle play" @click=${() => this._handleAlbumShuffle()}>
-                                                <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+                                                ${heroShuffleIcon}
                                             </button>
                                         </div>
                                     </div>
@@ -616,13 +616,13 @@ export class SpotifyPlaylistView extends LitElement {
                                     <div class="hero-actions">
                                         ${isLiked ? html`
                                             <button class="hero-btn-icon" title="Shuffle play" @click=${() => this._handleShufflePlay()}>
-                                                <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
+                                                ${heroShuffleIcon}
                                             </button>
                                         ` : ''}
                                         ${playBtnTpl}
                                         ${data.type === 'playlist' && !data.isOwner ? html`
-                                            <button class="hero-btn-fav" @click=${this._toggleFollowPlaylist} style="margin-left: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: ${this._isFollowing ? '#1DB954' : 'white'}; transition: all 0.2s ease;">
-                                                ${heartToggleIcon(this._isFollowing, 28)}
+                                            <button class="hero-btn-fav" @click=${this._toggleFollowPlaylist} style="margin-left: 12px; background: transparent; border: 1px solid rgba(255,255,255,0.3); border-radius: 50%; width: 56px; height: 56px; display: flex; align-items: center; justify-content: center; cursor: pointer; color: ${this._follow.following ? '#1DB954' : 'white'}; transition: all 0.2s ease;">
+                                                ${heartToggleIcon(this._follow.following, 28)}
                                             </button>
                                         ` : ''}
                                         ${pinBtnTpl}
@@ -896,25 +896,25 @@ export class SpotifyPlaylistView extends LitElement {
     /**
      * Heart button and the menu's Add to / Remove from Your Library
      * (playlist-actions.js: the toast, and `playlist-changed` so the library
-     * list follows). Optimistic; reverted when the call fails.
+     * list follows). Optimistic (FollowStateController); reverted when the
+     * call fails.
      */
     async _toggleFollowPlaylist(e) {
         e?.stopPropagation();
         const playlistId = this.data?.id;
         if (!playlistId || !this.api) return;
 
-        const follow = !this._isFollowing;
-        this._isFollowing = follow;
-        if (!await setPlaylistFollowed(this, this.api, { id: playlistId }, follow)) {
-            this._isFollowing = !follow;
-            return;
-        }
-        // Keep the (cached) page data in step: a rebuilt view reads it, and
-        // a collaborator's edit rights go with following.
-        const data = this.data;
-        if (data?.id !== playlistId) return;
-        data.isFollowing = follow;
-        if (!data.isOwner) data.canEditItems = canEditPlaylistItems(data, { isFollowing: follow });
+        await this._follow.toggle(async (follow) => {
+            if (!await setPlaylistFollowed(this, this.api, { id: playlistId }, follow)) return false;
+            // Keep the (cached) page data in step: a rebuilt view reads it, and
+            // a collaborator's edit rights go with following.
+            const data = this.data;
+            if (data?.id === playlistId) {
+                data.isFollowing = follow;
+                if (!data.isOwner) data.canEditItems = canEditPlaylistItems(data, { isFollowing: follow });
+            }
+            return true;
+        });
     }
 
     /* --- PLAYLIST MANAGEMENT (header menu + edit mode) --- */
@@ -936,7 +936,7 @@ export class SpotifyPlaylistView extends LitElement {
             items: playlistMenuItems(data, {
                 isOwner: !!data.isOwner,
                 canEdit: !!data.canEditItems,
-                isFollowing: this._isFollowing,
+                isFollowing: this._follow.following,
                 canPin: !!this._pin.entity,
                 isPinned: this._pin.isPinned,
             }),

@@ -119,6 +119,9 @@ export function shuffleIcon(pathFill = false) {
     return glyph(SHUFFLE_PATH, pathFill);
 }
 
+/** Shuffle arrows, 24px with fill="currentColor" on the svg: the album and Liked Songs hero shuffle buttons. */
+export const heroShuffleIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="${SHUFFLE_PATH}"/></svg>`;
+
 /** Skip-back (bar + triangle). */
 export function previousIcon(pathFill = false) {
     return glyph(PREVIOUS_PATH, pathFill);
@@ -148,8 +151,17 @@ export function closeIcon(size = null) {
         : html`<svg viewBox="0 0 24 24"><path d="${CLOSE_PATH}"/></svg>`;
 }
 
-/** Check mark (playlist picker selection circle, now-playing like button). */
+/** Check mark (playlist picker selection circle, now-playing like button, album save button). */
 export const checkIcon = html`<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
+
+/**
+ * Search magnifier, `size` px, stroked in currentColor: the header's search
+ * button (20), the library's (24), the search page's mobile bar (20) and the
+ * playlist picker's filter field (its CSS sizes and strokes it).
+ */
+export function searchIcon(size) {
+    return html`<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>`;
+}
 
 /** Up/down arrows of the Recents / A–Z sort toggle, 14px outline. */
 export const sortIcon = html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v14m0 0l-3-3m3 3l3-3M17 20V6m0 0l-3 3m3-3l3 3"/></svg>`;

@@ -1,7 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic, getPlaylistSort, setPlaylistSort, pickImage, IMG_THUMB } from "../../utils.js";
 import { artFallbackStyles } from '../../styles/shared-styles.js';
-import { checkIcon, heartIcon, sortIcon } from '../common/icons.js';
+import { checkIcon, heartIcon, sortIcon, searchIcon } from '../common/icons.js';
 import '../bottom-sheet.js';
 
 /**
@@ -398,7 +398,7 @@ export class SpotifyPlaylistPicker extends LitElement {
                 </div>
 
                 <div class="search">
-                    <svg viewBox="0 0 24 24" fill="none" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                    ${searchIcon(18)}
                     <input type="text" placeholder="Find playlist"
                         .value=${this._filter}
                         @input=${(e) => { this._filter = e.target.value; }} />

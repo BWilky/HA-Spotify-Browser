@@ -5,6 +5,7 @@ import { html } from '../src/lit.js';
 import {
     menuIcon, playPauseIcon, shuffleIcon, previousIcon, nextIcon, volumeUpIcon, closeIcon,
     checkIcon, sortIcon, speakerOutlineIcon, staticBarsIcon, deviceTypeIcon,
+    heroShuffleIcon, searchIcon,
 } from '../src/components/common/icons.js';
 import { deviceIconFor } from '../src/components/devices/device-row.js';
 
@@ -32,6 +33,17 @@ test('shuffle / previous / next: now-playing sheet (no path fill) and sidebar (f
     assert.equal(normalized(previousIcon(true)), normalized(html`<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>`));
     assert.equal(normalized(nextIcon()), normalized(html`<svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>`));
     assert.equal(normalized(nextIcon(true)), normalized(html`<svg viewBox="0 0 24 24"><path fill="currentColor" d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>`));
+});
+
+test('heroShuffleIcon: the playlist view\'s album and Liked Songs hero shuffle buttons', () => {
+    // The view's copies listed height before width.
+    assert.equal(normalized(heroShuffleIcon), normalized(html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>`));
+});
+
+test('searchIcon: the library (24) and header (20) markup; the search bar and the picker get theirs from CSS', () => {
+    assert.equal(normalized(searchIcon(24)), normalized(html`<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>`));
+    // The header's copy listed viewBox last.
+    assert.equal(normalized(searchIcon(20)), normalized(html`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>`));
 });
 
 test('volumeUpIcon(true): the sidebar volume button and slider overlay markup', () => {

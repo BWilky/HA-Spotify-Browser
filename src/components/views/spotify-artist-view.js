@@ -7,6 +7,7 @@ import { HeroScrollController } from '../controllers/hero-scroll-controller.js';
 import { TrackLikesController } from '../controllers/track-likes-controller.js';
 import { OptimisticPlaybackController } from '../controllers/optimistic-playback-controller.js';
 import { PinStateController } from '../controllers/pin-state-controller.js';
+import { FollowStateController } from '../controllers/follow-state-controller.js';
 import { openTrackMenu } from '../track-menu.js';
 
 export class SpotifyArtistView extends LitElement {
@@ -46,7 +47,6 @@ export class SpotifyArtistView extends LitElement {
             playingTrackId: { type: String },
             currentTrackId: { type: String },
             isPlaying: { type: Boolean },
-            _isFollowing: { type: Boolean, state: true },
         };
     }
 
@@ -97,19 +97,17 @@ export class SpotifyArtistView extends LitElement {
             fade: { textStart: 150, textSpan: 50 },
             dedupe: true,
         });
-        /** Pending follow re-checks (_toggleFollow), cancelled on disconnect. */
-        this._followVerifyTimers = new Set();
+        // Each follow / unfollow is re-checked 3 s later (pending re-checks
+        // are cancelled on disconnect).
+        this._follow = new FollowStateController(this, {
+            verify: () => this.api.checkArtistsFollowing(this.data.id),
+            onCorrected: () => console.warn("[SpotifyArtistView] Follow state mismatch detected after verification. Correcting."),
+        });
     }
 
     connectedCallback() {
         super.connectedCallback();
         this._pin.check();
-    }
-
-    disconnectedCallback() {
-        super.disconnectedCallback();
-        this._followVerifyTimers.forEach(clearTimeout);
-        this._followVerifyTimers.clear();
     }
 
     updated(changedProperties) {
@@ -137,52 +135,30 @@ export class SpotifyArtistView extends LitElement {
         if (!this.api || !this.data) return;
         const isFollowing = await this.api.checkArtistsFollowing(this.data.id);
         if (isFollowing !== null) {
-            this._isFollowing = isFollowing;
+            this._follow.following = isFollowing;
         }
     }
 
+    /** Follow button: optimistic (FollowStateController), an alert when it fails. */
     async _toggleFollow() {
         if (!this.api || !this.data) return;
-
-        // Optimistic UI Update
-        const oldState = this._isFollowing;
-        const newState = !oldState;
-        this._isFollowing = newState;
-
-        // Call API
-        let result;
-        if (newState) {
-            result = await this.api.followArtist(this.data.id);
-        } else {
-            result = await this.api.unfollowArtist(this.data.id);
-        }
-
-        if (!result.success) {
-            // Revert on immediate failure
-            this._isFollowing = oldState;
-            this.dispatchEvent(new CustomEvent('show-alert', {
-                detail: {
-                    title: "Follow Action Failed",
-                    message: "Failed to update follow status.",
-                    confirmText: "OK",
-                    size: 'mini'
-                },
-                bubbles: true,
-                composed: true
-            }));
-            return;
-        }
-
-        // Verification after 3 seconds
-        const timer = setTimeout(async () => {
-            this._followVerifyTimers.delete(timer);
-            const confirmedState = await this.api.checkArtistsFollowing(this.data.id);
-            if (confirmedState !== null && confirmedState !== newState) {
-                console.warn("[SpotifyArtistView] Follow state mismatch detected after verification. Correcting.");
-                this._isFollowing = confirmedState;
-            }
-        }, 3000);
-        this._followVerifyTimers.add(timer);
+        const ok = await this._follow.toggle(async (follow) => {
+            const result = follow
+                ? await this.api.followArtist(this.data.id)
+                : await this.api.unfollowArtist(this.data.id);
+            return result.success;
+        });
+        if (ok) return;
+        this.dispatchEvent(new CustomEvent('show-alert', {
+            detail: {
+                title: "Follow Action Failed",
+                message: "Failed to update follow status.",
+                confirmText: "OK",
+                size: 'mini'
+            },
+            bubbles: true,
+            composed: true
+        }));
     }
 
     _toggleTrackLike(track, e) {
@@ -279,8 +255,8 @@ export class SpotifyArtistView extends LitElement {
                                 </button>
                             ` : ''}
 
-                            <button class="hero-btn-fav ${this._isFollowing ? 'is-favorite' : ''}" @click=${this._toggleFollow}>
-                                ${this._isFollowing ? 'FOLLOWING' : 'FOLLOW'}
+                            <button class="hero-btn-fav ${this._follow.following ? 'is-favorite' : ''}" @click=${this._toggleFollow}>
+                                ${this._follow.following ? 'FOLLOWING' : 'FOLLOW'}
                             </button>
                         </div>
                     </div>

@@ -2,7 +2,7 @@
 import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { headerStyles } from './spotify-header.styles.js';
-import { menuIcon } from './common/icons.js';
+import { menuIcon, personIcon, searchIcon } from './common/icons.js';
 
 class SpotifyHeader extends LitElement {
     static get properties() {
@@ -134,7 +134,7 @@ class SpotifyHeader extends LitElement {
                         @pointerdown=${(e) => e.stopPropagation()}
                         @click=${() => this.dispatchEvent(new CustomEvent('avatar-click'))}
                     >
-                        ${this.avatarUrl ? '' : html`<svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>`}
+                        ${this.avatarUrl ? '' : personIcon}
                     </button>
                     ` : ''}
                 </div>
@@ -154,7 +154,7 @@ class SpotifyHeader extends LitElement {
                             id="search-toggle"
                             @click=${() => this.dispatchEvent(new CustomEvent('search-toggle-click'))}
                         >
-                            <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                            ${searchIcon(20)}
                         </button>
                         <input
                             type="text"

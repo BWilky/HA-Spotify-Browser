@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { definedElement } from './helpers/elements.js';
 import '../src/components/views/spotify-playlist-view.js';
+import { FollowStateController } from '../src/components/controllers/follow-state-controller.js';
 
 // The playlist page's header "…" menu per role (D4/D5), its heart / follow
 // items (B14: playlist-changed {follow|unfollow}) and the library's "Edit
@@ -22,7 +23,7 @@ function makeView(data, { isFollowing = false, pinEntity = 'sensor.s', isPinned 
     const result = () => (fail ? { success: false } : { success: true });
     Object.assign(view, {
         data,
-        _isFollowing: isFollowing,
+        _follow: new FollowStateController({ addController() {}, requestUpdate() {} }, { initial: isFollowing }),
         _editMode: false,
         _editSession: 0,
         _pin: { entity: pinEntity, isPinned, toggle: () => calls.push(['pin.toggle']), check: () => {} },
@@ -75,7 +76,7 @@ test('heart / menu follow (B14): toast, then playlist-changed {follow}; the page
         ['playlist-changed', { playlistId: 'p5', action: 'follow' }],
     ]);
     assert.ok(events.every(e => e.bubbles && e.composed));
-    assert.equal(view._isFollowing, true);
+    assert.equal(view._follow.following, true);
     assert.equal(data.isFollowing, true);
     assert.equal(data.canEditItems, true, 'a collaborative playlist you now follow');
 
@@ -94,7 +95,7 @@ test('a failed follow: reverted, the failure toast, no playlist-changed', async 
     const data = { ...BASE, isOwner: false, canEditItems: false, isFollowing: false };
     const { view, events } = makeView(data, { fail: true });
     await view._toggleFollowPlaylist();
-    assert.equal(view._isFollowing, false);
+    assert.equal(view._follow.following, false);
     assert.equal(data.isFollowing, false);
     assert.deepEqual(events.map(e => [e.type, e.detail]), [['show-toast', { message: 'Failed to follow playlist.' }]]);
 });
