@@ -4,7 +4,7 @@
 // header state for a fixed walk through the app, on desktop and mobile.
 //
 // Usage: node tools/smoke/smoke.mjs <bundle.js> <outDir> [label]
-//        node tools/smoke/summ.js <outDir>/<label>.json
+//        node tools/smoke/summ.cjs <outDir>/<label>.json
 // Needs `playwright` resolvable (e.g. via NODE_PATH) and a Chromium it can launch.
 import { createRequire } from 'node:module';
 const { chromium } = createRequire(import.meta.url)('playwright');
@@ -112,6 +112,50 @@ for (const vp of [{ name: 'desktop', width: 1400, height: 900 }, { name: 'mobile
     await page.evaluate(() => { const np = document.querySelector('spotify-browser-app').shadowRoot.querySelector('spotify-now-playing-mobile'); if (np) np.dispatchEvent(new CustomEvent('close', { bubbles: true, composed: true })); });
     await sleep(600);
   }
+
+
+  // 5d. Overlay gallery + secondary pages: screenshots for before/after
+  // comparison, and a console-error sweep over surfaces the main walk skips.
+  const shot = (name) => page.screenshot({ path: path.join(outDir, `${label}-${vp.name}-g-${name}.png`) });
+  const flag = async (name, f, ms = 900) => { await page.evaluate((f) => { document.querySelector('spotify-browser-app')[f] = true; }, f); await sleep(ms); await shot(name); await page.evaluate((f) => { document.querySelector('spotify-browser-app')[f] = false; }, f); await sleep(400); };
+  await page.evaluate(() => document.querySelector('spotify-browser-app')._openDevicePicker({ refresh: true })); await sleep(1500); await shot('device-picker');
+  await page.evaluate(() => { document.querySelector('spotify-browser-app')._closeAllPopups(); }); await sleep(400);
+  await flag('device-manager', '_deviceManagerVisible', 1500);
+  await flag('reorder', '_reorderVisible');
+  await flag('account', '_accountSheetVisible');
+  if (vp.name === 'desktop') { await flag('queue', '_queueVisible', 1200); await flag('menu', '_menuVisible'); }
+  else { await flag('connect', '_connectPanelVisible', 1200); await flag('mobile-queue', '_mobileQueueVisible', 1200); }
+  await nav('playlist:p5'); await sleep(1800);
+  await page.evaluate(() => { const deep = (root, sel) => { for (const el of root.querySelectorAll('*')) { if (el.matches(sel)) return el; if (el.shadowRoot) { const r = deep(el.shadowRoot, sel); if (r) return r; } } return null; }; const b = deep(document.querySelector('spotify-browser-app').shadowRoot, '.track-action-btn[data-action="menu"]'); if (b) b.click(); });
+  await sleep(900); await shot('track-menu');
+  await page.evaluate(() => { document.querySelector('spotify-browser-app')._closeAllPopups(); }); await sleep(400);
+  await nav('section:favorites'); await sleep(1800); await shot('section');
+  await nav('artist-discography:ar1', { id: 'ar1', name: 'Artist 1' }); await sleep(1800); await shot('discography');
+  // Events from child views must reach the router exactly once each.
+  P.child_event_delivery = await page.evaluate(async () => {
+    const a = document.querySelector('spotify-browser-app'); const r = a.router; const wait = (ms) => new Promise(res => setTimeout(res, ms));
+    const child = (pageId, tag) => r.pageCache.get(pageId)?.shadowRoot?.querySelector(tag);
+    const out = {};
+    const list = child('artist-discography:ar1', 'spotify-context-list');
+    const h0 = r.history.length;
+    if (list) { list.dispatchEvent(new CustomEvent('navigate', { detail: { pageId: 'album:al1', data: null }, bubbles: true, composed: true })); await wait(900); }
+    out.navigate_from_discography = { hadChild: !!list, page: r.currentPageId, historyGrewBy: r.history.length - h0 };
+    r.goBack(); await wait(600);
+    const list2 = child('artist-discography:ar1', 'spotify-context-list');
+    const h1 = r.history.length;
+    if (list2) { list2.dispatchEvent(new CustomEvent('back', { bubbles: true, composed: true })); await wait(600); }
+    out.back_from_discography = { hadChild: !!list2, page: r.currentPageId, historyShrankBy: h1 - r.history.length };
+    const pv = child('playlist:p5', 'spotify-playlist-view');
+    await r.navigateTo('playlist:p5'); await wait(900);
+    const pv2 = child('playlist:p5', 'spotify-playlist-view'); const h2 = r.history.length;
+    if (pv2) { pv2.dispatchEvent(new CustomEvent('navigate', { detail: { pageId: 'artist:ar3', data: null }, bubbles: true, composed: true })); await wait(1200); }
+    out.navigate_from_playlist = { hadChild: !!pv2, page: r.currentPageId, historyGrewBy: r.history.length - h2 };
+    r.goBack(); await wait(600); r.goBack(); await wait(600);
+    return out;
+  });
+  P.gallery_history_before_backs = await cur();
+  await back(); await sleep(500); await back(); await sleep(500); await back(); await sleep(700);
+  P.gallery_after_three_backs = await cur();
 
   // 5b. Render counts per component: 10 unrelated ticks (player state object
   // identity preserved), then 10 player ticks (same track, new state object).

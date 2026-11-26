@@ -35,8 +35,6 @@ export class SpotifyContextView extends LitElement {
      * HASS ticks arrive ~1/s while music plays. Children only consume a few
      * narrow values from hass (playing track id, play state, pinned sensor),
      * so derive those here and skip the whole subtree when none of them moved.
-     * The raw `hass` object is still forwarded (children keep it as an
-     * interaction-time reference and gate their own updates on it).
      */
     shouldUpdate(changedProperties) {
         // Keep the derived snapshot fresh for every render pass.
@@ -87,11 +85,6 @@ export class SpotifyContextView extends LitElement {
         this._pinnedSensorState = undefined;
     }
 
-    connectedCallback() {
-        super.connectedCallback();
-        // loadPageData is called by updated() when properties are set
-    }
-
     updated(changedProperties) {
         if (changedProperties.has('pageId') || changedProperties.has('hass') || changedProperties.has('api')) {
             if (this.pageId && this.hass && this.api) {
@@ -108,7 +101,6 @@ export class SpotifyContextView extends LitElement {
         const limit = 50;
 
         this._contextData = { ...this._contextData, isLoading: true };
-        this.requestUpdate();
 
         try {
             let newItems = [];
@@ -132,12 +124,7 @@ export class SpotifyContextView extends LitElement {
                     isLoading: false
                 };
                 SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                this.requestUpdate();
                 return;
-            } else if (type === 'collection-playlists') {
-                const res = await this.api.getCurrentUserPlaylists({ limit, offset });
-                newItems = res?.result?.items || [];
-                total = res?.result?.total || total;
             } else if (type === 'artist-discography') {
                 const paged = await this.api.fetchPaginated('get_artist_albums', {
                     artist_id: this._contextData.id,
@@ -162,12 +149,10 @@ export class SpotifyContextView extends LitElement {
             } else {
                 this._contextData = { ...this._contextData, isLoading: false, hasMore: false };
             }
-            this.requestUpdate();
 
         } catch (e) {
             console.error('[ContextView] Load More Failed:', e);
             this._contextData = { ...this._contextData, isLoading: false };
-            this.requestUpdate();
         }
     }
 
@@ -203,7 +188,6 @@ export class SpotifyContextView extends LitElement {
         if (patch && this._contextData) {
             this._contextData = { ...this._contextData, ...patch };
             SpotifyContextView.cacheSet(this.pageId, this._contextData);
-            this.requestUpdate();
             return;
         }
         SpotifyContextView.invalidate(this.pageId);
@@ -247,7 +231,6 @@ export class SpotifyContextView extends LitElement {
                 tracksComplete: offset >= (tracks.total || total)
             };
             SpotifyContextView.cacheSet(pageId, this._contextData);
-            this.requestUpdate();
         }
 
         // Total can overstate (deleted/unavailable items); don't leave the
@@ -256,7 +239,6 @@ export class SpotifyContextView extends LitElement {
             && this._contextData?.id === playlistId && !this._contextData.tracksComplete) {
             this._contextData = { ...this._contextData, tracksComplete: true };
             SpotifyContextView.cacheSet(pageId, this._contextData);
-            this.requestUpdate();
         }
     }
 
@@ -279,7 +261,7 @@ export class SpotifyContextView extends LitElement {
 
         // 0. Prevent re-fetching if data is already loaded for this instance
         if (this._contextData && this._contextData.id === id && this._contextData.type === type && !this._contextData.isLoading) {
-            if (autoEdit) { this._contextData = { ...this._contextData, autoEdit: true }; this.requestUpdate(); }
+            if (autoEdit) { this._contextData = { ...this._contextData, autoEdit: true }; }
             return;
         }
 
@@ -300,7 +282,6 @@ export class SpotifyContextView extends LitElement {
             type, id, isLoading: true, name: 'Loading...', items: [], offset: 0, total: null, hasMore: true,
             images: [], tracks: null, albums: null, playlists: null, topTracks: null, similarArtists: null
         };
-        this.requestUpdate();
 
         try {
             if (type === 'section') {
@@ -360,7 +341,6 @@ export class SpotifyContextView extends LitElement {
 
                     // Update cache
                     SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                    this.requestUpdate();
 
                     if (!this._contextData.tracksComplete) {
                         this._loadRemainingPlaylistTracks(this.pageId);
@@ -399,7 +379,6 @@ export class SpotifyContextView extends LitElement {
                 if (artistResult?.result) {
                     this._contextData = { ...this._contextData, ...artistResult.result, isLoading: false };
                     SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                    this.requestUpdate();
                 }
 
                 albumsPromise.then(({ items }) => {
@@ -408,13 +387,11 @@ export class SpotifyContextView extends LitElement {
                     // (e.g. an artist whose only releases are singles/EPs).
                     this._contextData = { ...this._contextData, albums: items };
                     SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                    this.requestUpdate();
                 });
 
                 topTracksPromise.then(tracks => {
                     this._contextData = { ...this._contextData, topTracks: tracks };
                     SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                    this.requestUpdate();
                 });
 
                 const playlistsPromise = (async () => {
@@ -429,7 +406,6 @@ export class SpotifyContextView extends LitElement {
                 playlistsPromise.then(playlists => {
                     this._contextData = { ...this._contextData, playlists: playlists };
                     SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                    this.requestUpdate();
                 });
 
                 similarArtistsPromise.then(async (artists) => {
@@ -440,7 +416,6 @@ export class SpotifyContextView extends LitElement {
                         this._contextData = { ...this._contextData, similarArtists: [] };
                     }
                     SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                    this.requestUpdate();
                 });
 
             } else if (type === 'album') {
@@ -461,7 +436,6 @@ export class SpotifyContextView extends LitElement {
                     // hasMore: albums arrive whole; nothing to load more of.
                     this._contextData = { ...this._contextData, ...albumData, type: 'album', isLoading: false, hasMore: false };
                     SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                    this.requestUpdate();
                 } else {
                     console.error('[ContextView] Album Load Failed:', response);
                 }
@@ -488,7 +462,6 @@ export class SpotifyContextView extends LitElement {
                     isLoading: false
                 };
                 SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                this.requestUpdate();
             } else if (type === 'likedsongs') {
                 this._contextData = {
                     type: 'likedsongs',
@@ -498,7 +471,6 @@ export class SpotifyContextView extends LitElement {
                     images: [{ url: 'https://t.scdn.co/images/3099b3803ad9496896c43f22fe9be8c4.png' }],
                     tracks: null
                 };
-                this.requestUpdate();
                 try {
                     const res = await this.api.getTrackFavorites({ limit: 50, offset: 0, sort_result: false });
                     const items = res?.result?.items || [];
@@ -521,40 +493,10 @@ export class SpotifyContextView extends LitElement {
                     console.error('[ContextView] Liked Songs load failed:', e);
                     this._contextData = { ...this._contextData, isLoading: false, hasMore: false };
                 }
-                this.requestUpdate();
-
-            } else if (type === 'collection' && id === 'playlists') {
-                this._contextData = {
-                    type: 'collection-playlists',
-                    id: 'library',
-                    isLoading: true,
-                    name: 'Your Library',
-                    items: [], offset: 0, total: null, hasMore: true
-                };
-                this.requestUpdate();
-                try {
-                    const res = await this.api.getCurrentUserPlaylists({ limit: 50 });
-                    const items = res?.result?.items || [];
-                    const total = res?.result?.total ?? items.length;
-                    this._contextData = {
-                        ...this._contextData,
-                        items,
-                        total,
-                        offset: items.length,
-                        hasMore: items.length < total,
-                        isLoading: false
-                    };
-                    SpotifyContextView.cacheSet(this.pageId, this._contextData);
-                } catch (e) {
-                    console.error('[ContextView] Library load failed:', e);
-                    this._contextData = { ...this._contextData, isLoading: false, hasMore: false };
-                }
-                this.requestUpdate();
             } else {
                 // Unknown page type: don't leave the view stuck on "Loading..."
                 console.warn('[ContextView] No loader for page type:', type);
                 this._contextData = { ...this._contextData, isLoading: false, name: 'Page not found' };
-                this.requestUpdate();
             }
         } catch (e) {
             console.error("Failed to load context data", e);
@@ -669,12 +611,10 @@ export class SpotifyContextView extends LitElement {
             };
 
             SpotifyContextView.cacheSet(this.pageId, this._contextData);
-            this.requestUpdate();
 
         } catch (e) {
             console.error('Error loading section data:', e);
             this._contextData = { ...this._contextData, isLoading: false, hasMore: false };
-            this.requestUpdate();
         }
     }
 
@@ -683,7 +623,6 @@ export class SpotifyContextView extends LitElement {
 
         // simple debounce or lock
         this._contextData = { ...this._contextData, isLoading: true };
-        this.requestUpdate();
 
         await this._loadSectionData(this._contextData.id, this._contextData.offset, this._contextData.nextCursor);
     }
@@ -757,7 +696,6 @@ export class SpotifyContextView extends LitElement {
                 <spotify-playlist-view
                     .data=${this._contextData}
                     .api=${this.api}
-                    .hass=${this.hass}
                     .config=${this.config}
                     .pinned=${this.pinned}
                     .playingTrackId=${this._playingTrackId}
@@ -765,7 +703,6 @@ export class SpotifyContextView extends LitElement {
                     .isPlaying=${this._isPlaying}
                     .pinnedSensorState=${this._pinnedSensorState}
                     @load-more=${this._handleLoadMore}
-                    @navigate=${(e) => { e.stopPropagation(); this.dispatchEvent(new CustomEvent('navigate', { detail: e.detail, bubbles: true, composed: true })); }}
                 ></spotify-playlist-view>
             `;
         } else if (type === 'artist') {
@@ -773,7 +710,6 @@ export class SpotifyContextView extends LitElement {
                 <spotify-artist-view
                     .data=${this._contextData}
                     .api=${this.api}
-                    .hass=${this.hass}
                     .config=${this.config}
                     .pinned=${this.pinned}
                     .playingTrackId=${this._playingTrackId}
@@ -785,7 +721,6 @@ export class SpotifyContextView extends LitElement {
             return html`
                 <spotify-section-view
                     .data=${this._contextData}
-                    .hass=${this.hass}
                     .api=${this.api}
                     @load-more=${this._loadSectionMore}
                 ></spotify-section-view>
@@ -796,19 +731,6 @@ export class SpotifyContextView extends LitElement {
                     .data=${this._contextData} 
                     .type=${'album'}
                     @load-more=${this._handleLoadMore}
-                    @back=${(e) => { e.stopPropagation(); this.dispatchEvent(new CustomEvent('back', { bubbles: true, composed: true })); }}
-                    @navigate=${(e) => { e.stopPropagation(); this.dispatchEvent(new CustomEvent('navigate', { detail: e.detail, bubbles: true, composed: true })); }}
-                ></spotify-context-list>
-            `;
-        } else if (type === 'collection-playlists') {
-            return html`
-                <spotify-context-list 
-                    .data=${this._contextData} 
-                    .type=${'playlist'}
-                    .layout=${'grid'}
-                    @load-more=${this._handleLoadMore}
-                    @back=${(e) => { e.stopPropagation(); this.dispatchEvent(new CustomEvent('back', { bubbles: true, composed: true })); }}
-                    @navigate=${(e) => { e.stopPropagation(); this.dispatchEvent(new CustomEvent('navigate', { detail: e.detail, bubbles: true, composed: true })); }}
                 ></spotify-context-list>
             `;
         }
@@ -818,7 +740,6 @@ export class SpotifyContextView extends LitElement {
             <spotify-playlist-view
                 .data=${this._contextData}
                 .api=${this.api}
-                .hass=${this.hass}
                 .playingTrackId=${this._playingTrackId}
                 .currentTrackId=${this._currentTrackId}
                 .isPlaying=${this._isPlaying}

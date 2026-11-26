@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic } from "../../utils.js";
+import { personIcon } from '../common/icons.js';
 import '../bottom-sheet.js';
 
 /**
@@ -73,10 +74,6 @@ export class SpotifyAccountPanel extends LitElement {
         this.currentImage = '';
     }
 
-    _personIcon() {
-        return html`<svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>`;
-    }
-
     _imageFor(acc, isActive) {
         return acc.image || (isActive ? this.currentImage : '') || '';
     }
@@ -101,7 +98,7 @@ export class SpotifyAccountPanel extends LitElement {
                         return html`
                             <div class="row ${isActive ? 'active' : ''}" @click=${() => this._select(acc, isActive)}>
                                 <div class="av" style=${img ? `background-image: url('${img}')` : ''}>
-                                    ${img ? '' : this._personIcon()}
+                                    ${img ? '' : personIcon}
                                 </div>
                                 <div class="row-text">
                                     <div class="row-name">${acc.name || acc.entity}</div>

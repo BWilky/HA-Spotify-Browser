@@ -544,12 +544,6 @@ export class PlayerController extends EventTarget {
 
     /* --- ACTIONS --- */
 
-    async play(uri) {
-        if (!this.api) return;
-        await this.api.playMedia(uri, 'track');
-        // We could set optimistic track here if we had full track details
-    }
-
     async pause() {
         // Toggle based on current state
         await this.api.togglePlayback(!this.state.isPlaying);

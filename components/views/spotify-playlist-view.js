@@ -3,7 +3,7 @@ import { sharedStyles } from '../../styles/shared-styles.js';
 import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
 import { fireHaptic, pickImage, IMG_THUMB } from '../../utils.js';
 import { renderTrackRowTemplate } from '../media-templates.js';
-import { heartToggleIcon, playIcon, pauseIcon, menuIcon, reorderLinesIcon, minusCircleIcon } from '../common/icons.js';
+import { heartToggleIcon, playIcon, pauseIcon, menuIcon, reorderLinesIcon, minusCircleIcon, pinIcon } from '../common/icons.js';
 import { ListDragController } from '../controllers/list-drag-controller.js';
 
 // Spotify's check endpoints accept at most 50 ids per call.
@@ -16,7 +16,6 @@ export class SpotifyPlaylistView extends LitElement {
         return {
             data: { type: Object },
             api: { type: Object },
-            hass: { type: Object },
             config: { type: Object },
             pinned: { type: Object }, // Add pinned
             // Narrow values derived from hass by the parent context-view; these
@@ -513,16 +512,6 @@ export class SpotifyPlaylistView extends LitElement {
     }
 
     /**
-     * Raw `hass` is kept only as an interaction-time reference; re-renders on
-     * player ticks are driven by the derived props (playingTrackId, isPlaying,
-     * currentTrackId, pinnedSensorState) the parent context-view maintains.
-     */
-    shouldUpdate(changedProperties) {
-        if (changedProperties.size === 1 && changedProperties.has('hass')) return false;
-        return true;
-    }
-
-    /**
      * Derived list values, recomputed only when their inputs change (render
      * runs on every hero/follow/pin/player-state change too).
      */
@@ -866,7 +855,7 @@ export class SpotifyPlaylistView extends LitElement {
             </button>`;
         const pinBtnTpl = (this._pinnedEntity && !isLiked) ? html`
             <button class="hero-pin ${this._isPinned ? 'pinned' : ''}" @click=${this._togglePin} aria-label="${this._isPinned ? 'Unpin' : 'Pin'}" title="${this._isPinned ? 'Unpin' : 'Pin'}">
-                <svg viewBox="0 0 24 24"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>
+                ${pinIcon}
             </button>` : '';
 
         try {

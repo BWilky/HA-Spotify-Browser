@@ -12,7 +12,6 @@ export const contextViewStyles = css`
         position: relative; height: 300px !important; width: 100%; overflow: hidden;
         transition: height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1); will-change: height;
     }
-    .page.is-refreshing .hero-banner, .page.is-refreshing .artist-hero { height: 360px !important; }
     
     .hero-bg {
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -116,7 +115,6 @@ export const contextViewStyles = css`
     
     .track-info-middle { flex: 1; overflow: hidden; display: flex; flex-direction: column; justify-content: center; }
     .track-title { font-size: var(--spf-text-base, 13.5px); font-weight: 700; color: var(--spf-text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .track-meta { font-size: var(--spf-text-sm, 12px); color: var(--spf-text-sub); margin-top: 2px; }
 
     /* Track Rows — the base rules (columns, hover, text colours) live in
        shared-styles.js; this block only carries the context-view overrides. */
@@ -174,7 +172,6 @@ export const contextViewStyles = css`
        shared-styles.js, which every consumer of this module also imports. */
 
     /* Artist View Specifics */
-    .artist-content { padding-top: 24px; }
     .artist-section { margin-bottom: 40px; }
     .artist-section h2 { margin-bottom: 16px; font-size: var(--spf-text-xl, 22px); font-weight: 700; color: var(--spf-text-main); }
 

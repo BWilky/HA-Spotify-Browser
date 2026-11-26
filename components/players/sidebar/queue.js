@@ -3,6 +3,7 @@ import { sharedStyles } from '../../../styles/shared-styles.js';
 import { queueListStyles } from '../../../styles/spotify-queue.styles.js';
 import { msToTime } from '../../../utils.js';
 import { renderQueueRow } from '../queue-row.js';
+import { menuIcon } from '../../common/icons.js';
 
 /**
  * Sidebar track list. Renders either the upcoming queue (`mode="queue"`) or
@@ -58,7 +59,7 @@ export class SpotifySidebarTrackList extends LitElement {
             playedAt: item.played_at ? `${msToTime(new Date(item.played_at).getTime())} ago` : '',
             trailing: html`
                 <button class="row-menu-btn" @click=${(e) => this._trackMenu(e, track)} aria-label="More options">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
+                    ${menuIcon}
                 </button>
             `
         });

@@ -38,11 +38,12 @@ function laggingStorage() {
     return s;
 }
 
-test('two quick adds both persist even though the sensor lags the first write', async () => {
+test('two quick saves both persist even though the sensor lags the first write', async () => {
     const s = laggingStorage();
     const dm = new DeviceManager({}, {}, s.storage);
-    await dm.add({ id: 'a', name: 'A', type: 'Speaker' });
-    await dm.add({ id: 'b', name: 'B', type: 'Speaker' });
+    // The device-manager popup's path: read the list, append, save the whole list.
+    await dm.saveDevices([...(await dm.getDevices()), { id: 'a', name: 'A', type: 'Speaker', is_default: false, is_backup: false, visible: true }]);
+    await dm.saveDevices([...(await dm.getDevices()), { id: 'b', name: 'B', type: 'Speaker', is_default: false, is_backup: false, visible: true }]);
     assert.deepEqual(s.stored.devices.map(d => d.id), ['a', 'b']);
     assert.deepEqual((await dm.getDevices()).map(d => d.id), ['a', 'b']);
 });
@@ -62,7 +63,7 @@ test('two quick setting toggles both persist', async () => {
 test('once a read sees the sensor matching the write, reads come from storage again', async () => {
     const s = laggingStorage();
     const dm = new DeviceManager({}, {}, s.storage);
-    await dm.add({ id: 'a', name: 'A', type: 'Speaker' });
+    await dm.saveDevices([...(await dm.getDevices()), { id: 'a', name: 'A', type: 'Speaker', is_default: false, is_backup: false, visible: true }]);
     s.sync();
     await dm.getDevices(); // the hass update for our own write triggers a read
     // Another client then renames in storage; we must see it, not our cached write.
@@ -75,8 +76,16 @@ test('a pending write stops shadowing storage after 5 seconds', async () => {
     const dm = new DeviceManager({}, {}, s.storage);
     let now = 1000;
     dm._now = () => now;
-    await dm.add({ id: 'a', name: 'A', type: 'Speaker' });
+    await dm.saveDevices([...(await dm.getDevices()), { id: 'a', name: 'A', type: 'Speaker', is_default: false, is_backup: false, visible: true }]);
     assert.equal((await dm.getDevices()).length, 1);
     now += 5001;
     assert.equal((await dm.getDevices()).length, 0); // sensor never caught up; stale cache dropped
+});
+
+test('non-object storage data (legacy array, garbage) falls back to the empty default', async () => {
+    for (const raw of [[{ type: 'SETTINGS', version: 1 }, { id: 'a', name: 'A' }], 'garbage', 42]) {
+        const dm = new DeviceManager({}, {}, { getData: () => raw, updateHass() {} });
+        assert.deepEqual(await dm.getDevices(), []);
+        assert.deepEqual(await dm.getSettings(), { version: 1 });
+    }
 });

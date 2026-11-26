@@ -84,15 +84,6 @@ class SpotifyPopups extends LitElement {
         `;
     }
 
-    /* --- Generic Render Helpers --- */
-    _renderBackdrop(visible, content) {
-        return html`
-            <div class="popup-backdrop ${visible ? 'visible' : ''} ${!this.blur ? 'no-blur' : ''}">
-                ${content}
-            </div>
-        `;
-    }
-
     /* --- Specific Popups --- */
     renderDevicePopup() {
         // Always mounted: the sheet animates on `visible` and brings its own backdrop.
@@ -120,7 +111,11 @@ class SpotifyPopups extends LitElement {
                 </div>
             </div>
         `;
-        return this._renderBackdrop(true, content);
+        return html`
+            <div class="popup-backdrop visible ${!this.blur ? 'no-blur' : ''}">
+                ${content}
+            </div>
+        `;
     }
 
     renderToasts() {

@@ -661,22 +661,6 @@ export const sharedStyles = css`
     .alert-btn { flex: 1; padding: 10px; border-radius: 20px; border: 1px solid var(--spf-border); background: transparent; color: var(--spf-text-main); cursor: pointer; font-weight: 700; }
     .alert-btn.primary { background: var(--spf-brand); color: black; border: none; }
     
-    /* Device List specific styles (reused inside popup) */
-    .device-row {
-        display: flex; align-items: center; gap: 12px;
-        padding: 12px; border-radius: 8px; cursor: pointer;
-        transition: background 0.2s; color: var(--spf-text-sub);
-    }
-    @media (hover: hover) { .device-row:hover { background: var(--spf-hover-white); color: var(--spf-text-main); } }
-    .device-row:active { background: var(--spf-active-white); color: var(--spf-text-main); }
-    .device-row.active { color: var(--spf-brand); }
-    
-    .device-icon { width: 24px; height: 24px; }
-    .device-info { flex: 1; }
-    .device-name { font-weight: 700; font-size: var(--spf-text-base, 13.5px); display:flex; align-items:center; gap:6px; }
-    .device-type { font-size: var(--spf-text-sm, 12px); opacity: 0.7; text-transform: capitalize; }
-    .device-active-icon { display: flex; }
-
     /* --- Toast Notification --- */
     .toast-container {
         position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);

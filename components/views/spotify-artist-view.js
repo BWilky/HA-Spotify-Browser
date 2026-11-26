@@ -71,7 +71,6 @@ export class SpotifyArtistView extends LitElement {
 
     static get properties() {
         return {
-            hass: { type: Object },
             data: { type: Object },
             api: { type: Object },
             config: { type: Object },
@@ -82,7 +81,6 @@ export class SpotifyArtistView extends LitElement {
             currentTrackId: { type: String },
             isPlaying: { type: Boolean },
             _isFollowing: { type: Boolean, state: true },
-            _currentUserId: { type: String, state: true },
             _isPinned: { type: Boolean, state: true },
             _pinnedEntity: { type: String, state: true },
             _trackLikes: { type: Object, state: true }, // Map of trackId -> boolean
@@ -93,7 +91,6 @@ export class SpotifyArtistView extends LitElement {
 
     constructor() {
         super();
-        this.hass = null;
         this.playingTrackId = null;
         this.currentTrackId = null;
         this.isPlaying = false;
@@ -102,7 +99,6 @@ export class SpotifyArtistView extends LitElement {
         this._trackLikes = {};
         this._optimisticPlayingTrackId = null;
         this._optimisticPlayState = null;
-        this._currentHassIdAtClick = null;
     }
 
     connectedCallback() {
@@ -120,16 +116,6 @@ export class SpotifyArtistView extends LitElement {
         this._optimisticTimer = null;
         this._optimisticContextTimer = null;
         this._scrollRaf = null;
-    }
-
-    /**
-     * Raw `hass` is kept only as an interaction-time reference; re-renders on
-     * player ticks are driven by the derived props (playingTrackId, isPlaying,
-     * currentTrackId) the parent context-view maintains.
-     */
-    shouldUpdate(changedProperties) {
-        if (changedProperties.size === 1 && changedProperties.has('hass')) return false;
-        return true;
     }
 
     updated(changedProperties) {
@@ -211,10 +197,6 @@ export class SpotifyArtistView extends LitElement {
         const items = await this.pinned.getItems();
         this._isPinned = !!items.find(i => i.id === this.data.id);
         this._pinnedEntity = this.pinned.sensorEntity;
-    }
-
-    _getHassTrackId() {
-        return this.currentTrackId || null;
     }
 
     async _checkFollowStatus() {
@@ -440,9 +422,6 @@ export class SpotifyArtistView extends LitElement {
         if (startIndex === -1) return;
 
         // --- OPTIMISTIC UI START ---
-        // Capture state BEFORE optimistic update
-        this._currentHassIdAtClick = this._getHassTrackId();
-
         // Clear any pending safety timer from previous clicks
         if (this._optimisticTimer) {
             clearTimeout(this._optimisticTimer);

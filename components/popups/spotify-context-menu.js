@@ -13,7 +13,6 @@ const stroke = (paths) => html`<svg viewBox="0 0 24 24" fill="none" stroke="curr
 
 /** Icon lookup for data-driven menu items ({ icon: '<key>' }). */
 export const MENU_ICONS = {
-    'play': stroke(svg`<path d="M8 5.5v13l11-6.5z"/>`),
     // Add to Queue: list lines with a plus (Spotify's add-to-queue glyph).
     'queue': stroke(svg`<path d="M5 3.5v5M2.5 6h5M11 6h10.5M3.5 12h18M3.5 18h18"/>`),
     // Go to Queue: two stacked wide bars.
@@ -25,11 +24,9 @@ export const MENU_ICONS = {
     'pencil': stroke(svg`<path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17z"/><path d="M14.5 7.5l3 3"/>`),
     'trash': stroke(svg`<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>`),
     'minus-circle': stroke(svg`<circle cx="12" cy="12" r="9"/><path d="M8 12h8"/>`),
-    'plus': stroke(svg`<path d="M12 5v14M5 12h14"/>`),
     'heart': heartToggleIcon(false),
     'heart-filled': heartToggleIcon(true),
     'pin': stroke(svg`<path d="M12 21.5S5 14.6 5 9.5a7 7 0 0 1 14 0c0 5.1-7 12-7 12z"/><circle cx="12" cy="9.5" r="2.4"/>`),
-    'drag-handle': stroke(svg`<path d="M4 9.5h16M4 14.5h16"/>`),
     'lock': stroke(svg`<rect x="5" y="10.5" width="14" height="9.5" rx="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>`),
     'people': stroke(svg`<circle cx="9" cy="8.5" r="3"/><path d="M3.5 19c1.1-2.6 3-4 5.5-4s4.4 1.4 5.5 4"/><circle cx="16.8" cy="9.5" r="2.4"/><path d="M16.5 15.2c2 .3 3.4 1.5 4.2 3.4"/>`),
 };

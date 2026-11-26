@@ -740,7 +740,6 @@ class SpotifyBrowserApp extends LitElement {
                     .deviceManager=${this.deviceManager}
                     .playerController=${this.playerController}
                     @navigate=${this._handleNavigate}
-                    @close-queue=${() => this._queueVisible = false}
                     @open-manager=${() => {
                 this._queueVisible = false; // Close queue when opening manager? Maybe.
                 this._devicePopupVisible = false;
@@ -792,7 +791,6 @@ class SpotifyBrowserApp extends LitElement {
                 }
             }}
                     @device-selected=${this._handleDeviceSelected}
-                    @reveal-all-devices=${this._handleRevealAllDevices}
                     @toggle-hidden-devices=${this._handleToggleHiddenDevices}
                     @refresh-devices=${this._handleRefreshDevices}
                     @open-manager=${() => {
@@ -1005,16 +1003,11 @@ class SpotifyBrowserApp extends LitElement {
     _validateStorage() {
         const status = this.storageManager.checkStatus();
 
-        if (status === 'empty') {
-            // No-op: an empty store needs no proactive write. getData() already
-            // treats a missing attribute as null and saveData() merges into {} on
-            // first real write. Firing resetStorage() here used to write an empty
-            // {} over the websocket on every cold boot — and because the WebView
-            // wrapper hard-reloads on every foreground return, that write landed
-            // in the reconnect grace window, failed, and made HA surface its
-            // "connection lost" toast + haptic. (Same window triggerScan() guards
-            // against; see api.js.) Leaving it empty is harmless and silent.
-        } else if (status === 'corrupted' && !this._storageCorruptPrompted) {
+        // An 'empty' store needs no proactive write: getData() treats a missing
+        // attribute as null and saveData() merges into {} on first real write.
+        // Writing an empty {} here on cold boot used to land in the reconnect
+        // grace window and surface HA's "connection lost" toast (see api.js).
+        if (status === 'corrupted' && !this._storageCorruptPrompted) {
             this._storageCorruptPrompted = true;
             // The alert lives in <spotify-popups>, which only exists while the
             // overlay is open — and this normally runs at boot, with it closed.
@@ -1684,11 +1677,6 @@ class SpotifyBrowserApp extends LitElement {
         this._openDevicePicker({ showHidden: e.detail.visible });
     }
 
-    async _handleRevealAllDevices() {
-        // Legacy/Fallback
-        this._openDevicePicker({ refresh: true, showHidden: true });
-    }
-
     _handleReorderDelete(e) {
         const id = e.detail;
 
@@ -2016,9 +2004,6 @@ class SpotifyBrowserApp extends LitElement {
         fireHaptic('medium');
         if (this.playerController) {
             this.playerController.pause();
-        } else if (this.api) {
-            const isPlaying = this._playerState?.isPlaying || false;
-            this.api.togglePlayback(!isPlaying);
         }
     }
 }

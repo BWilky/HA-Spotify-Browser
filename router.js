@@ -1,13 +1,11 @@
 export class Router extends EventTarget {
     constructor(host, container, config) {
         super();
-        this.host = host; // The App component
         this.container = container; // The .page-container element
         this.config = config || {};
 
         this.history = [];
         this.currentPageId = null;
-        this.currentPageData = null;
 
         this.pageCache = new Map();
         this.maxCacheSize = this.config.browser?.cache_size || 10; // Matches ConfigParser default
@@ -73,7 +71,7 @@ export class Router extends EventTarget {
                 // must apply it, or the previous results are shown (#23).
                 if (data?.query && typeof newPage.search === 'function') newPage.search(data.query);
             } else if (pageId.startsWith('artist:') || pageId.startsWith('album:') || pageId.startsWith('playlist:')) {
-                if (newPage.pageId !== pageId || (data && newPage.data !== data)) {
+                if (data && newPage.data !== data) {
                     newPage.pageId = pageId;
                     newPage.data = data;
                 }
@@ -89,7 +87,6 @@ export class Router extends EventTarget {
 
         // 4. Update State
         this.currentPageId = pageId;
-        this.currentPageData = data;
 
         // 5. Notify App (for Header/Search updates)
         this.dispatchEvent(new CustomEvent('route-changed', {
@@ -126,7 +123,6 @@ export class Router extends EventTarget {
         this.pageCache.clear();
         this.history = [];
         this.currentPageId = null;
-        this.currentPageData = null;
     }
 
     /**

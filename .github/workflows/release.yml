@@ -19,9 +19,13 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install Dependencies
+        run: npm ci
+
+      # Uses the esbuild version pinned in package-lock.json (not whatever
+      # `npx esbuild` resolves on the day of the release).
       - name: Compile and Bundle Card
-        run: |
-          npx esbuild index.js --bundle --minify --outfile=spotify-browser.js
+        run: npm run build:prod
 
       - name: Create ZIP Archive
         run: |

@@ -330,21 +330,18 @@ export class SpotifyNowPlayingMobile extends LitElement {
 
     _playPause() {
         fireHaptic('medium');
-        if (this.playerController) this.playerController.pause();
-        else if (this.api) this.api.togglePlayback(!this.state?.isPlaying);
+        this.playerController?.pause();
     }
     _next() {
         fireHaptic('light');
         this._holdProgressReset();
-        if (this.playerController) this.playerController.skipNext();
-        else this.api?.fetchSpotifyPlus('player_media_next_track');
+        this.playerController?.skipNext();
     }
     _prev() {
         // The on-screen button keeps native behaviour: restart if >3s in.
         fireHaptic('light');
         this._holdProgressReset();
-        if (this.playerController) this.playerController.skipPrev({ allowRestart: true });
-        else this.api?.fetchSpotifyPlus('player_media_previous_track');
+        this.playerController?.skipPrev({ allowRestart: true });
     }
 
     /* --- Vibrant accent gradient --- */
@@ -477,13 +474,12 @@ export class SpotifyNowPlayingMobile extends LitElement {
     }
     _toggleShuffle() {
         fireHaptic('light');
-        if (this.playerController) this.playerController.toggleShuffle();
-        else this.api?.fetchSpotifyPlus('player_shuffle', { state: !this.state?.isShuffle }, false);
+        this.playerController?.toggleShuffle();
         this._refreshQueueSoon(); // shuffle reorders what's next
     }
     _toggleLike() {
         fireHaptic('success');
-        if (this.playerController) this.playerController.toggleLike();
+        this.playerController?.toggleLike();
     }
     _cycleRepeat() {
         fireHaptic('light');

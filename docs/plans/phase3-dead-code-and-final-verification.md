@@ -1,6 +1,16 @@
 # Phase 3 (dead-code removal) and final verification — HA Spotify Browser
 
-Status when this was written (2026-11-26): Phase 1 (nine bug fixes) is committed and pushed as `f2070dc` on branch `worktree-bridge-cse_01HVcWXE9McGsDjLcW4C5zMn`. Phase 2 (speed) is committed and pushed as the commit after it. **Nothing in this file has been started.** The full review and the Phase 4 roadmap are in `docs/plans/architecture-review.md`.
+**Status: done.** Phase 1 (`f2070dc`), Phase 2 (`4995afc`) and Phase 3 (the commit that adds this note) are on branch `worktree-bridge-cse_01HVcWXE9McGsDjLcW4C5zMn`. The full review and the Phase 4 roadmap are in `docs/plans/architecture-review.md`.
+
+Kept on purpose during Phase 3, with the reason:
+- `skipNext`'s extra `triggerScan`: on a failed skip it is the only scan that runs.
+- `try/catch` in playlist-view `render()` / `renderTrackRow()`: the bodies run plain JS that can throw on malformed data, and the catch renders a useful fallback.
+- The inline shuffle SVGs (no exported equivalent) and the pill equalizer (not equivalent to `playingBarsIcon`).
+- `sharedStyles` in the reorder dialog: its buttons and input rely on its `font-family: inherit`, text-selection and scrollbar rules.
+- One `requestUpdate()` in context-view, after an assignment that can be the same object reference.
+- `.queue-context-sub` still has no CSS (unstyled "played … ago" line); left for a design decision.
+
+The "small bugs found during Phases 1–2" list below is still open.
 
 ## Rules for the whole phase
 
@@ -38,7 +48,7 @@ File: `spotify-browser-app.js`, plus `router.js`.
 - `api.js`: the `player_media_play` / `player_media_pause` entries in the pseudo-service map have no callers.
 - `PinnedItemsManager.isPinned` is used only by tests. **Keep it** — Phase 4 wants the two views to use it instead of their own copies.
 - The unreachable `playerController ? … : api.fetchSpotifyPlus(…)` fallbacks in `components/players/sidebar/nowplaying.js` and `components/players/now-playing-mobile.js` (about 11 sites), and the `shuffle-toggle` / `like-toggle` events they would fire, which nothing listens for.
-- **Needs your answer before it is touched:** the old array-schema storage migration in `device-manager.js`. Remove it only if no v1 installs remain; if unsure, leave it.
+- The old array-schema (v1) storage migration in `device-manager.js` — removed; the owner confirmed no v1 installs remain.
 
 ## 3.4 Styles — about 230 lines
 
@@ -80,7 +90,7 @@ Not dead code, but cheap, and found while working. Fix here or fold into Phase 4
 1. `npm ci && npm test` — all green.
 2. `npm run build:prod -- --outfile=dist/final.js` and compare with the baseline: 547.8 KB minified, 130.8 KB gzip (`gzip -c dist/final.js | wc -c`).
 3. Browser harness (stub Home Assistant in headless Chromium), in `tools/smoke/`:
-   - Run: `npm run build && node tools/smoke/smoke.mjs dist/spotify-browser.js <outDir> final && node tools/smoke/summ.js <outDir>/final.json` (needs `playwright` resolvable, e.g. via `NODE_PATH`, and a Chromium it can launch).
+   - Run: `npm run build && node tools/smoke/smoke.mjs dist/spotify-browser.js <outDir> final && node tools/smoke/summ.cjs <outDir>/final.json` (needs `playwright` resolvable, e.g. via `NODE_PATH`, and a Chromium it can launch).
    - Pass criteria: zero console errors; every number equal to the Phase 2 run (dead-code removal must not change a single call count, render count or image size); screenshots of home, playlist, queue, artist and library on desktop and mobile visually identical to the Phase 2 screenshots.
 4. Targeted checks for what Phase 3 deletes, in the harness or by hand: open the queue sidebar, the device picker, the device manager, the pinned reorder dialog, a track context menu, and the account sheet (all lose CSS or icons in 3.4–3.5); navigate into a section "See All" page and a discography page and back (3.2 removes event re-dispatch).
 5. On a real instance — these cannot be checked from the cloud session:

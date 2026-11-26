@@ -456,8 +456,6 @@ export class SpotifyApi {
         const standardServices = {
             'player_media_next_track': 'media_next_track',
             'player_media_previous_track': 'media_previous_track',
-            'player_media_play': 'media_play',
-            'player_media_pause': 'media_pause',
             'player_shuffle': 'shuffle_set',
             'player_repeat': 'repeat_set'
         };

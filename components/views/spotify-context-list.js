@@ -7,7 +7,6 @@ export class SpotifyContextList extends LitElement {
         return {
             data: { type: Object }, // Contains { items: [], total: 0, isLoading: bool, hasMore: bool }
             type: { type: String }, // 'track', 'album', 'playlist', etc.
-            layout: { type: String }, // 'list' or 'grid'
         };
     }
 
@@ -58,13 +57,6 @@ export class SpotifyContextList extends LitElement {
                     padding: 0;
                 }
 
-                .content-grid {
-                    display: grid;
-                    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-                    gap: 16px;
-                    padding: 24px;
-                }
-
                 /* Loader at bottom */
                 .loading-indicator {
                     padding: 24px; text-align: center; color: var(--spf-text-sub);
@@ -76,7 +68,6 @@ export class SpotifyContextList extends LitElement {
     constructor() {
         super();
         this.data = { items: [], isLoading: true };
-        this.layout = 'list';
     }
 
     _handleScroll(e) {
@@ -99,9 +90,6 @@ export class SpotifyContextList extends LitElement {
         const isLoading = this.data?.isLoading || false;
         const type = this.type || this.data?.type || 'track';
 
-        // Use layout property
-        const isListView = this.layout !== 'grid';
-
         return html`
             <div class="list-container" @scroll=${this._handleScroll}>
                 <div class="list-header">
@@ -111,7 +99,7 @@ export class SpotifyContextList extends LitElement {
                     <div class="list-title">${this.data?.name || 'List'}</div>
                 </div>
 
-                <div class="${isListView ? 'content-list' : 'content-grid'}">
+                <div class="content-list">
                     ${items.map((item) => {
             // Render Generic List Row
             // Prioritize item.type (e.g. 'artist') over container type

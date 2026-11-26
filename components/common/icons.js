@@ -69,15 +69,6 @@ export function playingBarsIcon(size = 18) {
 
 /* --- Playlist management icons ------------------------------------------ */
 
-/** Plus, 24px (create playlist buttons). */
-export const plusIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>`;
-
-/** Add-to-playlist (list + plus), 24px. */
-export const playlistAddIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM2 16h8v-2H2v2z"/></svg>`;
-
-/** Pencil / edit, 24px. */
-export const pencilIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`;
-
 /** Trash / delete, 24px. */
 export const trashIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`;
 
@@ -90,54 +81,22 @@ export const dragHandleIcon = html`<svg width="24" height="24" viewBox="0 0 24 2
 /** Reorder handle (three bars, Spotify edit-mode style), 24px. */
 export const reorderLinesIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M3 7h18v2H3V7zm0 4h18v2H3v-2zm0 4h18v2H3v-2z"/></svg>`;
 
-/** Padlock (public/private toggle), 24px. */
-export const lockIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zM9 6c0-1.66 1.34-3 3-3s3 1.34 3 3v2H9V6zm9 14H6V10h12v10zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"/></svg>`;
-
-/** Two-person group (collaborative toggle), 24px. */
-export const peopleIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z"/></svg>`;
-
 /** Map pin (pin-to-home actions), 24px. */
 export const pinIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5a2.5 2.5 0 0 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>`;
 
-/** Person / artist silhouette, 24px (track menu "Go to Artist"). */
+/** Person silhouette, 24px (account panel avatar fallback). */
 export const personIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>`;
 
 /* --- Device type icons --------------------------------------------------- */
-/*
- * Two variants exist because the device manager popup and the connect panel
- * historically drew slightly different glyphs: they share only the tablet
- * icon, while computer / phone / tv use different path data, the manager has
- * extra type keys (castaudio/speaker, avr/stb/audiodongle) and falls back to
- * a generic circle, and the panel falls back to a speaker box. Each variant
- * preserves its original caller's exact output.
- */
-
-// Tablet is the only glyph both variants share.
 const DEVICE_TABLET_ICON = html`<svg viewBox="0 0 24 24"><path d="M21 4H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm-2 14H5V6h14v12z"/></svg>`;
-
-// Manager fallback: generic circle (also used for castaudio/speaker there).
-const DEVICE_MANAGER_FALLBACK = html`<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/></svg>`;
 
 /**
  * Icon for a Spotify Connect device type.
  * @param {string} type - Device type (case-insensitive), e.g. 'Computer'.
- * @param {string} [variant='connect'] - 'connect' (connect panel glyph set)
- *                                       or 'manager' (device manager glyph set).
  */
-export function deviceTypeIcon(type, variant = 'connect') {
+export function deviceTypeIcon(type) {
     const t = (type || '').toLowerCase();
 
-    if (variant === 'manager') {
-        if (t === 'computer') return html`<svg viewBox="0 0 24 24"><path d="M20 18c1.1 0 1.99-.9 1.99-2L22 6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>`;
-        if (t === 'smartphone' || t === 'phone') return html`<svg viewBox="0 0 24 24"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-1.99-2-1.99zM17 19H7V5h10v14z"/></svg>`;
-        if (t === 'tablet') return DEVICE_TABLET_ICON;
-        if (t === 'castaudio' || t === 'speaker') return DEVICE_MANAGER_FALLBACK;
-        if (t === 'tv') return html`<svg viewBox="0 0 24 24"><path d="M21 3H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h5v2h8v-2h5c1.1 0 1.99-.9 1.99-2L22 5c0-1.1-.9-2-2-2zm0 14H3V5h18v12z"/></svg>`;
-        if (t === 'avr' || t === 'stb' || t === 'audiodongle') return html`<svg viewBox="0 0 24 24"><path d="M2 20h20v-4H2v4zm2-3h2v2H4v-2zM2 4v4h20V4H2zm4 3H4V5h2v2zm6 0h-2V5h2v2zm6 0h-2V5h2v2z"/></svg>`;
-        return DEVICE_MANAGER_FALLBACK;
-    }
-
-    // 'connect' variant (connect panel)
     if (t === 'computer') return html`<svg viewBox="0 0 24 24"><path d="M20 18c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2H4c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2H0v2h24v-2h-4zM4 6h16v10H4V6z"/></svg>`;
     if (t === 'smartphone' || t === 'phone') return html`<svg viewBox="0 0 24 24"><path d="M17 1H7c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 18H7V5h10v14z"/></svg>`;
     if (t === 'tablet') return DEVICE_TABLET_ICON;

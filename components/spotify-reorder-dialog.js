@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
+import { trashIcon } from './common/icons.js';
 
 class SpotifyReorderDialog extends LitElement {
     static get properties() {
@@ -10,8 +11,6 @@ class SpotifyReorderDialog extends LitElement {
             _draggedItemIndex: { type: Number, state: true },
             _dropTargetIndex: { type: Number, state: true },
             _dropPosition: { type: String, state: true },
-            _confirmDeleteId: { type: String, state: true },
-            _showResetConfirm: { type: Boolean, state: true },
             _showUriInput: { type: Boolean, state: true },
             _uriInputValue: { type: String, state: true },
         };
@@ -213,12 +212,6 @@ class SpotifyReorderDialog extends LitElement {
 
                 .close-btn { background: #fff; color: #000; }
                 .close-btn:hover { transform: scale(1.04); }
-
-                .alert-btn:hover { background: var(--spf-hover-white, rgba(255,255,255,0.1)); }
-                .alert-btn.primary { background: var(--spf-brand, #1DB954); border-color: var(--spf-brand, #1DB954); color: black; }
-                .alert-btn.primary:hover { background: var(--spf-brand-hover, #1ed760); }
-                .alert-btn.danger { background: transparent; border-color: #e91e63; color: #e91e63; }
-                .alert-btn.danger:hover { background: rgba(233, 30, 99, 0.1); }
             `
         ];
     }
@@ -408,7 +401,7 @@ class SpotifyReorderDialog extends LitElement {
                                             <div style="display:flex; align-items:center;">
                                                 ${locked ? '' : html`
                                                     <button class="action-btn delete" @click=${(e) => this._requestDelete(item.id, e)} title="Remove">
-                                                        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                                                        ${trashIcon}
                                                     </button>
                                                 `}
                                             </div>

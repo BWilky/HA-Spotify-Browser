@@ -34,11 +34,6 @@ export class DeviceManager {
         return this.storageManager?.sensorEntity || null;
     }
 
-    // Simplified access to storage with schema migration
-    async _loadData() {
-        return this._readData();
-    }
-
     /** Synchronous read of saved devices/settings (storage is an in-memory sensor). */
     _readData() {
         if (!this.checkAvailability()) return { settings: { version: 1 }, devices: [] };
@@ -55,7 +50,7 @@ export class DeviceManager {
                 }
             }
 
-            // Case 1: New Object Schema
+            // Object schema
             if (raw && !Array.isArray(raw) && typeof raw === 'object') {
                 return {
                     settings: raw.settings || { version: 1 },
@@ -63,14 +58,7 @@ export class DeviceManager {
                 };
             }
 
-            // Case 2: Old Array Schema (Migration)
-            if (Array.isArray(raw)) {
-                const settings = raw.find(i => i.type === 'SETTINGS') || { version: 1 };
-                const devices = raw.filter(i => i.type !== 'SETTINGS');
-                return { settings, devices };
-            }
-
-            // Case 3: Empty/Invalid
+            // Empty/invalid (including arrays)
             return { settings: { version: 1 }, devices: [] };
 
         } catch (e) {
@@ -80,74 +68,25 @@ export class DeviceManager {
     }
 
     async getDevices() {
-        const data = await this._loadData();
+        const data = this._readData();
         return data.devices;
     }
 
     async getSettings() {
-        const data = await this._loadData();
+        const data = this._readData();
         return data.settings;
     }
 
     async saveDevices(devices) {
-        const data = await this._loadData();
+        const data = this._readData();
         return await this._save({
             settings: data.settings,
             devices: devices
         });
     }
 
-    async setDefault(deviceId) {
-        const devices = await this.getDevices();
-        const updated = devices.map(d => ({
-            ...d,
-            is_default: d.id === deviceId
-        }));
-        return await this.saveDevices(updated);
-    }
-
-    async setBackup(deviceId) {
-        const devices = await this.getDevices();
-        const updated = devices.map(d => ({
-            ...d,
-            is_backup: d.id === deviceId ? !d.is_backup : false
-        }));
-        return await this.saveDevices(updated);
-    }
-
-    async add(device) {
-        const devices = await this.getDevices();
-        if (devices.find(d => d.id === device.id)) return { success: false, error: "Device already exists" };
-
-        const newDevice = {
-            id: device.id,
-            name: device.name,
-            type: device.type || 'Speaker',
-            is_default: false,
-            is_backup: false,
-            visible: true
-        };
-
-        return await this.saveDevices([...devices, newDevice]);
-    }
-
-    async remove(deviceId) {
-        const devices = await this.getDevices();
-        const updated = devices.filter(d => d.id !== deviceId);
-        return await this.saveDevices(updated);
-    }
-
-    async update(deviceId, changes) {
-        const devices = await this.getDevices();
-        const index = devices.findIndex(d => d.id === deviceId);
-        if (index === -1) return { success: false, error: "Device not found" };
-
-        devices[index] = { ...devices[index], ...changes };
-        return await this.saveDevices(devices);
-    }
-
     async updateSetting(key, value) {
-        const data = await this._loadData();
+        const data = this._readData();
         const updatedSettings = {
             ...data.settings,
             [key]: value,
@@ -158,10 +97,6 @@ export class DeviceManager {
             settings: updatedSettings,
             devices: data.devices
         });
-    }
-
-    async rename(deviceId, newName) {
-        return await this.update(deviceId, { name: newName });
     }
 
     /**

@@ -1,7 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic } from "../../utils.js";
 import { artFallbackStyles } from '../../styles/shared-styles.js';
-import { playingBarsIcon } from '../common/icons.js';
+import { playingBarsIcon, menuIcon } from '../common/icons.js';
 import { renderQueueRow } from './queue-row.js';
 import '../bottom-sheet.js';
 
@@ -179,7 +179,7 @@ export class SpotifyQueuePanel extends LitElement {
                 </button>
             ` : html`
                 <button class="row-menu-btn" @click=${(e) => this._trackMenu(e, track)} aria-label="More options">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
+                    ${menuIcon}
                 </button>
             `,
         });
