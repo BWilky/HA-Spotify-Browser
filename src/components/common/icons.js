@@ -4,7 +4,8 @@ import { html } from "../../lit.js";
  * Shared SVG icon templates.
  *
  * Single source of truth for the small inline icons that used to be
- * copy-pasted across media-templates / the context views / the device UIs.
+ * copy-pasted across media-templates / the context views / the device UIs /
+ * the sheets and now-playing surfaces.
  * Each helper reproduces the exact markup of its original call sites
  * (sizes, viewBox, fill/stroke attributes), so swapping a call site over
  * must not change the rendered DOM.
@@ -86,6 +87,86 @@ export const pinIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill
 
 /** Person silhouette, 24px (account panel avatar fallback). */
 export const personIcon = html`<svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>`;
+
+/* --- Sheet, player and list icons ---------------------------------------- */
+// Unsized unless noted: each host sizes and colours them from its own CSS.
+
+const CLOSE_PATH = 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z';
+const SHUFFLE_PATH = 'M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z';
+const PREVIOUS_PATH = 'M6 6h2v12H6zm3.5 6l8.5 6V6z';
+const NEXT_PATH = 'M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z';
+const VOLUME_UP_PATH = 'M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z';
+
+/**
+ * A one-path glyph on the 24-unit grid. `pathFill` puts fill="currentColor"
+ * on the <path> itself: the markup of the sidebar now-playing block and the
+ * mini-player. Without it the path carries no fill (now-playing sheet, queue
+ * sheet) and takes the svg's CSS fill.
+ */
+function glyph(d, pathFill) {
+    return pathFill
+        ? html`<svg viewBox="0 0 24 24"><path fill="currentColor" d="${d}"/></svg>`
+        : html`<svg viewBox="0 0 24 24"><path d="${d}"/></svg>`;
+}
+
+/** Play triangle, or pause bars while `playing` (see glyph() for `pathFill`). */
+export function playPauseIcon(playing, pathFill = false) {
+    return glyph(playing ? PAUSE_PATH : PLAY_PATH, pathFill);
+}
+
+/** Shuffle arrows (now-playing sheet, sidebar mini controls). */
+export function shuffleIcon(pathFill = false) {
+    return glyph(SHUFFLE_PATH, pathFill);
+}
+
+/** Skip-back (bar + triangle). */
+export function previousIcon(pathFill = false) {
+    return glyph(PREVIOUS_PATH, pathFill);
+}
+
+/** Skip-forward (triangle + bar). */
+export function nextIcon(pathFill = false) {
+    return glyph(NEXT_PATH, pathFill);
+}
+
+/**
+ * Speaker with sound waves (sidebar volume button and its slider overlay).
+ * The Connect sheet's -/+ volume icons use other path data and stay local.
+ */
+export function volumeUpIcon(pathFill = false) {
+    return glyph(VOLUME_UP_PATH, pathFill);
+}
+
+/**
+ * Close X. Unsized by default (device picker, create-playlist sheet); pass a
+ * size for the variant with width/height and fill="currentColor" (reorder
+ * dialog, 24px).
+ */
+export function closeIcon(size = null) {
+    return size
+        ? html`<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor"><path d="${CLOSE_PATH}"/></svg>`
+        : html`<svg viewBox="0 0 24 24"><path d="${CLOSE_PATH}"/></svg>`;
+}
+
+/** Check mark (playlist picker selection circle, now-playing like button). */
+export const checkIcon = html`<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
+
+/** Up/down arrows of the Recents / A–Z sort toggle, 14px outline. */
+export const sortIcon = html`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v14m0 0l-3-3m3 3l3-3M17 20V6m0 0l-3 3m3-3l3 3"/></svg>`;
+
+/**
+ * Speaker outline (portrait box, tweeter dot, woofer ring), stroked in
+ * currentColor: the mini-player's device button and the Connect sheet's
+ * active-device card.
+ */
+export const speakerOutlineIcon = html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2.5"/><circle cx="12" cy="6.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="14.5" r="3.2"/></svg>`;
+
+/**
+ * Equalizer bars standing still (the animated ones are playingBarsIcon):
+ * the queue sheet's now-playing row while paused, the Connect sheet's
+ * now-playing line.
+ */
+export const staticBarsIcon = html`<svg viewBox="0 0 24 24"><rect x="3" y="10" width="4" height="11" rx="1"/><rect x="10" y="5" width="4" height="16" rx="1"/><rect x="17" y="13" width="4" height="8" rx="1"/></svg>`;
 
 /* --- Device UI icons ------------------------------------------------------ */
 // Unsized and with no fill attribute: each device UI sizes and colours them

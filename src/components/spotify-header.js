@@ -1,7 +1,8 @@
 
-import { LitElement, html, css } from "../lit.js";
+import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { headerStyles } from './spotify-header.styles.js';
+import { menuIcon } from './common/icons.js';
 
 class SpotifyHeader extends LitElement {
     static get properties() {
@@ -22,100 +23,9 @@ class SpotifyHeader extends LitElement {
     }
 
     static get styles() {
-        return [sharedStyles, css`
-            /* Rules that sat in sharedStyles but can only match in this
-               element's shadow root (header bar, nav buttons, search box,
-               menu). Kept between sharedStyles and headerStyles: their place
-               in the cascade before they moved. */
-            @media (max-width: 768px) {
-                .search-container.active { width: auto !important; flex: 1; margin-right: 8px; }
-                .header { padding: var(--spf-safe-top, 0px) 12px 0 12px !important; }
-                .header-left, .header-right { gap: 8px !important; }
-            }
-
-            /* --- Header --- */
-            .header {
-                position: absolute; top: 0; left: 0; right: 0;
-                height: calc(64px + var(--spf-safe-top));
-                padding-top: var(--spf-safe-top);
-                display: flex; justify-content: space-between; align-items: center;
-                padding-left: 24px; padding-right: 24px; padding-bottom: 0;
-                background: rgba(18, 18, 18, 1);
-                z-index: 110;
-                transition: border-bottom 0.3s ease;
-                box-sizing: border-box;
-            }
-
-            .header-center-title {
-                position: absolute; left: 50%; transform: translateX(-50%);
-                font-weight: 700; font-size: var(--spf-text-lg, 17px); color: var(--spf-text-main);
-                opacity: 0; transition: opacity 0.2s ease;
-                white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-                max-width: 40%; pointer-events: none; z-index: 120;
-            }
-
-            .header-left, .header-right { display: flex; align-items: center; gap: 16px; }
-            .spotify-logo { width: 32px; height: 32px; fill: var(--spf-text-main); }
-
-            .nav-btn {
-                background: var(--spf-btn-bg); border: none; color: var(--spf-text-main);
-                width: 32px; height: 32px; border-radius: 50%;
-                display: flex; align-items: center; justify-content: center;
-                cursor: pointer; transition: background 0.2s; flex-shrink: 0;
-            }
-            @media (hover: hover) { .nav-btn:hover { background: var(--spf-hover-white); } }
-            .nav-btn:active { background: var(--spf-active-white); }
-            .nav-btn svg { pointer-events: none; }
-
-            /* --- Search Box --- */
-            .search-container {
-                display: flex; align-items: center; justify-content: center;
-                background: var(--spf-btn-bg);
-                border-radius: 50%; width: 40px; height: 40px;
-                padding: 0; overflow: hidden;
-                transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            }
-            @media (hover: hover) { .search-container:not(.active):hover { background: var(--spf-hover-white); } }
-
-            .search-container.active {
-                width: 240px; background: var(--spf-text-main); border-radius: 20px;
-                padding: 0 8px; justify-content: flex-start;
-            }
-            .search-icon-btn {
-                width: 40px; height: 40px;
-                background: none; border: none; color: var(--spf-text-main);
-                cursor: pointer; padding: 0; margin: 0;
-                display: flex; align-items: center; justify-content: center;
-                flex-shrink: 0; position: relative; z-index: 2;
-            }
-            .search-icon-btn svg { transform: translate(1px, 1px); }
-            .search-container.active .search-icon-btn { color: #000; width: 32px; }
-
-            .search-input {
-                background: transparent !important; border: none; outline: none;
-                color: #000; font-size: var(--spf-text-base, 13.5px); opacity: 0; width: 0; min-width: 0;
-                padding: 0; margin: 0; pointer-events: none; position: relative; z-index: 1;
-                transition: opacity 0.2s, width 0.3s ease; line-height: 40px;
-            }
-            .search-container.active .search-input {
-                opacity: 1; width: 100%; margin-left: 4px; pointer-events: auto;
-            }
-
-            /* --- Dropdown Menu --- */
-            .dropdown-menu {
-                position: absolute; top: calc(60px + var(--spf-safe-top)); right: 60px;
-                background: var(--spf-bg-card-hover); border-radius: 8px;
-                width: 180px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-                display: none; flex-direction: column; z-index: 30;
-            }
-            .dropdown-menu.visible { display: flex; }
-
-            .menu-item { padding: 12px 16px; cursor: pointer; font-size: var(--spf-text-base, 13.5px); color: var(--spf-text-main); transition: background 0.2s; }
-            @media (hover: hover) { .menu-item:hover { background: var(--spf-hover-white); } }
-            .menu-item:active { background: var(--spf-active-white); }
-            .menu-item:first-child { border-radius: 8px 8px 0 0; }
-            .menu-item:last-child { border-radius: 0 0 8px 8px; }
-        `, headerStyles];
+        // headerStyles also holds the rules that moved here from sharedStyles,
+        // first, so the cascade order is the one they had there.
+        return [sharedStyles, headerStyles];
     }
 
     constructor() {
@@ -277,7 +187,7 @@ class SpotifyHeader extends LitElement {
                         style="margin-left:4px;"
                         @click=${() => this.dispatchEvent(new CustomEvent('menu-click'))}
                     >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/><circle cx="5" cy="12" r="2"/></svg>
+                        ${menuIcon}
                     </button>
                     <button 
                         class="nav-btn" 

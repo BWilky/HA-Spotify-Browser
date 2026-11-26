@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { parseDeviceItems, normalizeDevice, deviceTypeLabel, normalizeRename, reorderList, dragTargetIndex, unsavedLiveDevices, fireHaptic } from '../../utils.js';
 import { deviceTypeIcon, menuIcon, dragHandleIcon, pinIcon, refreshIcon } from '../common/icons.js';
+import { dialogSheetStyles } from '../../styles/sheet.styles.js';
 import '../bottom-sheet.js';
 
 /**
@@ -15,7 +16,9 @@ import '../bottom-sheet.js';
  */
 export class SpotifyDeviceManagerPopup extends LitElement {
     static get styles() {
-        return css`
+        // .title and .empty: dialogSheetStyles (its :host display: contents
+        // is repeated here next to this sheet's variables).
+        return [dialogSheetStyles, css`
             :host {
                 display: contents;
                 --spf-sheet-max-h: 96%;
@@ -28,11 +31,6 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 display: flex; align-items: center; justify-content: space-between;
                 flex-shrink: 0;
                 padding-bottom: 4px;
-            }
-            .title {
-                margin: 0;
-                font-size: var(--spf-text-xl, 22px); font-weight: 900;
-                color: var(--spf-text-main, #fff);
             }
             .done {
                 background: none; border: none; cursor: pointer;
@@ -59,14 +57,6 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 min-height: 20px;
             }
             .label:first-child { margin-top: 4px; }
-
-            .empty {
-                text-align: center;
-                color: var(--spf-text-sub, #b3b3b3);
-                font-size: var(--spf-text-base, 13.5px);
-                padding: 28px 12px;
-                line-height: 1.5;
-            }
 
             /* ---- Rows ---- */
             .row {
@@ -204,7 +194,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
                 font: inherit; font-size: var(--spf-text-base, 13.5px); font-weight: 700;
             }
             .reset:active { opacity: 0.6; }
-        `;
+        `];
     }
 
     static get properties() {

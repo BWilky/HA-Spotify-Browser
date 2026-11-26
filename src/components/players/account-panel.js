@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic } from "../../utils.js";
 import { personIcon } from '../common/icons.js';
+import { sheetStyles } from '../../styles/sheet.styles.js';
 import '../bottom-sheet.js';
 
 /**
@@ -27,11 +28,8 @@ export class SpotifyAccountPanel extends LitElement {
     }
 
     static get styles() {
-        return css`
-            :host { display: contents; }
-
-            .title { font-size: var(--spf-text-2xl, 26px); font-weight: 900; margin: 0 0 18px; flex-shrink: 0; }
-
+        // :host, .title and .empty: sheetStyles.
+        return [sheetStyles, css`
             .list {
                 overflow-y: auto;
                 -webkit-overflow-scrolling: touch;
@@ -62,8 +60,7 @@ export class SpotifyAccountPanel extends LitElement {
                 color: #000; background: var(--spf-brand, #1ed760);
                 padding: 3px 10px; border-radius: 999px;
             }
-            .empty { text-align: center; color: var(--spf-text-sub, #b3b3b3); padding: 28px 0; font-size: var(--spf-text-base, 13.5px); }
-        `;
+        `];
     }
 
     constructor() {

@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
-import { trashIcon } from './common/icons.js';
+import { trashIcon, closeIcon } from './common/icons.js';
 import './bottom-sheet.js';
 import { ListDragController } from './controllers/list-drag-controller.js';
 
@@ -315,7 +315,7 @@ class SpotifyReorderDialog extends LitElement {
                     <div class="dialog-header">
                         <h2 class="dialog-title">Reorder Pinned Items</h2>
                         <button class="action-btn" @click=${this._close}>
-                            <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                            ${closeIcon(24)}
                         </button>
                     </div>
 

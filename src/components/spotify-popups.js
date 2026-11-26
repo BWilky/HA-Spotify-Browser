@@ -54,8 +54,6 @@ class SpotifyPopups extends LitElement {
                 position: relative;
             }
             .popup-title { margin: 0; font-size: var(--spf-text-lg, 17px); font-weight: 700; text-align: center; color: var(--spf-text-main); }
-            .popup-scroll-content { max-height: 300px; overflow-y: auto; }
-            .popup-close-btn { background: transparent; border: none; color: var(--spf-text-main); font-weight: 700; padding: 12px; cursor: pointer; text-transform: uppercase; letter-spacing: 1px; align-self: center; }
 
             /* Alert / Confirm Specifics */
             .alert-dialog { max-width: 320px; text-align: center; }

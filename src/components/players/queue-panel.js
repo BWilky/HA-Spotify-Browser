@@ -1,7 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic } from "../../utils.js";
 import { artFallbackStyles } from '../../styles/shared-styles.js';
-import { playingBarsIcon, menuIcon } from '../common/icons.js';
+import { playingBarsIcon, staticBarsIcon, menuIcon, playPauseIcon } from '../common/icons.js';
 import { renderQueueRow } from './queue-row.js';
 import { openTrackMenu } from '../track-menu.js';
 import { PlayerStateController } from '../controllers/player-state-controller.js';
@@ -130,7 +130,7 @@ export class SpotifyQueuePanel extends LitElement {
     _eqIcon() {
         return this._state?.isPlaying
             ? html`<span class="eq">${playingBarsIcon(16)}</span>`
-            : html`<span class="eq"><svg viewBox="0 0 24 24"><rect x="3" y="10" width="4" height="11" rx="1"/><rect x="10" y="5" width="4" height="16" rx="1"/><rect x="17" y="13" width="4" height="8" rx="1"/></svg></span>`;
+            : html`<span class="eq">${staticBarsIcon}</span>`;
     }
 
     /** Name of the playing context, off the SpotifyPlus entity (as before). */
@@ -175,7 +175,7 @@ export class SpotifyQueuePanel extends LitElement {
             titleIcon: now ? this._eqIcon() : null,
             trailing: now ? html`
                 <button class="np-toggle" @click=${this._togglePlay} aria-label="${this._state?.isPlaying ? 'Pause' : 'Play'}">
-                    <svg viewBox="0 0 24 24"><path d="${this._state?.isPlaying ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z'}"/></svg>
+                    ${playPauseIcon(this._state?.isPlaying)}
                 </button>
             ` : html`
                 <button class="row-menu-btn" @click=${(e) => this._trackMenu(e, track)} aria-label="More options">

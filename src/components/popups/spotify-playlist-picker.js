@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic, getPlaylistSort, setPlaylistSort, pickImage, IMG_THUMB } from "../../utils.js";
 import { artFallbackStyles } from '../../styles/shared-styles.js';
+import { checkIcon, heartIcon, sortIcon } from '../common/icons.js';
 import '../bottom-sheet.js';
 
 /**
@@ -372,10 +373,6 @@ export class SpotifyPlaylistPicker extends LitElement {
         return false;
     }
 
-    _checkSvg() {
-        return html`<svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
-    }
-
     render() {
         const q = (this._filter || '').trim().toLowerCase();
         const playlists = (this._playlists || []).filter(pl => !q || (pl.name || '').toLowerCase().includes(q));
@@ -400,7 +397,7 @@ export class SpotifyPlaylistPicker extends LitElement {
                 </div>
 
                 <button class="list-label" @click=${this._toggleSort} title="Change sort order">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v14m0 0l-3-3m3 3l3-3M17 20V6m0 0l-3 3m3-3l3 3"/></svg>
+                    ${sortIcon}
                     ${getPlaylistSort() === 'alpha' ? 'A–Z' : 'Recents'}
                 </button>
 
@@ -408,13 +405,13 @@ export class SpotifyPlaylistPicker extends LitElement {
                     ${showLiked ? html`
                         <div class="row ${this._likedSelected ? 'selected' : ''} ${this._busy ? 'busy' : ''}" @click=${this._toggleLiked}>
                             <div class="art liked">
-                                <svg viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+                                ${heartIcon(true)}
                             </div>
                             <div class="row-text">
                                 <div class="row-name">Liked Songs</div>
                                 <div class="row-sub">Playlist</div>
                             </div>
-                            <div class="sel">${this._checkSvg()}</div>
+                            <div class="sel">${checkIcon}</div>
                         </div>
                     ` : ''}
                     ${this._loading
@@ -429,7 +426,7 @@ export class SpotifyPlaylistPicker extends LitElement {
                                     <div class="row-name">${pl.name}</div>
                                     <div class="row-sub">${pl.tracks?.total ?? 0} songs</div>
                                 </div>
-                                <div class="sel">${this._checkSvg()}</div>
+                                <div class="sel">${checkIcon}</div>
                             </div>
                         `;
                         })}

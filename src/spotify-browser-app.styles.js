@@ -231,7 +231,6 @@ export const shellStyles = css`
         transform: translateZ(0); 
     }
     .page.has-hero { padding-top: 0 !important; }
-    .page.has-hero-header { padding-top: 0; }
     /* Mobile search/library own their own top bar (no app header), so drop the page inset. */
     @media (max-width: 768px) {
         .page.search-page { padding-top: 0 !important; }

@@ -1,7 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic, playbackProgress, pickImage } from '../../utils.js';
 import { PlayerStateController } from '../controllers/player-state-controller.js';
-import { castIcon } from '../common/icons.js';
+import { castIcon, speakerOutlineIcon, playPauseIcon } from '../common/icons.js';
 
 /**
  * Mobile mini-player bar: album art, "title • artist", the active device line,
@@ -271,16 +271,10 @@ export class SpotifyMiniPlayer extends LitElement {
                     ` : ''}
                 </div>
                 <button class="mini-player-device-btn ${state.activeDevice ? 'connected' : ''}" @click=${this._onDeviceClick} aria-label="Connect to a device">
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="6" y="2" width="12" height="20" rx="2.5"/>
-                        <circle cx="12" cy="6.5" r="1.2" fill="currentColor" stroke="none"/>
-                        <circle cx="12" cy="14.5" r="3.2"/>
-                    </svg>
+                    ${speakerOutlineIcon}
                 </button>
                 <button class="mini-player-play-btn" @click=${this._onPlayPause}>
-                    <svg viewBox="0 0 24 24">
-                        <path fill="currentColor" d="${state.isPlaying ? 'M6 19h4V5H6v14zm8-14v14h4V5h-4z' : 'M8 5v14l11-7z'}"/>
-                    </svg>
+                    ${playPauseIcon(state.isPlaying, true)}
                 </button>
                 <div class="mini-player-progress">
                     <div class="mini-player-progress-bar" id="mini-player-progress-bar"></div>

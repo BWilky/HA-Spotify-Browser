@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic, stepVolume } from "../../utils.js";
-import { listIcon } from '../common/icons.js';
+import { listIcon, speakerOutlineIcon, staticBarsIcon } from '../common/icons.js';
+import { sheetStyles } from '../../styles/sheet.styles.js';
 import { PlayerStateController } from '../controllers/player-state-controller.js';
 import { VolumeController } from '../controllers/volume-controller.js';
 import { renderDeviceRow, deviceRowStyles, deviceIconFor } from '../devices/device-row.js';
@@ -36,11 +37,9 @@ export class SpotifyConnectPanel extends LitElement {
     }
 
     static get styles() {
-        return [deviceRowStyles, css`
-            :host { display: contents; }
-
-            .title { font-size: var(--spf-text-2xl, 26px); font-weight: 900; margin: 0 0 18px; flex-shrink: 0; }
-
+        // :host, .title and .empty: sheetStyles. Device rows: deviceRowStyles
+        // (shared with the device picker).
+        return [sheetStyles, deviceRowStyles, css`
             /* --- Active device card --- */
             .card {
                 background: #2a2a2a;
@@ -60,6 +59,9 @@ export class SpotifyConnectPanel extends LitElement {
                 color: var(--spf-brand, #1ed760);
             }
             .spk svg { width: 100%; height: 100%; }
+            /* A custom icon from devices.icons (deviceIconFor). */
+            .spk img { display: block; width: 100%; height: 100%; }
+            .spk ha-icon { display: flex; --mdc-icon-size: 40px; }
 
             .card-sub {
                 display: flex; align-items: center; gap: 8px;
@@ -115,10 +117,6 @@ export class SpotifyConnectPanel extends LitElement {
                 -webkit-overflow-scrolling: touch;
                 flex: 1; min-height: 0;
             }
-            /* Device rows: deviceRowStyles (shared with the device picker). */
-
-            .empty { text-align: center; color: var(--spf-text-sub, #b3b3b3); padding: 28px 0; font-size: var(--spf-text-base, 13.5px); }
-
             .more {
                 display: flex; align-items: center; justify-content: center; gap: 8px;
                 margin-top: 6px; padding: 14px;
@@ -181,16 +179,6 @@ export class SpotifyConnectPanel extends LitElement {
     }
 
     /* --- SVG icons --- */
-    _speakerOutline() {
-        return html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="6" y="2" width="12" height="20" rx="2.5"/>
-            <circle cx="12" cy="6.5" r="1.2" fill="currentColor" stroke="none"/>
-            <circle cx="12" cy="14.5" r="3.2"/>
-        </svg>`;
-    }
-    _barsIcon() {
-        return html`<svg viewBox="0 0 24 24"><rect x="3" y="10" width="4" height="11" rx="1"/><rect x="10" y="5" width="4" height="16" rx="1"/><rect x="17" y="13" width="4" height="8" rx="1"/></svg>`;
-    }
     _volLow() { return html`<svg viewBox="0 0 24 24"><path d="M7 9v6h4l5 5V4l-5 5H7z"/></svg>`; }
     _volHigh() { return html`<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05A4.5 4.5 0 0016.5 12zM14 3.23v2.06a7 7 0 010 13.42v2.06a9 9 0 000-17.54z"/></svg>`; }
 
@@ -269,10 +257,10 @@ export class SpotifyConnectPanel extends LitElement {
                     <div class="card">
                         <div class="card-top">
                             <div class="card-name">${active.name}</div>
-                            <div class="spk">${this._speakerOutline()}</div>
+                            <div class="spk">${deviceIconFor(active, config, speakerOutlineIcon)}</div>
                         </div>
                         ${nowLine ? html`
-                            <div class="card-sub">${this._barsIcon()}<span>${nowLine}</span></div>
+                            <div class="card-sub">${staticBarsIcon}<span>${nowLine}</span></div>
                         ` : ''}
                         <div class="vol-row ${volDisabled ? 'disabled' : ''}">
                             <button class="vol-btn" aria-label="Volume down" ?disabled=${volDisabled}

@@ -5,8 +5,9 @@ import { css } from "../lit.js";
  *  - styles/ holds only what more than one component adopts: this file
  *    (sharedStyles: the :host theme/typography tokens every component that
  *    adopts it relies on, plus the primitives several components render;
- *    artFallbackStyles), list-row.styles.js, spotify-context-view.styles.js
- *    and fonts.js (document-level @font-face).
+ *    artFallbackStyles), list-row.styles.js, spotify-context-view.styles.js,
+ *    sheet.styles.js (bottom-sheet chrome) and fonts.js (document-level
+ *    @font-face).
  *  - A sheet with a single consumer lives next to that component as
  *    <component-file-name>.styles.js (spotify-browser-app.styles.js for the
  *    root's app frame, components/spotify-header.styles.js,
@@ -105,33 +106,13 @@ export const sharedStyles = css`
         -webkit-touch-callout: default;
     }
 
-    /* What is left here of the old desktop/mobile layout blocks after the app
-       shell's rules moved to spotify-browser-app.styles.js and the header/sidebar ones to
-       their components. Nothing renders .mobile-drag-handle, .grid-layout or
-       a spotify-queue element today. */
-
-    /* ================= DESKTOP STYLES ================= */
-    @media (min-width: 769px) {
-        .mobile-drag-handle { display: none; }
-    }
+    /* What is left here of the old mobile layout block after the app shell's
+       rules moved to spotify-browser-app.styles.js and the header/sidebar
+       ones to their components. */
 
     /* ================= MOBILE STYLES ================= */
     @media (max-width: 768px) {
-        /* Fix Queue Mobile - Slide OVER header (z-index 120 > 110) */
-        spotify-queue {
-            z-index: 200000 !important;
-        }
-
-        .mobile-drag-handle {
-            display: block !important;
-            width: 40px; height: 4px;
-            background: #ffffff; opacity: 0.3; 
-            border-radius: 2px;
-            margin: 16px auto 4px auto; 
-        }
-
         .hero-title { font-size: 2rem !important; }
-        .grid-layout { grid-template-columns: repeat(2, 1fr) !important; gap: 12px; }
 
         /* Ensure view containers are padded above mini player and bottom nav */
         .scroll-content {
@@ -170,8 +151,6 @@ export const sharedStyles = css`
         .media-title { font-size: var(--spf-text-base, 13.5px); }
         .media-subtitle { font-size: var(--spf-text-xs, 11px); }
         .section-title { font-size: var(--spf-text-md, 15px); }
-        .list-item-title { font-size: var(--spf-text-md, 15px); }
-        .list-item-subtitle { font-size: var(--spf-text-base, 13.5px); }
         .track-name { font-size: var(--spf-text-base, 13.5px); }
         .track-artist { font-size: var(--spf-text-sm, 12px); }
     }
@@ -195,7 +174,6 @@ export const sharedStyles = css`
     .carousel-layout:hover::-webkit-scrollbar-thumb { background: var(--spf-scroll-thumb); border-radius: 4px; }
     .carousel-layout .media-card { min-width: 125px; width: 125px; flex-shrink: 0; }
 
-    .grid-layout { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); gap: 20px; }
     .section-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(125px, 1fr)); gap: 20px; }
 
     .scroll-btn {
@@ -222,11 +200,9 @@ export const sharedStyles = css`
         .media-card:hover { background: var(--spf-bg-card-hover); } 
         .media-card:active { transform: scale(0.96); background: var(--spf-bg-card-hover); }
     }
-    
-    .media-card.playing .media-title { color: var(--spf-brand); }
-    
-    .media-image-wrapper { 
-        position: relative; 
+
+    .media-image-wrapper {
+        position: relative;
         width: 100%; 
         /* FIX: Reserve square space immediately, even if empty */
         aspect-ratio: 1 / 1; 
@@ -304,7 +280,6 @@ export const sharedStyles = css`
 
     .track-name { color: var(--spf-text-main); font-size: var(--spf-text-md, 15px); }
     .track-artist { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); }
-    .track-duration { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); text-align: right; }
 
     .track-actions-right {
         display: flex;
@@ -335,7 +310,7 @@ export const sharedStyles = css`
 
     /* 1. Mobile/Touch: Native Overlay (Fade on scroll) */
     @media (max-width: 768px) {
-        .queue-list, .device-list, .carousel-layout, .recent-grid-layout, .scroll-content {
+        .queue-list, .carousel-layout, .recent-grid-layout, .scroll-content {
             scrollbar-width: none; /* Hide standard bars */
             -ms-overflow-style: none;
         }
@@ -344,7 +319,7 @@ export const sharedStyles = css`
 
     /* 2. Desktop: Invisible Track + Floating Thumb */
     @media (min-width: 769px) {
-        .queue-list, .device-list, .carousel-layout, .recent-grid-layout, .scroll-content {
+        .queue-list, .carousel-layout, .recent-grid-layout, .scroll-content {
             /* Try to force overlay (Chrome/Edge feature) */
             overflow-y: overlay !important;
             
@@ -355,7 +330,7 @@ export const sharedStyles = css`
         }
 
         /* Firefox Hover */
-        .queue-list:hover, .device-list:hover, .scroll-content:hover {
+        .queue-list:hover, .scroll-content:hover {
             scrollbar-color: rgba(255,255,255,0.2) transparent;
         }
 
@@ -385,7 +360,6 @@ export const sharedStyles = css`
 
         /* Show Thumb on Container Hover */
         .queue-list:hover::-webkit-scrollbar-thumb,
-        .device-list:hover::-webkit-scrollbar-thumb,
         .scroll-content:hover::-webkit-scrollbar-thumb {
             background-color: rgba(255, 255, 255, 0.25); /* Visible Grey */
         }

@@ -14,9 +14,11 @@ import { deviceTypeIcon, castIcon } from '../common/icons.js';
 /**
  * The custom icon configured for a device in `config.devices.icons`
  * (matched by id, then name), rendered as an `ha-icon` for `mdi:` names or an
- * `<img>` for URLs — or the device-type icon when none is configured.
+ * `<img>` for URLs — or, when none is configured, `fallback` (default: the
+ * device-type icon; the Connect sheet's active-device card passes its speaker
+ * outline).
  */
-export function deviceIconFor(device, config) {
+export function deviceIconFor(device, config, fallback = null) {
     const icons = config?.devices?.icons;
     const entry = icons && icons.length
         ? icons.find(e => (e.id && e.id === device.id) || (e.name && e.name === device.name))
@@ -27,7 +29,7 @@ export function deviceIconFor(device, config) {
             ? html`<ha-icon icon="${icon}"></ha-icon>`
             : html`<img src="${icon}" alt="">`;
     }
-    return deviceTypeIcon(device.type);
+    return fallback ?? deviceTypeIcon(device.type);
 }
 
 /**
@@ -52,17 +54,19 @@ export function renderDeviceRow(device, { active = false, onSelect, icon, subtit
 }
 
 /**
- * Row CSS shared by both lists. Hosts may add their own touches on top (the
- * picker adds a press highlight and ellipsis on the type line); these rules
- * are the ones the two lists had in common, plus the custom-icon (img /
- * ha-icon) and trailing-slot rules, which only apply when those are rendered.
+ * Row CSS shared by both lists, including the press highlight and the type
+ * line's ellipsis (once the picker's own touches), plus the custom-icon
+ * (img / ha-icon) and trailing-slot rules, which only apply when those are
+ * rendered.
  */
 export const deviceRowStyles = css`
     .row {
         display: flex; align-items: center; gap: 16px;
         padding: 14px 4px;
         cursor: pointer;
+        -webkit-tap-highlight-color: transparent;
     }
+    .row:active { background: rgba(255,255,255,0.06); }
     .row-ic {
         width: 26px; height: 26px; flex-shrink: 0;
         color: rgba(255,255,255,0.85);
@@ -80,7 +84,8 @@ export const deviceRowStyles = css`
     .row-type {
         display: flex; align-items: center; gap: 6px;
         font-size: var(--spf-text-base, 13.5px); color: var(--spf-text-sub, #b3b3b3); margin-top: 2px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
-    .row-type svg { width: 14px; height: 14px; fill: currentColor; }
+    .row-type svg { width: 14px; height: 14px; fill: currentColor; flex-shrink: 0; }
     .row-now { flex-shrink: 0; color: var(--spf-brand, #1ed760); display: flex; }
 `;

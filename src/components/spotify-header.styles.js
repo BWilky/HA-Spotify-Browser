@@ -1,6 +1,31 @@
-import { LitElement, html, css } from "../lit.js";
+import { css } from "../lit.js";
 
 export const headerStyles = css`
+    /* The two blocks below came over from sharedStyles and still come first,
+       in their old order. The phone overrides are !important, so they win
+       over the base rules further down (and over the avatar rule's
+       padding-top at the bottom) wherever they sit. */
+    @media (max-width: 768px) {
+        .search-container.active { width: auto !important; flex: 1; margin-right: 8px; }
+        .header { padding: var(--spf-safe-top, 0px) 12px 0 12px !important; }
+        .header-left, .header-right { gap: 8px !important; }
+    }
+
+    /* --- Dropdown Menu --- */
+    .dropdown-menu {
+        position: absolute; top: calc(60px + var(--spf-safe-top)); right: 60px;
+        background: var(--spf-bg-card-hover); border-radius: 8px;
+        width: 180px; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        display: none; flex-direction: column; z-index: 30;
+    }
+    .dropdown-menu.visible { display: flex; }
+
+    .menu-item { padding: 12px 16px; cursor: pointer; font-size: var(--spf-text-base, 13.5px); color: var(--spf-text-main); transition: background 0.2s; }
+    @media (hover: hover) { .menu-item:hover { background: var(--spf-hover-white); } }
+    .menu-item:active { background: var(--spf-active-white); }
+    .menu-item:first-child { border-radius: 8px 8px 0 0; }
+    .menu-item:last-child { border-radius: 0 0 8px 8px; }
+
     :host {
         display: block;
         position: absolute;
