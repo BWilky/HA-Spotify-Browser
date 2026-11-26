@@ -1,6 +1,9 @@
 import { LitElement, html, css } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
-import { getItemImage, IMG_THUMB, IMG_CARD } from '../utils.js';
+import { listRowStyles, filterPillStyles } from '../styles/list-row.styles.js';
+import { getItemImage, IMG_CARD } from '../utils.js';
+import { renderListRow, renderRowSkeletons, renderEmptyState, itemSubtitle, SUBTITLE_STYLE } from './media-templates.js';
+import { openTrackMenu } from './track-menu.js';
 
 // Filter pills. "All" (type null) is the mixed/relevance view. SpotifyPlus
 // search exposes these four content types (no Profiles/Podcasts/Audiobooks),
@@ -30,8 +33,9 @@ class SpotifySearch extends LitElement {
     }
 
     static get styles() {
-        return [sharedStyles, css`
-            :host { display: block; height: 100%; }
+        // Rows, skeletons, empty state and pills: list-row.styles.js (shared with the library).
+        return [sharedStyles, listRowStyles, filterPillStyles, css`
+            :host { display: block; height: 100%; --list-row-art: 48px; --list-row-gap: 12px; }
 
             .s-scroll {
                 height: 100%; overflow-y: auto; overflow-x: hidden;
@@ -58,23 +62,8 @@ class SpotifySearch extends LitElement {
             .m-clear { background: none; border: none; color: var(--spf-text-sub); cursor: pointer; padding: 4px; display: flex; }
             .m-cancel { background: none; border: none; color: #fff; font-size: var(--spf-text-md, 15px); cursor: pointer; white-space: nowrap; padding: 0; }
 
-            /* ---- Filter pills ---- */
-            .pills {
-                position: sticky; z-index: 4;
-                display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
-                background: var(--spf-bg);
-            }
-            .pills::-webkit-scrollbar { display: none; }
-            .pill {
-                flex: 0 0 auto; border: none; cursor: pointer; white-space: nowrap;
-                padding: 8px 16px; border-radius: 999px; font-size: var(--spf-text-base, 13.5px); font-weight: 700;
-                background: #232323; color: #fff;
-            }
-            .pill.active { background: #fff; color: #000; }
-
             .body { padding-bottom: 120px; }
             .section-h { font-size: var(--spf-text-xl, 22px); font-weight: 700; color: #fff; padding: 18px 16px 8px; }
-            .empty { padding: 48px 24px; text-align: center; color: var(--spf-text-sub); }
 
             /* ---- Top result (artist) ---- */
             .top-result { display: flex; align-items: center; gap: 16px; padding: 12px 16px 20px; }
@@ -103,44 +92,19 @@ class SpotifySearch extends LitElement {
             }
             .play-btn svg { width: 24px; height: 24px; fill: currentColor; }
 
-            /* ---- Result rows ---- */
-            .row {
-                display: grid; grid-template-columns: 48px 1fr auto;
-                align-items: center; gap: 12px; padding: 8px 16px; cursor: pointer; min-height: 64px;
-            }
-            @media (hover: hover) { .row:hover { background: var(--spf-hover-white); } }
-            .art {
-                width: 48px; height: 48px; border-radius: 4px;
-                background-size: cover; background-position: center;
-                background-color: var(--spf-bg-card-hover);
-            }
-            .art.circle { border-radius: 50%; }
-            .info { min-width: 0; }
-            .name { color: #fff; font-size: var(--spf-text-md, 15px); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-            .sub { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            /* ---- Result rows (renderListRow): type badge + trailing button ---- */
             .type-badge { display: none; color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); padding: 4px 10px; background: var(--spf-bg-card-hover); border-radius: 4px; white-space: nowrap; }
             .row-btn { background: none; border: none; color: var(--spf-text-sub); cursor: pointer; padding: 8px; display: flex; }
             @media (hover: hover) { .row-btn:hover { color: #fff; } }
 
-            /* ---- Skeletons ---- */
-            .skel { display: grid; grid-template-columns: 48px 1fr; gap: 12px; align-items: center; padding: 8px 16px; min-height: 64px; }
-            /* skeleton-pulse (shared) fills the whole row; keep it transparent so
-               only the art + text-line shapes read as a skeleton, not a flat block. */
-            .skel.skeleton-pulse { background: transparent; }
-            .skel .art { background: var(--spf-skeleton-bg); }
-            .skel-lines > div { height: 12px; border-radius: 3px; background: var(--spf-skeleton-bg); }
-            .skel-lines > div:first-child { width: 60%; margin-bottom: 8px; }
-            .skel-lines > div:last-child { width: 35%; }
-
             /* ================= MOBILE ================= */
             @media (max-width: 768px) {
-                .pills { top: calc(var(--spf-safe-top, 0px) + 64px); padding: 6px 16px 12px; }
+                .pills { top: calc(var(--spf-safe-top, 0px) + 64px); }
             }
 
             /* ================= DESKTOP ================= */
             @media (min-width: 769px) {
                 .body, .pills, .top-result, .row, .skel { max-width: 1100px; margin-left: auto; margin-right: auto; }
-                .pills { top: 0; justify-content: flex-start; padding: 16px 16px 12px; }
                 .m-top { display: none; }
 
                 /* Top result becomes a card with a hover play button */
@@ -155,7 +119,7 @@ class SpotifySearch extends LitElement {
                 .top-result:hover .play-btn { display: flex; }
 
                 /* Rows gain a type badge column + show the add affordance */
-                .row { grid-template-columns: 48px 1fr auto auto; }
+                .row { grid-template-columns: var(--list-row-art) 1fr auto auto; }
                 .type-badge { display: inline-block; }
             }
         `];
@@ -297,25 +261,22 @@ class SpotifySearch extends LitElement {
 
     _renderBody() {
         if (!this._query) {
-            return html`<div class="empty">Search for songs, artists, albums, and playlists.</div>`;
+            return renderEmptyState('Search for songs, artists, albums, and playlists.');
         }
-        if (!this._results) {
-            return html`${Array(8).fill(0).map(() => html`
-                <div class="skel skeleton-pulse"><div class="art"></div><div class="skel-lines"><div></div><div></div></div></div>`)}`;
-        }
+        if (!this._results) return renderRowSkeletons(8);
 
         // Single-type (pill) view
         if (this._filter) {
             const f = FILTERS.find(x => x.type === this._filter);
             const items = this._results[f.key]?.items || [];
-            if (!items.length) return html`<div class="empty">No ${f.label.toLowerCase()} found.</div>`;
+            if (!items.length) return renderEmptyState(`No ${f.label.toLowerCase()} found.`);
             return html`${items.map(item => this._renderRow(item, this._filter))}`;
         }
 
         // Mixed / relevance (All) view
         const top = this._topArtist();
         const mixed = this._mixedItems(top);
-        if (!top && mixed.length === 0) return html`<div class="empty">No results found.</div>`;
+        if (!top && mixed.length === 0) return renderEmptyState('No results found.');
         return html`
             ${top ? html`<div class="section-h">Top result</div>${this._renderTopResult(top)}` : ''}
             ${mixed.length ? html`
@@ -368,31 +329,15 @@ class SpotifySearch extends LitElement {
         return out;
     }
 
+    /** One result row; tracks play on tap and get a menu button, the rest navigate. */
     _renderRow(item, type) {
-        const img = getItemImage(item, type, IMG_THUMB);
-        const isArtist = type === 'artist';
         const isTrack = type === 'track';
-
-        let sub;
-        if (isArtist) sub = 'Artist';
-        else if (type === 'playlist') sub = `Playlist • ${item.owner?.display_name || 'Spotify'}`;
-        else if (type === 'album') {
-            const yr = item.release_date ? item.release_date.split('-')[0] : '';
-            const who = item.artists?.map(a => a.name).join(', ') || '';
-            sub = `Album${yr ? ' • ' + yr : ''}${who ? ' • ' + who : ''}`;
-        } else {
-            sub = `Song • ${item.artists?.map(a => a.name).join(', ') || ''}`;
-        }
-
-        const onClick = () => isTrack ? this._playTrack(item) : this._navigate(type, item);
-
-        return html`
-            <div class="row" @click=${onClick}>
-                <div class="art ${isArtist ? 'circle' : ''}" style="background-image: url('${img}')"></div>
-                <div class="info">
-                    <div class="name">${item.name}</div>
-                    <div class="sub">${sub}</div>
-                </div>
+        // Search rows draw no music-note placeholder for missing art.
+        return renderListRow(item, type, {
+            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.search),
+            fallbackArt: false,
+            onClick: () => isTrack ? this._playTrack(item) : this._navigate(type, item),
+            trailing: html`
                 <span class="type-badge">${TYPE_LABEL[type] || ''}</span>
                 ${isTrack ? html`
                     <button class="row-btn" @click=${(e) => this._trackMenu(e, item)} aria-label="More">
@@ -402,9 +347,8 @@ class SpotifySearch extends LitElement {
                     <button class="row-btn" aria-label="Open">
                         <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>
                     </button>
-                `}
-            </div>
-        `;
+                `}`,
+        });
     }
 
     _playTrack(item) {
@@ -421,17 +365,7 @@ class SpotifySearch extends LitElement {
 
     _trackMenu(e, item) {
         e.stopPropagation();
-        this.dispatchEvent(new CustomEvent('open-track-menu', {
-            detail: {
-                name: item.name,
-                artist: item.artists?.map(a => a.name).join(', ') || '',
-                album: item.album?.name || '',
-                uri: item.uri,
-                id: item.id,
-                image: getItemImage(item, 'track', IMG_THUMB),
-                anchor: e.currentTarget.getBoundingClientRect(),
-            }, bubbles: true, composed: true
-        }));
+        openTrackMenu(this, item, { anchorEl: e.currentTarget });
     }
 
     async _toggleFollow(e, artist) {

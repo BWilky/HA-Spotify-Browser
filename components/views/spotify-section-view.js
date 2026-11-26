@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
-import { getItemImage, IMG_THUMB } from '../../utils.js';
+import { listRowStyles } from '../../styles/list-row.styles.js';
+import { renderListRow, renderEmptyState, itemSubtitle, SUBTITLE_STYLE } from '../media-templates.js';
 
 export class SpotifySectionView extends LitElement {
     static get properties() {
@@ -12,6 +13,7 @@ export class SpotifySectionView extends LitElement {
     static get styles() {
         return [
             sharedStyles,
+            listRowStyles,
             css`
                  :host { 
                      display: block; 
@@ -19,6 +21,8 @@ export class SpotifySectionView extends LitElement {
                      height: 100%; 
                      position: relative; 
                      z-index: 0;
+                     --list-row-art: 48px;
+                     --list-row-gap: 16px;
                  }
                  .section-table-container {
                      padding: 0; /* Remove padding to allow full width rows */
@@ -29,25 +33,22 @@ export class SpotifySectionView extends LitElement {
                      min-height: 100%;
                  }
 
-                 /* Table Styles */
-                 .table-row {
-                     display: grid;
+                 /* Rows (renderListRow): 48px art in a 56px column, ruled
+                    lines, no minimum height, hover even on touch screens. */
+                 .row {
                      grid-template-columns: 56px 1fr; /* Image, Details */
-                     gap: 16px;
-                     padding: 8px 16px;
-                     cursor: pointer;
+                     min-height: 0;
                      transition: background 0.2s;
-                     align-items: center;
                      border-bottom: 1px solid rgba(255,255,255,0.05);
                  }
-                 .table-row:hover { background: rgba(255,255,255,0.1); }
-                 .row-img { width: 48px; height: 48px; background-size: cover; background-position: center; border-radius: 4px; background-color: #282828; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
-                 .row-info { display: flex; flex-direction: column; justify-content: center; min-width: 0; }
-                 .row-title { font-size: var(--spf-text-md, 15px); font-weight: 500; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-                 .row-sub { font-size: var(--spf-text-base, 13.5px); color: #b3b3b3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
+                 .row:hover { background: rgba(255,255,255,0.1); }
+                 .art { box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+                 .sub { margin-top: 4px; }
+                 /* "Loading more..." */
+                 .empty { padding: 20px; }
                  
                  @media (min-width: 769px) {
-                     .table-row {
+                     .row {
                          grid-template-columns: 56px 2fr 1fr; /* Image, Title/Sub, Extra Info? */
                      }
                  }
@@ -119,7 +120,7 @@ export class SpotifySectionView extends LitElement {
             <div class="main-scroll-container" @scroll=${this._handleScroll} style="height: 100%; overflow-y: auto; overflow-x: hidden; overscroll-behavior-y: auto; overscroll-behavior-x: none; position: relative;">
                 <div class="section-table-container">
                     ${items && items.length > 0 ? items.map(item => this.renderTableRow(item)) : ''}
-                    ${isLoading ? html`<div style="padding: 20px; text-align: center; color: #b3b3b3;">Loading more...</div>` : ''}
+                    ${isLoading ? renderEmptyState('Loading more...') : ''}
                 </div>
             </div>
         `;
@@ -127,50 +128,18 @@ export class SpotifySectionView extends LitElement {
 
     renderTableRow(item) {
         if (!item) return '';
-        const title = item.name || 'Unknown';
-
-        const img = getItemImage(item, item.type, IMG_THUMB);
-
-        // Robust Subtitle Logic
-        let subtitle = '';
-        if (item.type === 'playlist') {
-            if (item.owner) subtitle = `By ${item.owner.display_name}`;
-            else if (item.description) subtitle = item.description;
-        }
-        else if (item.type === 'album') {
-            const artistName = item.artists ? item.artists.map(a => a.name).join(', ') : 'Unknown Artist';
-            const year = item.release_date ? ` • ${item.release_date.split('-')[0]}` : '';
-            subtitle = `${artistName}${year}`;
-        }
-        else if (item.type === 'artist') {
-            subtitle = 'Artist';
-        }
-        else {
-            // Fallback (e.g. track)
-            if (item.artists) subtitle = item.artists.map(a => a.name).join(', ');
-            else if (item.owner) subtitle = `By ${item.owner.display_name}`;
-        }
-
         const type = item.type;
-        const id = item.id;
-
-        return html`
-            <div class="table-row" @click=${(e) => {
+        return renderListRow(item, type, {
+            name: item.name || 'Unknown',
+            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.section),
+            fallbackArt: false,
+            onClick: () => {
                 this.dispatchEvent(new CustomEvent('navigate', {
-                    detail: {
-                        pageId: `${type}:${id}`,
-                        data: item
-                    },
+                    detail: { pageId: `${type}:${item.id}`, data: item },
                     bubbles: true, composed: true
                 }));
-            }}>
-                <div class="row-img" style="background-image: url('${img}'); ${type === 'artist' ? 'border-radius: 50%;' : ''}"></div>
-                <div class="row-info">
-                    <div class="row-title">${title}</div>
-                    <div class="row-sub">${subtitle}</div>
-                </div>
-            </div>
-        `;
+            },
+        });
     }
 }
 

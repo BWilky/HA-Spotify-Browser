@@ -1,6 +1,199 @@
 import { html } from "../lit.js";
 import { getItemImage, pickImage, IMG_THUMB, IMG_CARD } from "../utils.js";
 import { heartIcon, heartToggleIcon, queueIcon, menuIcon, playIcon, playingBarsIcon } from "./common/icons.js";
+import { trackMenuDetail } from "./track-menu.js";
+
+/**
+ * The line under an item's name in lists and cards.
+ *
+ * Base rule (no options): a playlist shows its owner, an album or track its
+ * artists, an artist "Artist". Each option is a point where the lists
+ * disagree today; SUBTITLE_STYLE holds every list's current combination.
+ *
+ * @param {Object} item - Spotify playlist / album / artist / track (or a flattened pinned item).
+ * @param {string} [type] - defaults to item.type.
+ * @param {Object} [options]
+ * @param {boolean} [options.preset] - a precomputed item.subtitle (pinned items) wins when non-empty.
+ * @param {boolean} [options.typeLabel] - lead with the type: "Playlist • Owner", "Album • Artists", "Song • Artists".
+ * @param {boolean} [options.byOwner] - playlist owner written "By <name>" (without typeLabel). The name is printed as is, null or undefined included.
+ * @param {boolean} [options.ownerAltName] - use owner.name when owner.display_name is empty.
+ * @param {string}  [options.ownerFallback] - (typeLabel) owner text when the playlist has no owner name.
+ * @param {boolean} [options.description] - a playlist with no owner shows its description.
+ * @param {'lead'|'trail'|'fallback'} [options.year] - album release year: after the type label ('lead'), after the
+ *        artists ('trail'), or only for an album without an artists list, else "Album" ('fallback').
+ * @param {string}  [options.unknownArtist] - text for an album without an artists list.
+ * @returns {string}
+ */
+export function itemSubtitle(item, type = item?.type, options = {}) {
+    if (!item) return '';
+    const {
+        preset = false, typeLabel = false, byOwner = false, ownerAltName = false,
+        ownerFallback = '', description = false, year = null, unknownArtist = '',
+    } = options;
+    if (preset && item.subtitle) return item.subtitle;
+
+    const artists = Array.isArray(item.artists) ? item.artists.map(a => a.name).join(', ') : null;
+    const yr = item.release_date ? item.release_date.split('-')[0] : '';
+    switch (type) {
+        case 'artist':
+            return 'Artist';
+        case 'playlist': {
+            const owner = item.owner;
+            let name = owner?.display_name;
+            if (!name && ownerAltName) name = owner?.name;
+            if (typeLabel) return `Playlist • ${name || ownerFallback}`;
+            if (!owner) return (description && item.description) || '';
+            return byOwner ? `By ${name}` : (name || '');
+        }
+        case 'album': {
+            if (typeLabel) return ['Album', year === 'lead' && yr, artists].filter(Boolean).join(' • ');
+            if (year === 'fallback') return artists ?? (yr || 'Album');
+            const text = artists ?? unknownArtist;
+            return year === 'trail' && yr ? `${text} • ${yr}` : text;
+        }
+        case 'track':
+            return typeLabel ? `Song • ${artists || ''}` : (artists || '');
+        default:
+            return artists || '';
+    }
+}
+
+/**
+ * Each list's subtitle wording as it stands (the lists disagree; see
+ * itemSubtitle). Kept apart so one wording can be chosen later without
+ * changing any list by accident.
+ */
+export const SUBTITLE_STYLE = Object.freeze({
+    /** Your Library: "Playlist • Owner", "Album • Artists", "Artist". */
+    library: Object.freeze({ typeLabel: true, ownerAltName: true, ownerFallback: 'Spotify' }),
+    /** Search results: "Song • Artists", "Playlist • Owner", "Album • 2020 • Artists", "Artist". */
+    search: Object.freeze({ typeLabel: true, ownerFallback: 'Spotify', year: 'lead' }),
+    /** Home "See All" section pages: "By Owner" (else the description), "Artists • 2020", "Artist". */
+    section: Object.freeze({ byOwner: true, description: true, year: 'trail', unknownArtist: 'Unknown Artist' }),
+    /** Discography list / renderMediaRowTemplate: "By Owner", "Artists" (else the year, else "Album"), "Artist". */
+    mediaRow: Object.freeze({ byOwner: true, year: 'fallback' }),
+    /** Home cards: the item's own subtitle (pinned items), else "Owner", "Artists", "Artist". */
+    card: Object.freeze({ preset: true }),
+});
+
+/** Right chevron at the end of a navigating row (discography list). */
+export const rowChevronIcon = html`<svg width="24" height="24" fill="var(--spf-text-sub)" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>`;
+
+/**
+ * One row for an album, playlist or artist in a list (search also uses it
+ * for tracks): art, name, subtitle, then the caller's trailing controls as
+ * further grid columns. Styled by listRowStyles (styles/list-row.styles.js);
+ * each page sets the art size with --list-row-art.
+ *
+ * @param {Object} item
+ * @param {string} [type] - defaults to item.type; 'artist' draws round art.
+ * @param {Object} [options]
+ * @param {Function} [options.onClick] - row click.
+ * @param {*} [options.subtitle] - defaults to itemSubtitle(item, type).
+ * @param {*} [options.trailing] - template(s) after the text, e.g. a menu button.
+ * @param {boolean} [options.playing] - brand-coloured name (the item's context is playing).
+ * @param {*} [options.name] - defaults to item.name, or nothing.
+ * @param {boolean} [options.fallbackArt=true] - music-note placeholder when there is no image.
+ */
+export function renderListRow(item, type = item?.type, {
+    onClick = null,
+    subtitle,
+    trailing = null,
+    playing = false,
+    name = item?.name || '',
+    fallbackArt = true,
+} = {}) {
+    const img = getItemImage(item, type, IMG_THUMB);
+    return html`
+        <div class="row" @click=${onClick}>
+            <div class="art ${type === 'artist' ? 'circle' : ''} ${!img && fallbackArt ? 'art-fallback' : ''}" style="${img ? `background-image: url('${img}')` : ''}"></div>
+            <div class="info">
+                <div class="name ${playing ? 'playing' : ''}">${name}</div>
+                <div class="sub">${subtitle ?? itemSubtitle(item, type)}</div>
+            </div>
+            ${trailing || ''}
+        </div>
+    `;
+}
+
+/** `n` placeholder rows shaped like renderListRow (listRowStyles). */
+export function renderRowSkeletons(n) {
+    return html`${Array.from({ length: n }, () => html`
+        <div class="skel skeleton-pulse"><div class="art"></div><div class="skel-lines"><div></div><div></div></div></div>`)}`;
+}
+
+/** A centred status line in a list ("No playlists yet.", "Loading more..."); listRowStyles' .empty. */
+export function renderEmptyState(message) {
+    return html`<div class="empty">${message}</div>`;
+}
+
+/** Scroll button of a carousel section: page the carousel 3/4 of its width to the right. */
+function scrollCarouselRight(e) {
+    e.stopPropagation();
+    const wrapper = e.currentTarget.closest('.carousel-wrapper');
+    const layout = wrapper ? wrapper.querySelector('.carousel-layout') : null;
+    if (layout) layout.scrollBy({ left: layout.clientWidth * 0.75, behavior: 'smooth' });
+}
+
+/**
+ * A titled row of cards that scrolls sideways — or wraps into a grid when
+ * expanded — with an optional expand/collapse toggle and a "See All" button.
+ * (Home's library sections; styles come from sharedStyles.)
+ *
+ * @param {Object} o
+ * @param {string} o.title
+ * @param {string} o.id - section id: data-section-id / data-section and the carousel id (carousel-<id>).
+ * @param {Array|null} [o.items] - null/undefined: loading (6 card skeletons); []: "No content found.".
+ * @param {string} [o.type] - the section's item type: used for items with no type/_fallbackType; 'artist' draws round skeletons.
+ * @param {Function} o.onItem - (item, type, subtitle) card click.
+ * @param {Function} [o.subtitle] - (item, type) => card subtitle; omitted, renderCardTemplate picks its own.
+ * @param {boolean} [o.expanded] - grid instead of carousel.
+ * @param {Function} [o.onToggle] - (e) expand/collapse click; the toggle button shows only when given.
+ * @param {Function} [o.seeAll] - (e) "See All" click; the button shows once there are items.
+ */
+export function renderCarouselSection({ title, id, items = null, type, onItem, subtitle, expanded = false, onToggle, seeAll }) {
+    const hasItems = !!items && items.length > 0;
+
+    let content;
+    if (items === null) {
+        content = Array(6).fill(0).map(() => renderCardSkeletonTemplate(type === 'artist'));
+    } else if (items.length === 0) {
+        content = html`<div style="padding:20px; opacity:0.5; white-space:nowrap;">No content found.</div>`;
+    } else {
+        content = items.map(item => {
+            const itemType = item.type || item._fallbackType || type;
+            if (!subtitle) return renderCardTemplate(item, itemType, () => onItem(item, itemType));
+            const sub = subtitle(item, itemType);
+            return renderCardTemplate({ ...item, subtitle: sub }, itemType, () => onItem(item, itemType, sub));
+        });
+    }
+
+    return html`
+        <section class="home-section" data-section-id="${id}">
+            <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
+                <div style="display: flex; align-items: center;">
+                    <h3 class="section-title" style="margin:0;">${title}</h3>
+                    ${onToggle ? html`<button class="icon-btn expand-btn" @click=${onToggle} aria-label="Toggle View" style="background:none; border:none; color:var(--secondary-text-color, #b3b3b3); cursor:pointer; margin-left: 8px; padding: 4px; display: flex; align-items: center;">
+                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(${expanded ? 180 : 0}deg);">
+                            <polyline points="6 9 12 15 18 9"></polyline>
+                        </svg>
+                    </button>` : ''}
+                </div>
+                ${hasItems && seeAll
+                ? html`<button class="see-all-btn" @click=${seeAll}>See All</button>`
+                : html`<button class="see-all-btn" style="display:none">See All</button>`}
+            </div>
+            <div class="carousel-wrapper">
+                <div class="${expanded ? 'section-grid' : 'carousel-layout'}" id="carousel-${id}" data-section="${id}">
+                    ${content}
+                </div>
+                <button class="scroll-btn right" @click=${scrollCarouselRight} style="${hasItems && items.length > 5 && !expanded ? '' : 'display:none'}">
+                    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
+                </button>
+            </div>
+        </section>
+    `;
+}
 
 /**
  * Standardizes the "Card" layout (Square for Album/Playlist, Circle for Artist).
@@ -150,17 +343,10 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
     if (!track) return '';
     const artistNames = track.artists ? track.artists.map(a => a.name).join(', ') : 'Unknown';
     const image = track.album?.images?.[0]?.url;
-    // Row art is a <=48px slot: use the small variant (menu keeps the full one).
+    // Row art is a <=48px slot: use the small variant.
     const thumb = pickImage(track.album?.images, IMG_THUMB) || image;
-    // Track Data for menu/actions
-    const trackData = {
-        name: track.name,
-        artist: artistNames,
-        album: track.album?.name || '',
-        uri: track.uri,
-        id: track.id,
-        image,
-    };
+    // The track-menu payload (onMenu), with the row's own artist line.
+    const trackData = trackMenuDetail(track, { artist: artistNames });
 
     const isPlaylist = options.layout === 'playlist';
     const { isPlaying = false, isAlbum = false, liked = false, onSave, onQueue, onMenu } = options;
@@ -222,19 +408,17 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
 }
 
 /**
- * Renders a generic "Row" layout for non-track items (Playlists, Albums, Artists).
- * Used for "See All" lists where a vertical list is preferred over a grid.
+ * Renders a generic "Row" layout for non-track items (Playlists, Albums, Artists),
+ * styled by sharedStyles' track-row classes plus inline sizes.
+ *
+ * @deprecated Lists use renderListRow (styles/list-row.styles.js); the
+ * discography list draws this same look through it. Kept, with its markup
+ * unchanged, for existing callers.
  */
 export function renderMediaRowTemplate(item, type, clickHandler) {
     const imgUrl = getItemImage(item, type, IMG_THUMB);
     const name = item.name || 'Unknown';
-
-    let subtitle = '';
-    if (item.owner) subtitle = `By ${item.owner.display_name}`;
-    else if (item.artists && Array.isArray(item.artists)) subtitle = item.artists.map(a => a.name).join(', ');
-    else if (type === 'artist') subtitle = 'Artist';
-    else if (type === 'album') subtitle = item.release_date ? item.release_date.split('-')[0] : 'Album';
-
+    const subtitle = itemSubtitle(item, type, SUBTITLE_STYLE.mediaRow);
     const isArtist = type === 'artist';
 
     return html`
@@ -250,7 +434,7 @@ export function renderMediaRowTemplate(item, type, clickHandler) {
             </div>
 
             <div class="track-actions-right">
-                <svg width="24" height="24" fill="var(--spf-text-sub)" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>
+                ${rowChevronIcon}
             </div>
         </div>
     `;

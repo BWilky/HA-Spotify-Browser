@@ -1,6 +1,7 @@
 import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
-import { renderTrackSkeletonTemplate, renderMediaRowTemplate } from '../media-templates.js';
+import { listRowStyles } from '../../styles/list-row.styles.js';
+import { renderTrackSkeletonTemplate, renderListRow, renderEmptyState, itemSubtitle, SUBTITLE_STYLE, rowChevronIcon } from '../media-templates.js';
 
 export class SpotifyContextList extends LitElement {
     static get properties() {
@@ -13,6 +14,7 @@ export class SpotifyContextList extends LitElement {
     static get styles() {
         return [
             sharedStyles,
+            listRowStyles,
             css`
                 :host { 
                     display: block; 
@@ -22,6 +24,8 @@ export class SpotifyContextList extends LitElement {
                     z-index: 0;
                     box-sizing: border-box;
                     overflow: hidden; 
+                    --list-row-art: 64px;
+                    --list-row-gap: 0px;
                 }
                 .list-container {
                     width: 100%;
@@ -57,10 +61,21 @@ export class SpotifyContextList extends LitElement {
                     padding: 0;
                 }
 
-                /* Loader at bottom */
-                .loading-indicator {
-                    padding: 24px; text-align: center; color: var(--spf-text-sub);
+                /* Rows (renderListRow) keep the discography's larger look: 64px
+                   art in an 80px column, 12px padding, regular-weight names and
+                   subtitles that wrap instead of truncating. */
+                .row {
+                    grid-template-columns: 80px 1fr auto;
+                    padding: 12px; min-height: 56px; box-sizing: border-box; border-radius: 4px;
                 }
+                @media (hover: hover) { .row:active { background: var(--spf-active-white); } }
+                .info { min-width: auto; }
+                .name {
+                    font-weight: inherit; margin-bottom: 4px;
+                    white-space: normal; overflow: visible; text-overflow: clip;
+                }
+                .sub { margin-top: 0; white-space: normal; overflow: visible; text-overflow: clip; }
+                .empty { padding: 24px; color: inherit; }
             `
         ];
     }
@@ -100,31 +115,32 @@ export class SpotifyContextList extends LitElement {
                 </div>
 
                 <div class="content-list">
-                    ${items.map((item) => {
-            // Render Generic List Row
-            // Prioritize item.type (e.g. 'artist') over container type
-            const itemType = item.type || type;
-            return renderMediaRowTemplate(item, itemType, () => {
-                // Navigate
-                this.dispatchEvent(new CustomEvent('navigate', {
-                    detail: {
-                        pageId: `${itemType}:${item.id}`,
-                        data: item
-                    },
-                    bubbles: true,
-                    composed: true
-                }));
-            });
-        })}
+                    ${items.map((item) => this._renderRow(item, item.type || type))}
                     
                     ${isLoading
                 ? Array(10).fill(0).map(() => renderTrackSkeletonTemplate()) // Track skeleton doubles for list rows
                 : ''}
                 </div>
                 
-                ${!isLoading && items.length === 0 ? html`<div style="padding: 24px; text-align: center;">No items found</div>` : ''}
+                ${!isLoading && items.length === 0 ? renderEmptyState('No items found') : ''}
             </div>
         `;
+    }
+
+    /** One row; item.type (e.g. 'artist') wins over the list's type. Tapping navigates. */
+    _renderRow(item, itemType) {
+        return renderListRow(item, itemType, {
+            name: item.name || 'Unknown',
+            subtitle: itemSubtitle(item, itemType, SUBTITLE_STYLE.mediaRow),
+            onClick: () => {
+                this.dispatchEvent(new CustomEvent('navigate', {
+                    detail: { pageId: `${itemType}:${item.id}`, data: item },
+                    bubbles: true,
+                    composed: true
+                }));
+            },
+            trailing: html`<div class="track-actions-right">${rowChevronIcon}</div>`,
+        });
     }
 }
 

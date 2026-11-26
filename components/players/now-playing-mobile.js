@@ -2,6 +2,7 @@ import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic, getVibrantColor, formatTime } from '../../utils.js';
 import { NowPlayingController } from '../controllers/now-playing-controller.js';
 import { PlayerStateController } from '../controllers/player-state-controller.js';
+import { openTrackMenu } from '../track-menu.js';
 
 /**
  * Full-screen mobile "Now Playing" view, styled after the iOS Spotify app.
@@ -453,21 +454,11 @@ export class SpotifyNowPlayingMobile extends LitElement {
     _openDevices() { this.dispatchEvent(new CustomEvent('open-devices', { bubbles: true, composed: true })); }
     _openQueue() { this.dispatchEvent(new CustomEvent('open-queue', { bubbles: true, composed: true })); }
 
+    // Opens as a bottom sheet, so no anchor.
     _openMenu() {
         const track = this._np.track;
         if (!track) return;
-        this.dispatchEvent(new CustomEvent('open-track-menu', {
-            detail: {
-                name: track.name,
-                artist: this._np.artistLine,
-                album: track.album?.name || '',
-                uri: track.uri,
-                id: track.id,
-                image: track.album?.images?.[0]?.url,
-                context: { surface: 'nowplaying', sourceUri: this._np.contextUri }
-            },
-            bubbles: true, composed: true
-        }));
+        openTrackMenu(this, track, { context: { surface: 'nowplaying', sourceUri: this._np.contextUri } });
     }
 
     render() {

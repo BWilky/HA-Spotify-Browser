@@ -1,10 +1,11 @@
 import { css } from "../lit.js";
 
-// Styles for <spotify-library>. Closely mirrors the search page (pills + rows +
-// skeletons) so the two surfaces feel consistent. The library owns its own top
-// bar on mobile (the app header is hidden for this page, like search).
+// Styles for <spotify-library>. Rows, skeletons, the empty state and the
+// filter pills come from list-row.styles.js (shared with the search page);
+// this sheet adds the library's sizes and its own pieces. The library owns
+// its own top bar on mobile (the app header is hidden for this page, like search).
 export const libraryStyles = css`
-    :host { display: block; height: 100%; }
+    :host { display: block; height: 100%; --list-row-art: 56px; --list-row-gap: 14px; }
 
     .l-scroll {
         height: 100%; overflow-y: auto; overflow-x: hidden;
@@ -28,67 +29,27 @@ export const libraryStyles = css`
     }
     @media (hover: hover) { .l-icon-btn:hover { color: var(--spf-text-sub); } }
 
-    /* ---- Filter pills ---- */
-    .pills {
-        position: sticky; z-index: 4;
-        display: flex; gap: 8px; overflow-x: auto; scrollbar-width: none;
-        background: var(--spf-bg);
-    }
-    .pills::-webkit-scrollbar { display: none; }
-    .pill {
-        flex: 0 0 auto; border: none; cursor: pointer; white-space: nowrap;
-        padding: 8px 16px; border-radius: 999px; font-size: var(--spf-text-base, 13.5px); font-weight: 700;
-        background: #232323; color: #fff;
-    }
-    .pill.active { background: #fff; color: #000; }
-
     .body { padding-bottom: 120px; }
-    .empty { padding: 48px 24px; text-align: center; color: var(--spf-text-sub); }
 
-    /* ---- Rows ---- */
-    .row {
-        display: grid; grid-template-columns: 56px 1fr auto;
-        align-items: center; gap: 14px; padding: 8px 16px; cursor: pointer; min-height: 64px;
-    }
+    /* ---- Rows (renderListRow) ---- */
     .row-menu-btn {
         background: none; border: none; cursor: pointer; color: var(--spf-text-sub);
         width: 40px; height: 40px; padding: 0;
         display: flex; align-items: center; justify-content: center;
     }
     @media (hover: hover) { .row-menu-btn:hover { color: #fff; } }
-    @media (hover: hover) { .row:hover { background: var(--spf-hover-white); } }
-    .art {
-        width: 56px; height: 56px; border-radius: 4px;
-        background-size: cover; background-position: center;
-        background-color: var(--spf-bg-card-hover);
-    }
-    .art.circle { border-radius: 50%; }
     .art.liked {
         background: linear-gradient(135deg, #4a35d6 0%, #8d7bf0 100%);
         display: flex; align-items: center; justify-content: center;
     }
     .art.liked svg { width: 26px; height: 26px; fill: #fff; }
-    .info { min-width: 0; }
-    .name { color: #fff; font-size: var(--spf-text-md, 15px); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .name.playing { color: var(--spf-brand); }
-    .sub {
-        display: flex; align-items: center; gap: 5px;
-        color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); margin-top: 2px;
-        white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
+    /* Flex so the Liked Songs row can lead its subtitle with a pin icon. */
+    .sub { display: flex; align-items: center; gap: 5px; }
     .sub .pin { color: var(--spf-brand); flex: 0 0 auto; }
-
-    /* ---- Skeletons ---- */
-    .skel { display: grid; grid-template-columns: 56px 1fr; gap: 14px; align-items: center; padding: 8px 16px; min-height: 64px; }
-    .skel.skeleton-pulse { background: transparent; }
-    .skel .art { background: var(--spf-skeleton-bg); }
-    .skel-lines > div { height: 12px; border-radius: 3px; background: var(--spf-skeleton-bg); }
-    .skel-lines > div:first-child { width: 60%; margin-bottom: 8px; }
-    .skel-lines > div:last-child { width: 35%; }
 
     /* ================= MOBILE ================= */
     @media (max-width: 768px) {
-        .pills { top: calc(var(--spf-safe-top, 0px) + 60px); padding: 6px 16px 12px; }
+        .pills { top: calc(var(--spf-safe-top, 0px) + 60px); }
     }
 
     /* "+ New" playlist pill: desktop-only — mobile has the l-top icon button. */
@@ -114,6 +75,5 @@ export const libraryStyles = css`
             max-width: 760px; margin-left: auto; margin-right: auto;
             box-sizing: border-box;
         }
-        .pills { top: 0; justify-content: flex-start; padding: 16px 16px 12px; }
     }
 `;

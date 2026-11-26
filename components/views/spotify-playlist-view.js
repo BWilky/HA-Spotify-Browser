@@ -1,13 +1,15 @@
 import { LitElement, html, css, repeat, guard, keyed } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
-import { contextViewStyles } from '../../styles/spotify-context-view.styles.js';
+import { contextViewStyles, heroPageStyles } from '../../styles/spotify-context-view.styles.js';
 import { fireHaptic, pickImage, IMG_THUMB } from '../../utils.js';
 import { renderTrackRowTemplate } from '../media-templates.js';
 import { heartToggleIcon, playIcon, pauseIcon, menuIcon, pinIcon } from '../common/icons.js';
+import { HeroScrollController } from '../controllers/hero-scroll-controller.js';
+import { TrackLikesController } from '../controllers/track-likes-controller.js';
+import { OptimisticPlaybackController } from '../controllers/optimistic-playback-controller.js';
+import { PinStateController } from '../controllers/pin-state-controller.js';
 import './spotify-playlist-editor.js';
 
-// Spotify's check endpoints accept at most 50 ids per call.
-const LIKE_CHECK_CHUNK = 50;
 // Stable empty list, so "no tracks yet" doesn't look like a new array each render.
 const NO_ITEMS = [];
 
@@ -26,13 +28,8 @@ export class SpotifyPlaylistView extends LitElement {
             pinnedSensorState: { type: Object },
             _isFollowing: { type: Boolean, state: true },
             _currentUserId: { type: String, state: true },
-            _isPinned: { type: Boolean, state: true },
-            _pinnedEntity: { type: String, state: true },
             _albumLiked: { type: Boolean, state: true },   // album saved to library
             _artistInfo: { type: Object, state: true },    // album's primary artist { id, name, image }
-            _optimisticPlayState: { type: String, state: true }, // 'playing', 'paused', or null
-            _optimisticPlayingTrackId: { type: String, state: true }, // row to highlight immediately on click
-            _trackLikes: { type: Object, state: true }, // map of trackId -> boolean (liked)
             _genrePills: { type: Array, state: true }, // Liked Songs filter pills: [{ label, genre }]
             _activeGenre: { type: String, state: true }, // currently selected pill genre, or null
             _editMode: { type: Boolean, state: true }       // playlist edit mode (<spotify-playlist-editor>) is open
@@ -43,24 +40,8 @@ export class SpotifyPlaylistView extends LitElement {
         return [
             sharedStyles,
             contextViewStyles,
+            heroPageStyles,
             css`
-                :host { 
-                    display: block !important; 
-                    width: 100% !important; 
-                    height: 100% !important; 
-                    position: relative !important;
-                    overflow: hidden !important; 
-                }
-                .main-scroll-container {
-                    width: 100%;
-                    height: 100%;
-                    overflow-y: auto;
-                    overflow-x: hidden;
-                    overscroll-behavior-y: auto;
-                    overscroll-behavior-x: none;
-                    position: relative;
-                    background: var(--spf-bg);
-                }
                 .hero-banner { 
                     height: 375px !important; 
                     min-height: 375px !important; 
@@ -71,14 +52,7 @@ export class SpotifyPlaylistView extends LitElement {
                     width: 100% !important;
                     overflow: visible !important;
                 }
-                .content-wrapper {
-                    padding: 12px;
-                    padding-bottom: 100px;
-                    position: relative;
-                    background: var(--spf-bg); 
-                }
                 .hero-bg { overflow: visible !important; }
-                .hero-bg, .hero-bg img { width: 100%; height: 100%; object-fit: cover; }
 
                 /* Hero layout/buttons come from spotify-context-view.styles.js;
                    only the playlist-specific differences live here. */
@@ -134,22 +108,6 @@ export class SpotifyPlaylistView extends LitElement {
                 }
                 .album-save svg { width: 26px; height: 26px; fill: currentColor; }
                 .album-save.saved {
-                    background: var(--spf-brand, #1ed760);
-                    border-color: var(--spf-brand, #1ed760);
-                    color: #000;
-                }
-
-                /* Pin button — same styling as the album save button: outlined
-                   circle when not pinned, green-filled when pinned. */
-                .hero-pin {
-                    flex-shrink: 0; width: 56px; height: 56px; border-radius: 50%;
-                    border: 2px solid rgba(255,255,255,0.6); background: transparent;
-                    color: rgba(255,255,255,0.85); cursor: pointer; padding: 0;
-                    display: flex; align-items: center; justify-content: center;
-                    transition: all 0.15s ease;
-                }
-                .hero-pin svg { width: 26px; height: 26px; fill: currentColor; }
-                .hero-pin.pinned {
                     background: var(--spf-brand, #1ed760);
                     border-color: var(--spf-brand, #1ed760);
                     color: #000;
@@ -353,18 +311,37 @@ export class SpotifyPlaylistView extends LitElement {
         this.currentTrackId = null;
         this.isPlaying = false;
         this.pinnedSensorState = undefined;
-        // Cache the MediaQueryList once; reading window.matchMedia() inside the
-        // rAF scroll handler re-parses the query on every frame.
-        this._mobileMql = window.matchMedia('(max-width: 768px)');
+        this._hero = new HeroScrollController(this, {
+            getTitle: () => this.data?.name || '',
+            heroImage: '.hero-banner .hero-bg img',
+            heroContent: '.hero-content',
+            isLite: () => this.config?.appearance?.performance?.lite,
+            fade: { textStart: 220, textSpan: 60 },
+            // The mobile hero is tall (height: auto): fade by its real height.
+            mobileFade: { query: '(max-width: 768px)', heroBanner: '.hero-banner' },
+            dedupe: true,
+            onNearBottom: () => this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true })),
+        });
         this._isFollowing = false;
         this._currentUserId = null;
-        this._isPinned = false;
-        this._pinnedEntity = null;
+        this._pin = new PinStateController(this, {
+            // Liked Songs is the mandatory user-library pin.
+            getPinId: () => this.data.type === 'likedsongs' ? 'user-library' : this.data.id,
+            getPinItem: () => this._pinItem(),
+        });
         this._albumLiked = false;     // album saved to library (album view)
         this._artistInfo = null;      // { id, name, image } for the album's primary artist
-        this._optimisticPlayState = null;
-        this._optimisticPlayingTrackId = null;
-        this._trackLikes = {};
+        this._playback = new OptimisticPlaybackController(this, {
+            getApi: () => this.api,
+            getContext: () => ({ uri: this.data.uri, type: this.data.type }),
+        });
+        this._likes = new TrackLikesController(this, {
+            getApi: () => this.api,
+            getIds: () => this.data?.tracks?.items?.map(item => (item.track || item)?.id),
+            onToggled: (liked, ok) => this._toast(ok
+                ? (liked ? 'Added to Liked Songs' : 'Removed from Liked Songs')
+                : (liked ? 'Failed to save track' : 'Failed to remove track')),
+        });
         this._genrePills = [];
         this._activeGenre = null;
         this._trackGenres = {}; // trackId -> string[] of genres (not reactive; drives pills)
@@ -376,20 +353,6 @@ export class SpotifyPlaylistView extends LitElement {
         super.connectedCallback();
         // Follow/pin status is checked from updated() when data arrives; the
         // first update always carries 'data', so checking here doubled it.
-    }
-
-
-
-    disconnectedCallback() {
-        super.disconnectedCallback();
-        if (this._optimisticTimer) clearTimeout(this._optimisticTimer);
-        if (this._optimisticTrackTimer) clearTimeout(this._optimisticTrackTimer);
-        if (this._likeVerifyTimer) clearTimeout(this._likeVerifyTimer);
-        if (this._scrollRaf) cancelAnimationFrame(this._scrollRaf);
-        this._optimisticTimer = null;
-        this._optimisticTrackTimer = null;
-        this._likeVerifyTimer = null;
-        this._scrollRaf = null;
     }
 
     /**
@@ -431,7 +394,7 @@ export class SpotifyPlaylistView extends LitElement {
             const identityChanged = !prev || !data || prev.id !== data.id || prev.type !== data.type;
             // A reload of the same page (refresh(): placeholder with no tracks)
             // starts over too, so an explicit refresh re-reads the likes.
-            if (identityChanged || !data?.tracks?.items) this._likeChecked = new Set();
+            if (identityChanged || !data?.tracks?.items) this._likes.reset();
             const loaded = !!data && !data.isLoading && (identityChanged || !!prev?.isLoading);
             // Follow: needs isOwner (known once loaded) and the parent's follow
             // fetch to settle (followPending true -> false).
@@ -439,10 +402,10 @@ export class SpotifyPlaylistView extends LitElement {
                 && (loaded || !!prev?.followPending)) {
                 this._checkFollowStatus();
             }
-            if (identityChanged) this._checkPinStatus();
+            if (identityChanged) this._pin.check();
             // Likes + genres: only when the track list itself changed.
             const itemsChanged = identityChanged || prev?.tracks?.items !== data?.tracks?.items;
-            if (itemsChanged) this._checkTrackLikes();
+            if (itemsChanged) this._likes.check();
             if (itemsChanged && data?.type === 'likedsongs') this._enrichGenres();
             if (data?.type === 'album') {
                 if (identityChanged) this._checkAlbumLike();
@@ -476,19 +439,11 @@ export class SpotifyPlaylistView extends LitElement {
             if (!this._editMode) this.updateHeaderState();
         }
 
-        // Optimistic-track handoff: once HASS reports the track we optimistically
-        // marked as playing, drop the optimistic flag and let real state drive.
-        if (this._optimisticPlayingTrackId && changedProperties.has('currentTrackId')) {
-            if (this.currentTrackId === this._optimisticPlayingTrackId) {
-                this._optimisticPlayingTrackId = null;
-            }
-        }
-
         // Check for HASS updates to the Pinned Items helper (the parent derives
         // the sensor's state object, so any change here is a real change).
         if (changedProperties.has('pinnedSensorState') && this.pinned && this.pinned.sensorEntity) {
             if (changedProperties.get('pinnedSensorState') !== undefined) {
-                this._checkPinStatus();
+                this._pin.check();
             }
         }
     }
@@ -524,48 +479,11 @@ export class SpotifyPlaylistView extends LitElement {
         }
     }
 
-    // --- PINNED ITEMS LOGIC ---
-    async _checkPinStatus() {
-        if (!this.pinned || !this.data) return;
-
-        // The pin button is an edit action — only for users who can write.
-        if (!this.pinned.canEdit()) {
-            this._pinnedEntity = null;
-            return;
-        }
-
-        const items = await this.pinned.getItems();
-
-        let targetId = this.data.id;
+    /** What a pin of this page stores (PinStateController.toggle). */
+    _pinItem() {
         // SPECIAL CASE: Liked Songs -> user-library
         if (this.data.type === 'likedsongs') {
-            targetId = 'user-library';
-        }
-
-        this._isPinned = !!items.find(i => i.id === targetId);
-        this._pinnedEntity = this.pinned.sensorEntity;
-    }
-
-    _getIsPlaying() {
-        if (this._optimisticPlayState) {
-            return this._optimisticPlayState === 'playing';
-        }
-        return !!this.isPlaying;
-    }
-
-    /** Spotify track id currently playing (optimistic guess wins), or null. */
-    _getPlayingTrackId() {
-        if (this._optimisticPlayingTrackId) return this._optimisticPlayingTrackId;
-        return this.playingTrackId || null;
-    }
-
-    async _togglePin() {
-        if (!this._pinnedEntity || !this.pinned) return;
-
-        let item;
-        // SPECIAL CASE: Liked Songs -> user-library
-        if (this.data.type === 'likedsongs') {
-            item = {
+            return {
                 id: 'user-library',
                 type: 'library',
                 title: 'User Library',
@@ -573,140 +491,20 @@ export class SpotifyPlaylistView extends LitElement {
                 image: 'https://www.gstatic.com/images/icons/material/system/2x/library_music_white_24dp.png',
                 uri: 'spotify:user-library'
             };
-        } else {
-            item = {
-                id: this.data.id,
-                type: this.data.type,
-                name: this.data.name || this.data.title,
-                images: this.data.images,
-                uri: this.data.uri,
-                description: this.data.description
-            };
         }
-
-        const result = await this.pinned.toggle(item);
-
-        if (result.success) {
-            this._isPinned = !this._isPinned;
-            // Refresh the home pinned row now rather than waiting for the sensor's
-            // event round-trip (which the hass reactive path would eventually catch).
-            this.dispatchEvent(new CustomEvent('pinned-changed', { bubbles: true, composed: true }));
-        } else {
-            this.dispatchEvent(new CustomEvent('show-alert', {
-                detail: {
-                    title: "Pinning Failed",
-                    message: result.error || "Unknown error",
-                    confirmText: "OK",
-                    size: 'mini'
-                },
-                bubbles: true,
-                composed: true
-            }));
-        }
-
-    }
-
-    // Scroll fires many times per gesture; coalesce the work into one frame and
-    // reuse cached element refs instead of re-querying the shadow root each time.
-    _handleScroll(e) {
-        this._scrollTarget = e.target;
-        if (this._scrollRaf) return;
-        this._scrollRaf = requestAnimationFrame(() => {
-            this._scrollRaf = null;
-            this._applyScroll(this._scrollTarget);
-        });
-    }
-
-    _applyScroll(target) {
-        if (!target) return;
-        const scrollTop = target.scrollTop;
-        const lite = this.config?.appearance?.performance?.lite;
-
-        // Decorative parallax (stretchy art + hero fade/scale). Skipped on the
-        // low-power profile — it's the heaviest per-frame work here.
-        if (!lite) {
-            let heroImg = this._heroImgEl;
-            if (!heroImg || !heroImg.isConnected) heroImg = this._heroImgEl = this.shadowRoot.querySelector('.hero-banner .hero-bg img');
-            if (heroImg) {
-                if (scrollTop < 0) {
-                    const scale = 1 - scrollTop / 375;
-                    heroImg.style.transform = `translateY(${scrollTop}px) scale(${scale})`;
-                    heroImg.style.transformOrigin = 'top center';
-                } else {
-                    heroImg.style.transform = '';
-                    heroImg.style.transformOrigin = '';
-                }
-            }
-
-            if (target.classList.contains('has-hero')) {
-                let heroContent = this._heroContentEl;
-                if (!heroContent || !heroContent.isConnected) heroContent = this._heroContentEl = this.shadowRoot.querySelector('.hero-content');
-                if (heroContent) {
-                    heroContent.style.opacity = Math.max(0, 1 - (scrollTop / 200));
-                    const scale = 1 - (scrollTop / 1000);
-                    if (scale > 0.8) {
-                        heroContent.style.transform = `scale(${scale})`;
-                        heroContent.style.transformOrigin = 'center center';
-                    }
-                }
-            }
-        }
-
-        if (target.classList.contains('has-hero')) {
-            this._dispatchHeaderState(target, false);
-
-            // Infinite Scroll Detection
-            if (scrollTop + target.clientHeight >= target.scrollHeight - 200) {
-                this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
-            }
-        }
+        return {
+            id: this.data.id,
+            type: this.data.type,
+            name: this.data.name || this.data.title,
+            images: this.data.images,
+            uri: this.data.uri,
+            description: this.data.description
+        };
     }
 
     /** Called by the parent context-view when this page becomes visible again. */
     updateHeaderState() {
-        const target = this.shadowRoot?.querySelector('.main-scroll-container');
-        if (target && target.classList.contains('has-hero')) this._dispatchHeaderState(target, true);
-    }
-
-    /**
-     * Drive the app header from the scroll position. Skipped while the page is
-     * hidden (no layout box) and, unless forced, when nothing changed since the
-     * last dispatch. updateHeaderState forces it: another page may have changed
-     * the app header in between.
-     */
-    _dispatchHeaderState(target, force) {
-        if (target.getClientRects().length === 0) return;
-        const scrollTop = target.scrollTop;
-        let alpha, textAlpha;
-        if (this._mobileMql.matches) {
-            // Mobile hero is tall (height: auto) and centered, so a fixed
-            // 200px threshold fades the header in while the hero is still
-            // fully visible. Tie the fade to the actual hero height so the
-            // header only starts appearing as the hero scrolls out under it.
-            let heroBanner = this._heroBannerEl;
-            if (!heroBanner || !heroBanner.isConnected) heroBanner = this._heroBannerEl = this.shadowRoot.querySelector('.hero-banner');
-            const heroHeight = heroBanner ? heroBanner.offsetHeight : 375;
-            const fadeEnd = Math.max(heroHeight - 100, 1); // ~header height below the hero
-            const fadeStart = Math.max(fadeEnd - 80, 0);
-            alpha = Math.max(0, Math.min((scrollTop - fadeStart) / (fadeEnd - fadeStart), 1));
-            textAlpha = Math.max(0, Math.min((scrollTop - fadeEnd) / 50, 1));
-        } else {
-            alpha = Math.min(scrollTop / 200, 1);
-            textAlpha = Math.max(0, Math.min((scrollTop - 220) / 60, 1));
-        }
-        const title = this.data?.name || '';
-        const last = this._lastHeaderState;
-        if (!force && last && last.alpha === alpha && last.textAlpha === textAlpha && last.title === title) return;
-        this._lastHeaderState = { alpha, textAlpha, title };
-        this.dispatchEvent(new CustomEvent('header-scroll', {
-            detail: {
-                alpha,
-                textAlpha,
-                title
-            },
-            bubbles: true,
-            composed: true
-        }));
+        this._hero.updateHeaderState();
     }
 
     _formatDuration(ms) {
@@ -748,16 +546,16 @@ export class SpotifyPlaylistView extends LitElement {
         // Shared action buttons (reused across album/playlist/liked layouts).
         const playBtnTpl = html`
             <button class="hero-btn-play" @click=${() => this._handleHeroPlayClick()}>
-                ${this._getIsPlaying() ? pauseIcon(28) : playIcon(28)}
+                ${this._playback.isPlaying ? pauseIcon(28) : playIcon(28)}
             </button>`;
-        const pinBtnTpl = (this._pinnedEntity && !isLiked) ? html`
-            <button class="hero-pin ${this._isPinned ? 'pinned' : ''}" @click=${this._togglePin} aria-label="${this._isPinned ? 'Unpin' : 'Pin'}" title="${this._isPinned ? 'Unpin' : 'Pin'}">
+        const pinBtnTpl = (this._pin.entity && !isLiked) ? html`
+            <button class="hero-pin ${this._pin.isPinned ? 'pinned' : ''}" @click=${this._pin.toggle} aria-label="${this._pin.isPinned ? 'Unpin' : 'Pin'}" title="${this._pin.isPinned ? 'Unpin' : 'Pin'}">
                 ${pinIcon}
             </button>` : '';
 
         try {
             return html`
-                <div class="main-scroll-container has-hero ${isLiked ? 'liked-hero' : ''} ${isAlbum ? 'album-hero' : ''}" @scroll=${this._handleScroll}>
+                <div class="main-scroll-container has-hero ${isLiked ? 'liked-hero' : ''} ${isAlbum ? 'album-hero' : ''}" @scroll=${this._hero.onScroll}>
                     <div class="hero-banner" style="margin-top: 0; display: block !important; position: relative !important; top: 0; left: 0; z-index: 0;">
                         <div class="hero-bg">
                             ${isLiked
@@ -846,7 +644,7 @@ export class SpotifyPlaylistView extends LitElement {
                         ` : ''}
                         <div class="track-list">
                             ${(() => {
-                    const playingId = this._getPlayingTrackId();
+                    const playingId = this._playback.playingTrackId;
                     // guard: skip the whole list unless something a row
                     // renders changed — the rows read only the (filtered)
                     // items, the playing track id, the like map and the page
@@ -856,7 +654,7 @@ export class SpotifyPlaylistView extends LitElement {
                     // appended (load-more). Key includes the index because a
                     // playlist may legally contain the same track twice, and
                     // repeat() requires unique keys.
-                    return guard([trackItems, playingId, this._trackLikes, data.type], () => repeat(
+                    return guard([trackItems, playingId, this._likes.map, data.type], () => repeat(
                         trackItems,
                         (item, index) => `${(item.track || item)?.id || 'na'}:${index}`,
                         (item, index) => this.renderTrackRow(item.track || item, index + 1, playingId)
@@ -889,7 +687,7 @@ export class SpotifyPlaylistView extends LitElement {
                     layout: 'playlist',
                     isPlaying,
                     isAlbum,
-                    liked: !!this._trackLikes[track.id],
+                    liked: this._likes.isLiked(track.id),
                     onSave: (e, t) => this._handleSaveTrack(e, t),
                     onQueue: (e, t) => this._handleQueueTrack(e, t),
                     onMenu: (e, trackData) => this._handleTrackMenu(e, trackData),
@@ -934,33 +732,6 @@ export class SpotifyPlaylistView extends LitElement {
             detail: { message },
             bubbles: true,
             composed: true
-        }));
-    }
-
-    /**
-     * Like state for tracks not yet checked on this page, at most 50 ids per
-     * call. Ids are marked when requested (so an overlapping data swap doesn't
-     * re-request them) and unmarked again if their call fails.
-     */
-    async _checkTrackLikes() {
-        if (!this.api || !this.data?.tracks?.items) return;
-        if (!this._likeChecked) this._likeChecked = new Set();
-        const seen = this._likeChecked;
-        const ids = [...new Set(this.data.tracks.items
-            .map(item => (item.track || item)?.id)
-            .filter(id => id && !seen.has(id)))];
-        if (ids.length === 0) return;
-
-        const chunks = [];
-        for (let i = 0; i < ids.length; i += LIKE_CHECK_CHUNK) chunks.push(ids.slice(i, i + LIKE_CHECK_CHUNK));
-        await Promise.all(chunks.map(async (chunk) => {
-            chunk.forEach(id => seen.add(id));
-            const results = await this.api.checkTrackFavorites(chunk);
-            if (results && typeof results === 'object' && Object.keys(results).length) {
-                this._trackLikes = { ...this._trackLikes, ...results };
-            } else {
-                chunk.forEach(id => seen.delete(id));
-            }
         }));
     }
 
@@ -1058,44 +829,10 @@ export class SpotifyPlaylistView extends LitElement {
         this._activeGenre = this._activeGenre === genre ? null : genre;
     }
 
-    async _handleSaveTrack(e, track) {
+    _handleSaveTrack(e, track) {
         e.stopPropagation();
-        if (!this.api || !track?.id) return;
-
-        const wasLiked = !!this._trackLikes[track.id];
-        const nowLiked = !wasLiked;
-
-        // Optimistic toggle
-        this._trackLikes = { ...this._trackLikes, [track.id]: nowLiked };
-
-        const res = nowLiked
-            ? await this.api.saveTrackFavorites(track.id)
-            : await this.api.removeTrackFavorites(track.id);
-
-        if (!res.success) {
-            // Revert on failure
-            this._trackLikes = { ...this._trackLikes, [track.id]: wasLiked };
-            this.dispatchEvent(new CustomEvent('show-toast', {
-                detail: { message: nowLiked ? 'Failed to save track' : 'Failed to remove track' },
-                bubbles: true, composed: true
-            }));
-            return;
-        }
-
-        this.dispatchEvent(new CustomEvent('show-toast', {
-            detail: { message: nowLiked ? 'Added to Liked Songs' : 'Removed from Liked Songs' },
-            bubbles: true, composed: true
-        }));
-
-        // Verify against the server after a moment in case of races
-        if (this._likeVerifyTimer) clearTimeout(this._likeVerifyTimer);
-        this._likeVerifyTimer = setTimeout(async () => {
-            if (!this.isConnected) return;
-            const confirmed = await this.api.checkTrackFavorites(track.id);
-            if (typeof confirmed === 'boolean' && confirmed !== this._trackLikes[track.id]) {
-                this._trackLikes = { ...this._trackLikes, [track.id]: confirmed };
-            }
-        }, 3000);
+        if (!track?.id) return;
+        return this._likes.toggle(track.id);
     }
 
     async _handleQueueTrack(e, track) {
@@ -1120,14 +857,8 @@ export class SpotifyPlaylistView extends LitElement {
         const offsetPos = (position != null && !this._activeGenre) ? position : null;
 
         // Optimistic: assume this row is now playing and reflect it immediately;
-        // HASS will confirm (and the handoff in updated() clears the guess).
-        this._optimisticPlayingTrackId = track.id;
-        this._optimisticPlayState = 'playing';
-        if (this._optimisticTrackTimer) clearTimeout(this._optimisticTrackTimer);
-        this._optimisticTrackTimer = setTimeout(() => {
-            this._optimisticPlayingTrackId = null;
-            this._optimisticPlayState = null;
-        }, 8000); // safety: clear if HASS never catches up
+        // HASS will confirm (the controller's handoff clears the guess).
+        this._playback.startTrack(track.id, { playing: true });
 
         if (contextType === 'likedsongs') {
             // Play the whole Liked Songs collection starting at this track so
@@ -1148,38 +879,15 @@ export class SpotifyPlaylistView extends LitElement {
         }
     }
 
-    async _playContext(uri, type = 'playlist') {
-        if (!uri || !this.api) return;
-        await this.api.playMedia(uri, type);
-    }
-
     _handleShufflePlay() {
         // Favorites playback already shuffles; reflect optimistically and play.
-        this._optimisticPlayState = 'playing';
-        if (this._optimisticTimer) clearTimeout(this._optimisticTimer);
-        this._optimisticTimer = setTimeout(() => { this._optimisticPlayState = null; }, 3000);
-        this._playContext(this.data.uri, this.data.type);
+        this._playback.hold('playing');
+        this._playback.playContext();
     }
 
     _handleHeroPlayClick() {
         fireHaptic('light');
-        const isPlaying = this._getIsPlaying();
-        const newState = isPlaying ? 'paused' : 'playing';
-
-        // Optimistic Update
-        this._optimisticPlayState = newState;
-
-        // Clear optimistic state after 3s to let HASS catch up or revert if failed
-        if (this._optimisticTimer) clearTimeout(this._optimisticTimer);
-        this._optimisticTimer = setTimeout(() => {
-            this._optimisticPlayState = null;
-        }, 3000);
-
-        if (newState === 'playing') {
-            this._playContext(this.data.uri, this.data.type);
-        } else {
-            this.api.togglePlayback(false);
-        }
+        this._playback.heroClick();
     }
 
     async _toggleFollowPlaylist(e) {
@@ -1237,8 +945,8 @@ export class SpotifyPlaylistView extends LitElement {
                 ? { id: 'pm-unfollow', label: 'Remove from Your Library', icon: 'heart-filled' }
                 : { id: 'pm-follow', label: 'Add to Your Library', icon: 'heart' });
         }
-        if (this._pinnedEntity) {
-            items.push({ id: 'pm-pin', label: this._isPinned ? 'Unpin from Home' : 'Pin to Home', icon: 'pin' });
+        if (this._pin.entity) {
+            items.push({ id: 'pm-pin', label: this._pin.isPinned ? 'Unpin from Home' : 'Pin to Home', icon: 'pin' });
         }
         if (isOwner) {
             items.push({ id: 'pm-delete', label: 'Delete Playlist', icon: 'trash', danger: true });
@@ -1271,7 +979,7 @@ export class SpotifyPlaylistView extends LitElement {
                 this._togglePlaylistFlag('collaborative');
                 break;
             case 'pm-pin':
-                this._togglePin();
+                this._pin.toggle();
                 break;
             case 'pm-follow':
             case 'pm-unfollow':
@@ -1450,12 +1158,10 @@ export class SpotifyPlaylistView extends LitElement {
 
     _handleAlbumShuffle() {
         fireHaptic('light');
-        this._optimisticPlayState = 'playing';
-        if (this._optimisticTimer) clearTimeout(this._optimisticTimer);
-        this._optimisticTimer = setTimeout(() => { this._optimisticPlayState = null; }, 3000);
+        this._playback.hold('playing');
         // Turn shuffle on, then play the album context.
         try { this.api?.fetchSpotifyPlus('player_shuffle', { state: 'true' }, false); } catch (_) {}
-        this._playContext(this.data.uri, this.data.type);
+        this._playback.playContext();
     }
 
     _navigateToArtist(e) {

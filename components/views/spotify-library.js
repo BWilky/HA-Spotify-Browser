@@ -1,8 +1,10 @@
 import { LitElement, html } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
+import { listRowStyles, filterPillStyles } from '../../styles/list-row.styles.js';
 import { libraryStyles } from '../../styles/spotify-library.styles.js';
 import { getItemImage, isContextPlaying, getPlayerStateObj, getLibrarySort, setLibrarySort, IMG_THUMB } from '../../utils.js';
 import { menuIcon } from '../common/icons.js';
+import { renderListRow, renderRowSkeletons, renderEmptyState, itemSubtitle, SUBTITLE_STYLE } from '../media-templates.js';
 
 // Filter pills. `null` = the default "Recents" view; the rest map to a saved /
 // followed bucket. The integration has no podcast/show support, so no Podcasts.
@@ -35,7 +37,7 @@ class SpotifyLibrary extends LitElement {
     }
 
     static get styles() {
-        return [sharedStyles, libraryStyles];
+        return [sharedStyles, listRowStyles, filterPillStyles, libraryStyles];
     }
 
     constructor() {
@@ -416,17 +418,17 @@ class SpotifyLibrary extends LitElement {
         return html`
             ${this._renderLikedRow()}
             ${this._recent === null
-                ? this._renderSkeletons(5)
+                ? renderRowSkeletons(5)
                 : this._recent.map(item => this._renderRow(item, item.type))}
         `;
     }
 
     _renderBucket(filter) {
         const list = this[this._bucketKey(filter)];
-        if (list === null) return this._renderSkeletons(8);
+        if (list === null) return renderRowSkeletons(8);
         if (!list.length) {
             const label = FILTERS.find(f => f.type === filter)?.label.toLowerCase() || 'items';
-            return html`<div class="empty">No ${label} yet.</div>`;
+            return renderEmptyState(`No ${label} yet.`);
         }
         const pg = this._paging[filter];
         const alpha = getLibrarySort(filter) === 'alpha';
@@ -434,7 +436,7 @@ class SpotifyLibrary extends LitElement {
         const more = alpha ? visible.length < list.length : !!pg?.hasMore;
         return html`
             ${visible.map(item => this._renderRow(item, filter))}
-            ${this._loading[filter] ? this._renderSkeletons(2) : ''}
+            ${this._loading[filter] ? renderRowSkeletons(2) : ''}
             ${more && !this._loading[filter] ? html`<div class="scroll-sentinel"></div>` : ''}
         `;
     }
@@ -454,29 +456,16 @@ class SpotifyLibrary extends LitElement {
         `;
     }
 
+    /** A playlist / album / artist row; playlists and albums get a menu button. */
     _renderRow(item, type) {
-        const img = getItemImage(item, type, IMG_THUMB);
-        const isArtist = type === 'artist';
-        let sub;
-        if (isArtist) sub = 'Artist';
-        else if (type === 'playlist') sub = `Playlist • ${item.owner?.display_name || item.owner?.name || 'Spotify'}`;
-        else {
-            const who = (item.artists || []).map(a => a.name).join(', ');
-            sub = `Album${who ? ' • ' + who : ''}`;
-        }
-        const playing = this._isPlaying(item.uri);
-        return html`
-            <div class="row" @click=${() => this._navigate(type, item)}>
-                <div class="art ${isArtist ? 'circle' : ''} ${img ? '' : 'art-fallback'}" style="${img ? `background-image: url('${img}')` : ''}"></div>
-                <div class="info">
-                    <div class="name ${playing ? 'playing' : ''}">${item.name || ''}</div>
-                    <div class="sub">${sub}</div>
-                </div>
-                ${isArtist ? '' : html`
-                    <button class="row-menu-btn" aria-label="More options"
-                            @click=${(e) => this._openRowMenu(e, item, type)}>${menuIcon}</button>`}
-            </div>
-        `;
+        return renderListRow(item, type, {
+            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.library),
+            playing: this._isPlaying(item.uri),
+            onClick: () => this._navigate(type, item),
+            trailing: type === 'artist' ? '' : html`
+                <button class="row-menu-btn" aria-label="More options"
+                        @click=${(e) => this._openRowMenu(e, item, type)}>${menuIcon}</button>`,
+        });
     }
 
     /** Context menu for a library row (playlist: pin/edit/delete; album: go to artist). */
@@ -570,11 +559,6 @@ class SpotifyLibrary extends LitElement {
             },
             bubbles: true, composed: true
         }));
-    }
-
-    _renderSkeletons(n) {
-        return html`${Array(n).fill(0).map(() => html`
-            <div class="skel skeleton-pulse"><div class="art"></div><div class="skel-lines"><div></div><div></div></div></div>`)}`;
     }
 }
 

@@ -3,6 +3,7 @@ import { fireHaptic } from "../../utils.js";
 import { artFallbackStyles } from '../../styles/shared-styles.js';
 import { playingBarsIcon, menuIcon } from '../common/icons.js';
 import { renderQueueRow } from './queue-row.js';
+import { openTrackMenu } from '../track-menu.js';
 import { PlayerStateController } from '../controllers/player-state-controller.js';
 import '../bottom-sheet.js';
 
@@ -160,19 +161,10 @@ export class SpotifyQueuePanel extends LitElement {
 
     _trackMenu(e, track) {
         e.stopPropagation();
-        this.dispatchEvent(new CustomEvent('open-track-menu', {
-            detail: {
-                name: track?.name,
-                artist: track?.artists?.map(a => a.name).join(', ') || '',
-                album: track?.album?.name || '',
-                uri: track?.uri,
-                id: track?.id,
-                image: track?.album?.images?.[0]?.url,
-                anchor: e.currentTarget.getBoundingClientRect(),
-                context: { surface: 'queue', sourceUri: this.playerController?.sourceContextUri() || null }
-            },
-            bubbles: true, composed: true
-        }));
+        openTrackMenu(this, track, {
+            anchorEl: e.currentTarget,
+            context: { surface: 'queue', sourceUri: this.playerController?.sourceContextUri() || null }
+        });
     }
 
     _row(track, { now = false } = {}) {

@@ -147,6 +147,19 @@ Still open after Wave 2: bug 1 (duplicate fetches on open), bug 3 (track-menu im
 
 Deliberately not done: moving the keyboard/viewport lock, idle auto-close and drag-to-close code out of the root, and collapsing the fourteen popup visibility flags. Both are iOS-sensitive or wide-reaching and cannot be checked without a device.
 
-**Remaining waves**
-- Wave 3 — views: shared scroll / like / pin controllers, one list-row template, loader map, track-menu payload helper (bug 3).
-- Wave 4 — organization: CSS split, folder layout, type-checking config.
+**Wave 3 — done.** Pure consolidation: every harness measurement is identical to Wave 2.
+- Playlist and artist views share four controllers in `components/controllers/`: `hero-scroll-controller.js`, `track-likes-controller.js`, `optimistic-playback-controller.js`, `pin-state-controller.js` (playlist view 1,496 → 1,202 lines; artist view 636 → 393). Identical CSS moved to `heroPageStyles`.
+- `components/controllers/page-loaders.js`: one tested loader per page type behind a `commit()` seam (`spotify-context-view.js` 774 → 360 lines). The regex-based `includeGroups` test is replaced by real loader tests. A failed page is no longer written to the page cache.
+- One list row (`renderListRow`), one subtitle rule (`itemSubtitle`), shared skeleton/empty helpers and `styles/list-row.styles.js` for search, library, section and discography; `renderCarouselSection` extracted from home; one track-menu payload (`components/track-menu.js`), which now carries the thumbnail-size cover. Closes open bug 3.
+
+Found during Wave 3 and deliberately preserved (each needs a decision or a small follow-up):
+- Subtitle wording differs by screen and is now one table (`SUBTITLE_STYLE` in `components/media-templates.js`): a playlist reads "Playlist • Owner" in library/search, "By Owner" in section/discography and "Owner" on home cards; albums and tracks vary similarly. Pick one wording per type and delete the rest.
+- Subtitle bugs kept as they were: "By undefined" for a playlist whose owner has no display name (section/discography); a leading " • 2020" for an album with an empty artists list (section).
+- The pinned manager's `isPinned()` disagrees with the views' own check when more than 7 pins are stored (the views say the 8th is not pinned) — the views' behaviour was kept.
+- The artist view's follow-verify timer is still untracked (the like-verify one is now cleared).
+- Page loading: a refresh issued while a load is in flight can leave the page on "Loading..." if the older load's follow-check lands before the newer read fails; Liked Songs, sections and discography show an empty page rather than a failure when their read fails; two cached instances of the same half-loaded playlist can both page it.
+- The artist view does not skip parallax in lite mode and does not de-duplicate header events (the playlist view does both).
+- `renderMediaRowTemplate` (media-templates.js) has no callers left; the artist view could use `renderCarouselSection` and `openTrackMenu`.
+
+**Remaining**
+- Wave 4 — organization: CSS split (component CSS beside the component, `sharedStyles` split into shell vs shared), folder layout (`src/`), type-checking config (`jsconfig.json` with `checkJs`).

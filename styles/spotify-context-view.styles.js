@@ -247,3 +247,53 @@ export const contextViewStyles = css`
         }
     }
 `;
+
+/**
+ * Hero-page rules shared by the playlist and artist views. Adopted by those two
+ * only, right after contextViewStyles and before each view's own CSS (where
+ * these rules used to sit at the top). Kept out of contextViewStyles because
+ * spotify-context-view adopts that sheet too, and this :host (!important)
+ * would size and position its host as well.
+ */
+export const heroPageStyles = css`
+    :host {
+        display: block !important;
+        width: 100% !important;
+        height: 100% !important;
+        position: relative !important;
+        overflow: hidden !important;
+    }
+    .main-scroll-container {
+        width: 100%;
+        height: 100%;
+        overflow-y: auto;
+        overflow-x: hidden;
+        overscroll-behavior-y: auto;
+        overscroll-behavior-x: none;
+        position: relative;
+        background: var(--spf-bg);
+    }
+    .content-wrapper {
+        padding: 12px;
+        padding-bottom: 100px;
+        position: relative;
+        background: var(--spf-bg);
+    }
+    .hero-bg, .hero-bg img { width: 100%; height: 100%; object-fit: cover; }
+
+    /* Pin button: outlined circle when not pinned, green-filled when pinned
+       (the playlist view's album save button looks the same). */
+    .hero-pin {
+        flex-shrink: 0; width: 56px; height: 56px; border-radius: 50%;
+        border: 2px solid rgba(255,255,255,0.6); background: transparent;
+        color: rgba(255,255,255,0.85); cursor: pointer; padding: 0;
+        display: flex; align-items: center; justify-content: center;
+        transition: all 0.15s ease;
+    }
+    .hero-pin svg { width: 26px; height: 26px; fill: currentColor; }
+    .hero-pin.pinned {
+        background: var(--spf-brand, #1ed760);
+        border-color: var(--spf-brand, #1ed760);
+        color: #000;
+    }
+`;

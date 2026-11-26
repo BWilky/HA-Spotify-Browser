@@ -4,6 +4,7 @@ import { queueListStyles } from '../../../styles/spotify-queue.styles.js';
 import { msToTime } from '../../../utils.js';
 import { renderQueueRow } from '../queue-row.js';
 import { menuIcon } from '../../common/icons.js';
+import { openTrackMenu } from '../../track-menu.js';
 
 /**
  * Sidebar track list. Renders either the upcoming queue (`mode="queue"`) or
@@ -67,19 +68,10 @@ export class SpotifySidebarTrackList extends LitElement {
 
     _trackMenu(e, track) {
         e.stopPropagation();
-        this.dispatchEvent(new CustomEvent('open-track-menu', {
-            detail: {
-                name: track?.name,
-                artist: track?.artists?.map(a => a.name).join(', ') || '',
-                album: track?.album?.name || '',
-                uri: track?.uri,
-                id: track?.id,
-                image: track?.album?.images?.[0]?.url,
-                anchor: e.currentTarget.getBoundingClientRect(),
-                context: { surface: 'queue', sourceUri: this.playerController?.sourceContextUri() || null }
-            },
-            bubbles: true, composed: true
-        }));
+        openTrackMenu(this, track, {
+            anchorEl: e.currentTarget,
+            context: { surface: 'queue', sourceUri: this.playerController?.sourceContextUri() || null }
+        });
     }
 
     renderEmpty() {

@@ -1,7 +1,7 @@
 import { LitElement, html } from "../lit.js";
 import { sharedStyles } from '../styles/shared-styles.js';
 import { homeStyles } from '../styles/spotify-home.styles.js';
-import { renderCardTemplate, renderCardSkeletonTemplate } from './media-templates.js';
+import { renderCardTemplate, renderCardSkeletonTemplate, renderCarouselSection, itemSubtitle, SUBTITLE_STYLE } from './media-templates.js';
 import { loadConfigPins, buildPinnedRow, dedupeRecentAlbums, sectionFetchWindow, homeRefreshDue } from './controllers/home-content.js';
 import { getItemImage, getPlayingTrackId, fireHaptic, isContextPlaying, getPlayerStateObj, playlistSortParams, IMG_THUMB } from '../utils.js';
 import { playingBarsIcon } from './common/icons.js';
@@ -17,14 +17,11 @@ function recentPillSkeleton() {
     `;
 }
 
-/** Subtitle shown on home cards (owner, then artists, then 'Artist'). */
-function cardSubtitle(item, type) {
-    let subtitle = item.subtitle;
-    if (!subtitle && item.owner) subtitle = item.owner.display_name;
-    if (!subtitle && item.artists && Array.isArray(item.artists)) subtitle = item.artists.map(a => a.name).join(', ');
-    if (!subtitle) subtitle = type === 'artist' ? 'Artist' : '';
-    return subtitle;
-}
+/** Subtitle shown on home cards (the item's own, then owner, then artists, then 'Artist'). */
+const cardSubtitle = (item, type) => itemSubtitle(item, type, SUBTITLE_STYLE.card);
+
+/** Item type of each library section (round skeletons while artists load). */
+const SECTION_TYPE = { recent: 'album', favorites: 'playlist', artists: 'artist', albums: 'album' };
 
 class SpotifyHome extends LitElement {
     static get properties() {
@@ -161,18 +158,6 @@ class SpotifyHome extends LitElement {
 
     /* --- Click handlers (per-element, attached in the lit templates) --- */
 
-    _onScrollRight(e) {
-        e.stopPropagation();
-        const wrapper = e.currentTarget.closest('.carousel-wrapper');
-        const layout = wrapper ? wrapper.querySelector('.carousel-layout') : null;
-        if (layout) {
-            const scrollAmount = layout.clientWidth * 0.75;
-            // Simple right scroll only for now as requested, but logic supports both if we add left btn
-            const direction = 1;
-            layout.scrollBy({ left: scrollAmount * direction, behavior: 'smooth' });
-        }
-    }
-
     _onReorderClick(e) {
         e.stopPropagation();
         this.dispatchEvent(new CustomEvent('open-reorder', { bubbles: true, composed: true }));
@@ -279,44 +264,19 @@ class SpotifyHome extends LitElement {
         `;
     }
 
-    _carouselSection(title, sectionId, items = null) {
-        const hasItems = !!items && items.length > 0;
-        const expanded = this._expandedSections.has(sectionId);
-
-        let content;
-        if (items === null) { // Loading
-            content = Array(6).fill(0).map(() => renderCardSkeletonTemplate(sectionId.includes('artists')));
-        } else if (items.length === 0) { // Empty
-            content = html`<div style="padding:20px; opacity:0.5; white-space:nowrap;">No content found.</div>`;
-        } else {
-            content = items.map(item => this._cardTemplate(item, item.type || item._fallbackType));
-        }
-
-        return html`
-        <section class="home-section" data-section-id="${sectionId}">
-            <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
-                <div style="display: flex; align-items: center;">
-                    <h3 class="section-title" style="margin:0;">${title}</h3>
-                    <button class="icon-btn expand-btn" @click=${(e) => this._toggleSectionView(e, sectionId)} aria-label="Toggle View" style="background:none; border:none; color:var(--secondary-text-color, #b3b3b3); cursor:pointer; margin-left: 8px; padding: 4px; display: flex; align-items: center;">
-                        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(${expanded ? 180 : 0}deg);">
-                            <polyline points="6 9 12 15 18 9"></polyline>
-                        </svg>
-                    </button>
-                </div>
-                ${hasItems
-                ? html`<button class="see-all-btn" @click=${(e) => this._onNavigateSection(e, sectionId)}>See All</button>`
-                : html`<button class="see-all-btn" style="display:none">See All</button>`}
-            </div>
-            <div class="carousel-wrapper">
-                <div class="${expanded ? 'section-grid' : 'carousel-layout'}" id="carousel-${sectionId}" data-section="${sectionId}">
-                    ${content}
-                </div>
-                <button class="scroll-btn right" @click=${this._onScrollRight} style="${hasItems && items.length > 5 && !expanded ? '' : 'display:none'}">
-                    <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 18l6-6-6-6"/></svg>
-                </button>
-            </div>
-        </section>
-        `;
+    /** A library section (recent / favorites / artists / albums) as a card carousel. */
+    _carouselSection(title, sectionId, items) {
+        return renderCarouselSection({
+            title,
+            id: sectionId,
+            items,
+            type: SECTION_TYPE[sectionId],
+            expanded: this._expandedSections.has(sectionId),
+            onToggle: (e) => this._toggleSectionView(e, sectionId),
+            seeAll: (e) => this._onNavigateSection(e, sectionId),
+            subtitle: cardSubtitle,
+            onItem: (item, type, subtitle) => this._onItemClick(item, type, subtitle),
+        });
     }
 
     render() {
