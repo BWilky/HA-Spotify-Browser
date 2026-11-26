@@ -1249,8 +1249,8 @@ class SpotifyBrowserApp extends LitElement {
      *    refreshSections(), whose cooldown (meant for the automatic
      *    reopen/refocus path) would swallow an explicit refresh. Pinned
      *    follows its sensor and needs nothing.
-     *  - library and context pages (playlist/album/artist/section/...): refresh().
-     *  - search: has no way to re-run an unchanged query, so nothing.
+     *  - library, search and context pages (playlist/album/artist/section/...):
+     *    refresh().
      */
     _refreshCurrentPage() {
         const popups = this.shadowRoot.getElementById('popups');
@@ -1272,7 +1272,8 @@ class SpotifyBrowserApp extends LitElement {
             // refresh() rebuilds the page from scratch — never under an open
             // playlist edit session, which would silently drop unsaved changes.
             const editing = page.shadowRoot?.querySelector('spotify-playlist-view')?._editMode;
-            if (!editing) page.refresh();
+            // Library: `true` also re-reads the albums/artists buckets.
+            if (!editing) page.refresh(pageId === 'library' ? true : undefined);
         }
 
         // Now-playing, queue and recents.
@@ -1591,7 +1592,9 @@ class SpotifyBrowserApp extends LitElement {
     /** Re-fetch the cached home page's pinned section, if it exists. */
     _refreshHomePinned() {
         const home = this.router?.pageCache.get('home');
-        if (home?.fetchSectionData) home.fetchSectionData('pinned');
+        // With pinned disabled home has no manager, and fetching the section
+        // would throw mid-way and leave it marked as fetching.
+        if (home?.fetchSectionData && home.pinned) home.fetchSectionData('pinned');
     }
 
     _handleOpenReorder() {
@@ -1730,7 +1733,9 @@ class SpotifyBrowserApp extends LitElement {
 
     _updateMiniPlayerProgress() {
         if (this._isDesktop || !this.hass || !this.config?.entity) return;
-        const stateObj = this.hass.states[this.config.entity];
+        // The entity driving playback: the Sonos speaker during local Sonos
+        // playback (the SpotifyPlus entity sits idle then), else config.entity.
+        const stateObj = this.playerController?.playbackStateObj() || this.hass.states[this.config.entity];
         if (!stateObj) return;
 
         const progressBar = this.shadowRoot.getElementById('mini-player-progress-bar');

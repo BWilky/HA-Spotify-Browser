@@ -1073,6 +1073,20 @@ export class SpotifyPlaylistView extends LitElement {
      * background, is bounded + cached, and never blocks the track list: if no
      * genres come back the pills row simply stays hidden.
      */
+    /** Attach genres to each track we can resolve from the artists enriched so far. */
+    _attachTrackGenres(items) {
+        if (!this._artistGenreLocal) return;
+        for (const entry of items) {
+            const track = entry.track || entry;
+            if (!track?.id || this._trackGenres[track.id]) continue;
+            const genres = new Set();
+            for (const a of (track.artists || [])) {
+                for (const g of (this._artistGenreLocal.get(a?.id) || [])) genres.add(g);
+            }
+            if (genres.size) this._trackGenres[track.id] = [...genres];
+        }
+    }
+
     async _enrichGenres() {
         // Low-power profile: skip the background artist lookups + pill rebuilds.
         if (this.config?.appearance?.performance?.lite) return;
@@ -1092,7 +1106,13 @@ export class SpotifyPlaylistView extends LitElement {
         }
         // Bound the work: at most ~24 new artist lookups per pass.
         const toFetch = [...pending].slice(0, 24);
-        if (toFetch.length === 0) { this._rebuildGenrePills(); return; }
+        if (toFetch.length === 0) {
+            // Nothing new to look up — but tracks loaded since the last pass
+            // still need genres attached from the artists already resolved.
+            this._attachTrackGenres(items);
+            this._rebuildGenrePills();
+            return;
+        }
 
         if (!this._artistGenreLocal) this._artistGenreLocal = new Map();
         this._enrichingGenres = true;
@@ -1108,16 +1128,7 @@ export class SpotifyPlaylistView extends LitElement {
                 if (!this.isConnected) return;
             }
 
-            // Attach genres to each track we can resolve from what we've enriched.
-            for (const entry of items) {
-                const track = entry.track || entry;
-                if (!track?.id || this._trackGenres[track.id]) continue;
-                const genres = new Set();
-                for (const a of (track.artists || [])) {
-                    for (const g of (this._artistGenreLocal.get(a?.id) || [])) genres.add(g);
-                }
-                if (genres.size) this._trackGenres[track.id] = [...genres];
-            }
+            this._attachTrackGenres(items);
             this._rebuildGenrePills();
         } finally {
             this._enrichingGenres = false;

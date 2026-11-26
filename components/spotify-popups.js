@@ -73,10 +73,7 @@ class SpotifyPopups extends LitElement {
 
     render() {
         return html`
-            <div @click=${(e) => {
-                // Only close if clicking generic backdrop, specific modals handle their own clicks
-                if (e.target.classList.contains('popup-backdrop')) this.dispatchEvent(new CustomEvent('close-popups'));
-            }}>
+            <div>
                 ${this.renderDevicePopup()}
                 ${this.renderAlert()}
                 ${this.renderToasts()}

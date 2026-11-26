@@ -312,10 +312,21 @@ class SpotifyLibrary extends LitElement {
      * Re-fetch after a playlist mutation elsewhere in the app (create, rename,
      * delete) so names/artwork/ordering here don't go stale.
      */
-    refresh() {
+    /**
+     * Re-read the library. By default only what a playlist edit can change
+     * (playlists + recents); `all` (the header's "Refresh Data") also drops
+     * the saved-albums and followed-artists buckets.
+     */
+    refresh(all = false) {
         this._playlists = null;
         this._recent = null;
         delete this._paging.playlist;
+        if (all) {
+            this._albums = null;
+            this._artists = null;
+            delete this._paging.album;
+            delete this._paging.artist;
+        }
         if (this._filter) this._loadBucket(this._filter);
         else this._loadRecent();
     }

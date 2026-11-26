@@ -201,6 +201,11 @@ class SpotifySearch extends LitElement {
         this._query = query;
     }
 
+    /** Re-run the current query (header "Refresh Data"). */
+    refresh() {
+        if (this._query && this.api) this._performSearch(this._query);
+    }
+
     _clearQuery() {
         this._results = null;
         this._filter = null;

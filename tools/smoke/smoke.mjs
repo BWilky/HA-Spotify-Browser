@@ -168,6 +168,21 @@ for (const vp of [{ name: 'desktop', width: 1400, height: 900 }, { name: 'mobile
   for (let i = 0; i < 10; i++) { await page.evaluate(() => { const ha = document.querySelector('home-assistant'); const cur = ha.hass.states['media_player.spotify_test']; const n = Number(String(cur.attributes.media_content_id).replace(/\D/g, '')) || 6; ha.hass = window.__makeHass(n); }); await sleep(260); }
   P.renders_10_player_ticks = sorted(await page.evaluate(() => window.__renders));
 
+  // A page whose read fails must show the failure, not spin, and must not
+  // retry on every player change; returning to the page retries once.
+  m = await mark();
+  await nav('playlist:pfail'); await sleep(1500);
+  const failCtx = () => page.evaluate(() => { const c = document.querySelector('spotify-browser-app').router.pageCache.get('playlist:pfail')?._contextData; return c ? { isLoading: c.isLoading, loadFailed: !!c.loadFailed, name: c.name } : null; });
+  const failed1 = await failCtx();
+  for (let i = 11; i <= 15; i++) { await page.evaluate((n) => window.__setHass(window.__makeHass(n)), i); await sleep(500); }
+  const callsWhileFailed = (await since(m)).by.get_playlist || 0;
+  await nav('home'); await sleep(600);
+  await page.evaluate(() => { window.__pfailOk = true; });
+  await back(); await sleep(1800);
+  P.failed_load = { afterFailure: failed1, getPlaylistCallsOver5TrackChanges: callsWhileFailed, afterReturning: await failCtx() };
+  await back(); await sleep(500);
+  await page.evaluate(() => window.__setHass(window.__makeHass(9))); await sleep(800);
+
   // 6. Track change while open (expected to fetch).
   m = await mark();
   await page.evaluate(() => window.__setHass(window.__makeHass(9))); await sleep(2000);

@@ -181,7 +181,10 @@ export class SpotifySidebarPlayer extends LitElement {
         if (!this._isVolumeOverlayOpen) return;
         e.stopPropagation();
         const nowPlaying = this.shadowRoot.querySelector('spotify-sidebar-nowplaying');
-        if (nowPlaying) nowPlaying.toggleVolumeOverlay();
+        // The blur is shared by the volume overlay and the device dropdown:
+        // dismiss whichever one is open (toggling volume here used to OPEN it
+        // when the dropdown was the one showing).
+        if (nowPlaying) nowPlaying.closeOverlays();
     }
 
     render() {

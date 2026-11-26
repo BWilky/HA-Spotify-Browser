@@ -100,6 +100,17 @@ export const queueListStyles = css`
         line-height: 1.2;
     }
 
+    /* "Played ... ago" line under the artist (Recently Played tab). */
+    .queue-context-sub {
+        font-size: var(--spf-text-xs, 11px);
+        color: var(--spf-text-sub);
+        opacity: 0.75;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        line-height: 1.2;
+    }
+
     .queue-list { 
         flex: 1 1 auto; /* Grow and shrink as needed */
         min-height: 0;

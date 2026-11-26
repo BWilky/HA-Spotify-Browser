@@ -21,7 +21,8 @@ function respond(service, d) {
     case 'get_player_recent_tracks': return { result: page(i => ({ track: track(i), played_at: new Date(Date.now() - i * 6e5).toISOString(), context: { uri: `spotify:album:al${i % 13}`, type: 'album' } }), 30) };
     case 'get_player_queue_info': return { result: { currently_playing: track(1), queue: Array.from({ length: 20 }, (_, k) => track(k + 2)) } };
     case 'get_playlist': {
-      const id = d.playlist_id; const total = id === 'pbig' ? BIG_TOTAL : 30;
+      const id = d.playlist_id;
+      if (id === 'pfail' && !window.__pfailOk) throw Object.assign(new Error('stubbed failure'), { code: 'unknown_error' }); const total = id === 'pbig' ? BIG_TOTAL : 30;
       const pl = { ...playlist(id.replace(/^p/, '')), id, uri: `spotify:playlist:${id}`, name: id === 'pbig' ? 'Big Playlist' : `Playlist ${id}` };
       pl.tracks = { total, items: Array.from({ length: Math.min(100, total) }, (_, k) => ({ track: track(k), added_at: '2024-01-01T00:00:00Z' })) };
       return { result: pl, user_profile: { id: 'me' } };

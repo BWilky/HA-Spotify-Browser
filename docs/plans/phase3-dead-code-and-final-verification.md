@@ -8,9 +8,8 @@ Kept on purpose during Phase 3, with the reason:
 - The inline shuffle SVGs (no exported equivalent) and the pill equalizer (not equivalent to `playingBarsIcon`).
 - `sharedStyles` in the reorder dialog: its buttons and input rely on its `font-family: inherit`, text-selection and scrollbar rules.
 - One `requestUpdate()` in context-view, after an assignment that can be the same object reference.
-- `.queue-context-sub` still has no CSS (unstyled "played … ago" line); left for a design decision.
 
-The "small bugs found during Phases 1–2" list below is still open.
+See "Bug follow-up after Phase 3" below for what was fixed afterwards and what remains.
 
 ## Rules for the whole phase
 
@@ -72,18 +71,33 @@ File: `components/common/icons.js`.
 - `.github/workflows/release.yml`: build with `npm ci && npm run build:prod` so releases use the locked esbuild, not whatever `npx esbuild` resolves that day.
 - New `.github/workflows/test.yml`: on pull requests and pushes to `main`, run `npm ci`, `npm test`, `npm run build:prod`.
 
-## Small bugs found during Phases 1–2, not yet fixed
+## Bug follow-up after Phase 3
 
-Not dead code, but cheap, and found while working. Fix here or fold into Phase 4 — your call.
+Fixed in the follow-up commit:
 
-1. `components/players/sidebar/index.js` `_handleBlurClick`: with the **device dropdown** open, a tap on the blurred queue opens the volume overlay as well instead of closing the dropdown.
-2. `spotify-browser-app.js` `_handlePlaylistChanged` calls `_refreshHomePinned()` unconditionally; with pinned disabled, home's `this.pinned` is null and `fetchSectionData('pinned')` likely throws and leaves `_fetching.pinned` stuck true. Read from code, not reproduced.
-3. `spotify-playlist-view.js` `_enrichGenres`: returns early when no new artists need looking up, so newly loaded liked songs whose artists are already known never get genres attached.
-4. `artist-discography:` pages count as hero pages, so the app header is set transparent on arrival, and the discography view never restores it.
-5. "Refresh Data" does nothing page-specific on search, and on library only re-reads playlists and recents (not the Albums / Artists pills).
-6. Duplicate fetches on open: recents twice (home and the player refresh), and on desktop the queue twice (the sidebar's own tab refresh plus the app's).
-7. The root component still re-renders on every player state tick (10 of 10 in the harness). Removing that needs the `PlayerStateController` change in Phase 4.
-8. `open-track-menu` payloads still carry the full-size image for a 46px menu thumbnail.
+- Tapping the blurred sidebar queue with the device dropdown open now closes the dropdown (it used to open the volume overlay as well).
+- Creating or deleting a playlist no longer tries to refresh the home pinned section when pinned is disabled.
+- Liked Songs: tracks loaded on later pages now get genres attached when their artists were already looked up.
+- "Refresh Data" re-runs the current search, and on the library also re-reads the Albums and Artists pills.
+- A failed page load shows "Couldn't load this page" instead of spinning forever and re-requesting on every player change; returning to the page (or Refresh Data) retries.
+- Clicking the alert backdrop no longer closes the device picker or cancels a pending device choice.
+- The mobile mini-player progress bar follows the entity that is actually playing (the Sonos speaker during local Sonos playback). Not tested against a real Sonos.
+- The "played … ago" line in the sidebar's Recently Played tab is styled.
+
+Not a bug after all: the discography page draws its own header under a deliberately transparent app header.
+
+Still open — left for Phase 4 because each falls out of a planned consolidation or needs a design decision:
+
+1. Duplicate fetches on open: recents twice (home and the player refresh), and on desktop the queue twice (sidebar refresh plus the app's). → single player-state subscription.
+2. The root component re-renders on every player state tick. → `PlayerStateController` / mini-player extraction.
+3. The track context menu receives the full-size cover for a 46px thumbnail. → shared `openTrackMenu` helper.
+4. Lost storage update: a pin write followed quickly by a device write can revert the pin. → single pending-write overlay in storage.
+5. Desktop next/previous has no optimistic update and desktop shuffle does not refresh the queue (mobile does both). → shared now-playing controller.
+6. Desktop device transfers from the sidebar dropdown show no toast and do not report failures. → single transfer handler.
+7. The Connect sheet ignores the documented `rate_control` and `optimistic` volume options. → shared volume controller.
+8. Escape closes only the device picker and device manager, not the playlist picker or create sheet. → overlay stack.
+9. Progress may jump back after an attribute-only update such as a volume change, because position is extrapolated from the entity's last update time (suspected; the code comment suggests the choice was deliberate).
+10. The device icon next to shuffle in the desktop sidebar is malformed (four overlapping paths). Needs a decision on which icon to use.
 
 ## Final verification (after Phase 3)
 

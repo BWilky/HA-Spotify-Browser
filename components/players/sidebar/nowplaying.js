@@ -401,6 +401,12 @@ export class SpotifySidebarNowPlaying extends LitElement {
         }));
     }
 
+    /** Close whichever overlay (volume or device dropdown) is open. */
+    closeOverlays() {
+        if (this._devicesVisible) this.toggleDeviceOverlay();
+        if (this._volumeVisible) this.toggleVolumeOverlay();
+    }
+
     _resetVolumeTimeout() {
         if (this._volumeTimeout) clearTimeout(this._volumeTimeout);
         this._volumeTimeout = setTimeout(() => {

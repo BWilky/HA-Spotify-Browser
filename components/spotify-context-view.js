@@ -278,7 +278,7 @@ export class SpotifyContextView extends LitElement {
         }
 
         // Initial loading state
-        this._contextData = {
+        const placeholder = this._contextData = {
             type, id, isLoading: true, name: 'Loading...', items: [], offset: 0, total: null, hasMore: true,
             images: [], tracks: null, albums: null, playlists: null, topTracks: null, similarArtists: null
         };
@@ -501,6 +501,18 @@ export class SpotifyContextView extends LitElement {
         } catch (e) {
             console.error("Failed to load context data", e);
         }
+
+        // Every successful loader replaces the placeholder. If it is still
+        // here, the read failed (a failed call returns null): say so instead
+        // of sitting on "Loading..." — which also re-ran this load on every
+        // player change. Not cached; refresh() or returning to the page
+        // (updateHeaderState) retries.
+        if (this._contextData === placeholder) {
+            this._contextData = {
+                ...placeholder, isLoading: false, hasMore: false, loadFailed: true,
+                name: "Couldn't load this page"
+            };
+        }
     }
 
     async _loadSectionData(sectionId, offset, cursor = null) {
@@ -673,6 +685,12 @@ export class SpotifyContextView extends LitElement {
     }
 
     updateHeaderState() {
+        // Shown again after a failed load: try once more.
+        if (this._contextData?.loadFailed) {
+            this.refresh();
+            return;
+        }
+
         // Find the active view in shadowRoot
         const activeView = this.shadowRoot.querySelector('spotify-artist-view') ||
             this.shadowRoot.querySelector('spotify-playlist-view') ||
