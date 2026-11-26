@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import './helpers/lit-env.js';
-import { itemSubtitle, SUBTITLE_STYLE } from '../components/media-templates.js';
+import { itemSubtitle, SUBTITLE_STYLE } from '../src/components/media-templates.js';
 
 // The subtitle under an item's name was written out separately by five
 // lists. These are those rules exactly as they were before itemSubtitle

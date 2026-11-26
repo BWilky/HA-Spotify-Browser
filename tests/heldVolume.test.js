@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { heldVolume } from '../utils.js';
+import { heldVolume } from '../src/utils.js';
 
 // Optimistic volume hold for the mobile Connect sheet: after the user sets a
 // level, keep showing it until the player state catches up or the hold expires.

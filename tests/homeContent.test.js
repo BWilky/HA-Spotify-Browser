@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { loadConfigPins, buildPinnedRow } from '../components/controllers/home-content.js';
+import { loadConfigPins, buildPinnedRow } from '../src/components/controllers/home-content.js';
 
 function fakeApi(calls) {
     return {

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sectionFetchWindow, homeRefreshDue, HOME_PAGE_SIZE, HOME_REFRESH_COOLDOWN_MS } from '../components/controllers/home-content.js';
+import { sectionFetchWindow, homeRefreshDue, HOME_PAGE_SIZE, HOME_REFRESH_COOLDOWN_MS } from '../src/components/controllers/home-content.js';
 
 test('a normal fetch continues from the current offset with one page', () => {
     assert.deepEqual(sectionFetchWindow({ offset: 40, loaded: 40 }), { offset: 40, limit: HOME_PAGE_SIZE });

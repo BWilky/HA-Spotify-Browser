@@ -1,6 +1,6 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { NowPlayingController } from '../components/controllers/now-playing-controller.js';
+import { NowPlayingController } from '../src/components/controllers/now-playing-controller.js';
 
 const T0 = 1_700_000_000_000;
 

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     planPlaylistEdit, entryUri, REPLACE_MAX_ITEMS, BLOCKED_PARTIAL_DUPLICATE
-} from '../components/controllers/playlist-edit-plan.js';
+} from '../src/components/controllers/playlist-edit-plan.js';
 
 const uri = (id) => `spotify:track:${id}`;
 /** Edit entries as the editor builds them: key = `<uri>:<original index>`, item wraps the track. */

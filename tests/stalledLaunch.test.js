@@ -1,6 +1,6 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { SpotifyApi } from '../api.js';
+import { SpotifyApi } from '../src/api.js';
 
 const ENTITY = 'media_player.test';
 

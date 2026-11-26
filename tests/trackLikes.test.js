@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TrackLikesController, VERIFY_MS } from '../components/controllers/track-likes-controller.js';
+import { TrackLikesController, VERIFY_MS } from '../src/components/controllers/track-likes-controller.js';
 
 const flush = () => new Promise(r => setImmediate(r));
 

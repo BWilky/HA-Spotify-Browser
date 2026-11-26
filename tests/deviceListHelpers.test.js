@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { reorderList, dragTargetIndex, deviceTypeLabel, normalizeRename, unsavedLiveDevices } from '../utils.js';
+import { reorderList, dragTargetIndex, deviceTypeLabel, normalizeRename, unsavedLiveDevices } from '../src/utils.js';
 
 test('reorderList moves an item and leaves the input untouched', () => {
     const src = ['a', 'b', 'c', 'd'];

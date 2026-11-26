@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     HeroScrollController, fixedHeaderFade, heroHeightHeaderFade, HERO_PAGE_CLASS
-} from '../components/controllers/hero-scroll-controller.js';
+} from '../src/components/controllers/hero-scroll-controller.js';
 
 /*
  * Reference formulas, copied verbatim from the views before the header logic

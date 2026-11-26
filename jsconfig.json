@@ -41,18 +41,18 @@
     "allowUnusedLabels": false
   },
   "files": [
-    "utils.js",
-    "config_parser.js",
-    "router.js",
-    "components/track-menu.js",
-    "components/controllers/home-content.js",
-    "components/controllers/overlay-stack.js",
-    "components/controllers/page-loaders.js",
-    "components/controllers/pinned-items-manager.js",
-    "components/controllers/player-controller.js",
-    "components/controllers/player-state-controller.js",
-    "components/controllers/playlist-edit-plan.js",
-    "components/controllers/storage-manager.js",
-    "components/controllers/volume-controller.js"
+    "src/utils.js",
+    "src/config_parser.js",
+    "src/router.js",
+    "src/components/track-menu.js",
+    "src/components/controllers/home-content.js",
+    "src/components/controllers/overlay-stack.js",
+    "src/components/controllers/page-loaders.js",
+    "src/components/controllers/pinned-items-manager.js",
+    "src/components/controllers/player-controller.js",
+    "src/components/controllers/player-state-controller.js",
+    "src/components/controllers/playlist-edit-plan.js",
+    "src/components/controllers/storage-manager.js",
+    "src/components/controllers/volume-controller.js"
   ]
 }

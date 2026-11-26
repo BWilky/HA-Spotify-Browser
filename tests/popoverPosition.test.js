@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { popoverPosition } from '../utils.js';
+import { popoverPosition } from '../src/utils.js';
 
 const size = { width: 270, height: 200 };
 const full = { left: 0, top: 0, width: 1000, height: 800 };

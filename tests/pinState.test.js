@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PinStateController } from '../components/controllers/pin-state-controller.js';
-import { PinnedItemsManager } from '../components/controllers/pinned-items-manager.js';
+import { PinStateController } from '../src/components/controllers/pin-state-controller.js';
+import { PinnedItemsManager } from '../src/components/controllers/pinned-items-manager.js';
 
 /** A PinnedItemsManager over an in-memory storage stub. */
 function makeManager({ stored = [], status = 'ok', config = {} } = {}) {

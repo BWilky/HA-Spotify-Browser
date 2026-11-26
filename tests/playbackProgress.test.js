@@ -1,6 +1,6 @@
 import { test, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { playbackProgress } from '../utils.js';
+import { playbackProgress } from '../src/utils.js';
 
 const T0 = Date.parse('2026-01-01T12:00:00Z');
 const at = (ms) => new Date(T0 + ms).toISOString();

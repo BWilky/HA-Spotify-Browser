@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { formatTime } from '../utils.js';
+import { formatTime } from '../src/utils.js';
 
 test('formatTime renders m:ss', () => {
     assert.equal(formatTime(0), '0:00');

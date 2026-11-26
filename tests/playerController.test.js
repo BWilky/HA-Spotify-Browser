@@ -1,6 +1,6 @@
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
-import { PlayerController } from '../components/controllers/player-controller.js';
+import { PlayerController } from '../src/components/controllers/player-controller.js';
 
 const ENTITY = 'media_player.spotifyplus';
 const SONOS_ENTITY = 'media_player.sonos_kitchen';

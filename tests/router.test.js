@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { Router } from '../router.js';
+import { Router } from '../src/router.js';
 
 // Build a router with a fake container and a no-op transition so navigateTo
 // can run under plain node (no DOM). Pages are plain objects in the cache.

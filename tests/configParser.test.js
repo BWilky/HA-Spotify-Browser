@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ConfigParser } from '../config_parser.js';
+import { ConfigParser } from '../src/config_parser.js';
 
 const parse = (home) => ConfigParser.parse({ entity: 'media_player.x', home }).home;
 

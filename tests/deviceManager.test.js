@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DeviceManager } from '../components/devices/device-manager.js';
-import { StorageManager } from '../components/controllers/storage-manager.js';
+import { DeviceManager } from '../src/components/devices/device-manager.js';
+import { StorageManager } from '../src/components/controllers/storage-manager.js';
 
 function managerWith(devices) {
     const storage = { getData: () => ({ settings: { version: 1 }, devices }), updateHass() {} };

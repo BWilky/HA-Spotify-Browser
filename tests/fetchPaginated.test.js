@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SpotifyApi } from '../api.js';
+import { SpotifyApi } from '../src/api.js';
 
 function makeItems(n, prefix = 'item') {
     return Array.from({ length: n }, (_, i) => `${prefix}-${i}`);

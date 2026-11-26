@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createOverlayStack, registerOverlay } from '../components/controllers/overlay-stack.js';
+import { createOverlayStack, registerOverlay } from '../src/components/controllers/overlay-stack.js';
 
 /** Minimal EventTarget stand-in that records listener churn. */
 function fakeTarget() {

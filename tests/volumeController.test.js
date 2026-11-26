@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { VolumeController, THROTTLE_MS, HOLD_MS } from '../components/controllers/volume-controller.js';
+import { VolumeController, THROTTLE_MS, HOLD_MS } from '../src/components/controllers/volume-controller.js';
 
 function setup(t, config = {}) {
     t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });

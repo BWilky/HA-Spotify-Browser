@@ -2,8 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     pageLoaders, pageInPlaylistTracks, loadMore, loadSection, loadSectionMore, hydrateSimilarArtists
-} from '../components/controllers/page-loaders.js';
-import { SpotifyApi } from '../api.js';
+} from '../src/components/controllers/page-loaders.js';
+import { SpotifyApi } from '../src/api.js';
 import {
     stubApi, makeHost, deferred, flush, placeholder, range,
     artist, album, track, playlistItem, playlistObj

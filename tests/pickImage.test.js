@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { pickImage, getItemImage, IMG_THUMB, IMG_CARD } from '../utils.js';
+import { pickImage, getItemImage, IMG_THUMB, IMG_CARD } from '../src/utils.js';
 
 const album = [
     { url: 'a640', width: 640, height: 640 },

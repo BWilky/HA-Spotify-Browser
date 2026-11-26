@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { listeners } from './helpers/lit-env.js';
-import { trackMenuDetail, openTrackMenu } from '../components/track-menu.js';
-import { renderTrackRowTemplate } from '../components/media-templates.js';
-import { getItemImage, pickImage, IMG_THUMB } from '../utils.js';
+import { trackMenuDetail, openTrackMenu } from '../src/components/track-menu.js';
+import { renderTrackRowTemplate } from '../src/components/media-templates.js';
+import { getItemImage, pickImage, IMG_THUMB } from '../src/utils.js';
 
 const images = [640, 300, 64].map(w => ({ url: `https://img.test/${w}/al.png`, width: w, height: w }));
 const TRACK = { id: 't1', uri: 'spotify:track:t1', name: 'Song', type: 'track', artists: [{ name: 'A' }, { name: 'B' }], album: { name: 'Album', images } };

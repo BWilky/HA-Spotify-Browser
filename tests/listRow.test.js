@@ -1,13 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { normalized, markup, listeners } from './helpers/lit-env.js';
-import { html } from '../lit.js';
+import { html } from '../src/lit.js';
 import {
     renderListRow, renderRowSkeletons, renderEmptyState, renderCarouselSection, renderMediaRowTemplate,
     renderCardTemplate, renderCardSkeletonTemplate, itemSubtitle, SUBTITLE_STYLE,
-} from '../components/media-templates.js';
-import { getItemImage, IMG_THUMB } from '../utils.js';
-import { menuIcon, playIcon } from '../components/common/icons.js';
+} from '../src/components/media-templates.js';
+import { getItemImage, IMG_THUMB } from '../src/utils.js';
+import { menuIcon, playIcon } from '../src/components/common/icons.js';
 
 const img = (seed) => [640, 300, 64].map(w => ({ url: `https://img.test/${w}/${seed}.png`, width: w, height: w }));
 const album = { id: 'al1', uri: 'spotify:album:al1', type: 'album', name: 'Album 1', images: img('al1'), artists: [{ name: 'Artist 1' }], release_date: '2020-01-01' };

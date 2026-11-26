@@ -161,5 +161,12 @@ Found during Wave 3 and deliberately preserved (each needs a decision or a small
 - The artist view does not skip parallax in lite mode and does not de-duplicate header events (the playlist view does both).
 - `renderMediaRowTemplate` (media-templates.js) has no callers left; the artist view could use `renderCarouselSection` and `openTrackMenu`.
 
-**Remaining**
-- Wave 4 — organization: CSS split (component CSS beside the component, `sharedStyles` split into shell vs shared), folder layout (`src/`), type-checking config (`jsconfig.json` with `checkJs`).
+**Wave 4 — done.**
+- `jsconfig.json`: `checkJs` with `strictNullChecks` for 13 pure modules, clean (`npx --yes -p typescript@5 tsc -p jsconfig.json`; installs nothing). No real bugs found; JSDoc typedefs for the main data shapes. esbuild reads this file — never add `alwaysStrict` / `"strict": true`, it changes the shipped bundle.
+- Subtitle wording fixes: "By undefined" → "Playlist"; an album with an empty artists list reads "Unknown Artist • 2020" (section) / the year or "Album" (discography).
+- Stylesheets: `styles/` holds only multi-consumer sheets (rule at the top of `src/styles/shared-styles.js`); `sharedStyles` 787 → 364 lines; the root's frame rules live in `src/spotify-browser-app.styles.js`; single-consumer sheets sit beside their components. Proven visually identical by a computed-style dump of every element.
+- All source moved under `src/` (`git mv`, history kept). A root `index.js` re-exports `src/index.js`, so `npm run build`, the release workflow and local deploy scripts are unchanged. The minified bundle is byte-identical before and after the move.
+
+**Path note:** file paths in the sections above predate the move — prefix them with `src/` (for example `components/media-templates.js` is now `src/components/media-templates.js`).
+
+**Offered next, not approved:** the duplication pass listed in `docs/plans/HANDOFF.md`.

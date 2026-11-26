@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { PlayerStateController } from '../components/controllers/player-state-controller.js';
+import { PlayerStateController } from '../src/components/controllers/player-state-controller.js';
 
 class FakePlayer extends EventTarget {
     constructor(state) { super(); this.state = state; }

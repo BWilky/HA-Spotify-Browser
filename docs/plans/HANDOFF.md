@@ -1,4 +1,4 @@
-# Handoff — architecture refactor, Phase 4 Wave 4 in progress
+# Handoff — architecture refactor (Phase 4 complete)
 
 Read this first if you are picking the work up. Everything below is the state at handoff; verify against `git log` and `git status` before acting.
 
@@ -15,7 +15,11 @@ Branch `worktree-bridge-cse_01HVcWXE9McGsDjLcW4C5zMn`, pushed, no PR opened (the
 | `d1d55c2` | Phase 4 wave 1 — playlist editor, storage overlay, now-playing controller, api helpers |
 | `b3f9a49` | Phase 4 wave 2 — mini-player, player-state subscription, overlay stack, device row, volume |
 | `c58dfda` | Phase 4 wave 3 — shared view controllers, page loaders, one list row |
-| (next)   | Wave 4 part 1 — `jsconfig.json` type-checking for 13 pure modules, three subtitle wording fixes, this file |
+| `35c5b6b` | Wave 4 part 1 — `jsconfig.json` type-checking, three subtitle wording fixes, this file |
+| `c27f6ab` | Wave 4 part 2 — stylesheet organization |
+| (next)   | Wave 4 part 3 — source moved under `src/` |
+
+All source now lives under `src/`; paths in older notes below and in the other plan files predate the move (prefix them with `src/`). The root `index.js` only re-exports `src/index.js`.
 
 Background and the record of every wave: `docs/plans/architecture-review.md` (original review + roadmap) and `docs/plans/phase3-dead-code-and-final-verification.md` (per-wave results, behaviour changes to check on a device, open bugs and decisions).
 
@@ -31,7 +35,7 @@ Background and the record of every wave: `docs/plans/architecture-review.md` (or
 
 ```
 . ~/tools/playwright/env.sh          # required: Chromium needs these user-space libraries
-npm test                             # 652 tests at handoff
+npm test                             # 652 tests
 npm run build                        # dev bundle -> dist/spotify-browser.js (dist/ is gitignored)
 node tools/smoke/smoke.mjs "$(pwd)/dist/spotify-browser.js" <outDir> <label>
 node tools/smoke/summ.cjs <outDir>/<label>.json
@@ -46,27 +50,7 @@ Known harness noise (not regressions): image request counts wobble by 1–3 betw
 
 `esbuild` reads `jsconfig.json`: do not add `alwaysStrict` or `"strict": true` there — it changes the shipped bundle.
 
-## In flight at handoff
-
-A sub-agent in the ORIGINAL session is reorganizing stylesheets (Wave 4, CSS). If that session is continued on another model, its report arrives there. If the session is abandoned, its uncommitted edits (everything under `styles/`, new `*.styles.js` files next to components, and style imports / `static styles` arrays in component files) are lost and the task must be relaunched from this brief:
-
-- Goal: zero visual change. Rule to establish: `styles/` holds only sheets adopted by more than one component; a single-consumer sheet lives beside its component as `<component>.styles.js`.
-- Split the ~900-line `sharedStyles` (`styles/shared-styles.js`): rules that can only match inside the root component go to `styles/shell.styles.js` (`shellStyles`), adopted only by `spotify-browser-app.js`; tokens, the whole `:host` block and real shared primitives stay. Keep the `:host` block whole — several adopters override its shell positioning and at least one relies on not overriding parts of it. `@keyframes` are per shadow root: keep each wherever a rule references it.
-- Move the single-consumer sheets (`spotify-header`, `spotify-home`, `spotify-library`, `spotify-popups`, the two exports of `spotify-queue`) next to their components with `git mv`.
-- Proof required: a Playwright script that dumps the full computed style of every element in every shadow root across all surfaces and config variants (`performance: low`, `page_transition: slide | none`, `blur: false`), run on a before-bundle and the final build, with identical results apart from measured animation noise; plus one stock harness run.
-
-When the CSS work is in: review the diff (check the `:host` handling and that `shellStyles` is adopted only by the root), run the before/after harness comparison against `c58dfda` + part 1, then do the `src/` move below, and commit Wave 4.
-
-## Remaining step of Wave 4 — move source under `src/`
-
-Mechanical; do it only when no agent is editing files.
-
-1. `mkdir src && git mv api.js router.js utils.js config_parser.js spotify-browser-app.js lit.js components styles src/` and `git mv index.js src/index.js`. Relative imports between moved files do not change because they move together.
-2. Keep a root `index.js` containing only `import './src/index.js';` so `esbuild index.js …` in `package.json`, the release workflow and the owner's local (gitignored) `build.sh` keep working unchanged.
-3. Update: test imports (`../api.js` → `../src/api.js`, etc. — check for any test that reads source files by path); the `files` list in `jsconfig.json` (it fails loudly with TS6053 if a path is wrong); path mentions in `README.md`, `docs/plans/*.md` and comments; `tools/smoke/` needs nothing (it takes a bundle path).
-4. Verify: `npm test`; type-check; `npm run build:prod -- --outfile=dist/x.js` — the minified bundle should be the same size as before the move to within a few bytes; one harness run identical to the pre-move run.
-
-## After Wave 4 — offered to the owner, not yet approved
+## Next — offered to the owner, not yet approved
 
 A duplication pass over the reorganized code. Known leftovers:
 

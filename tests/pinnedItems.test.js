@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PinnedItemsManager, USER_LIBRARY_ITEM } from '../components/controllers/pinned-items-manager.js';
+import { PinnedItemsManager, USER_LIBRARY_ITEM } from '../src/components/controllers/pinned-items-manager.js';
 
 function fakeStorage(items, status = 'ok') {
     const store = { pinned_items: items };

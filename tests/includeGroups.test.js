@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { pageLoaders, loadMore } from '../components/controllers/page-loaders.js';
+import { pageLoaders, loadMore } from '../src/components/controllers/page-loaders.js';
 import { stubApi, makeHost, flush, album, artist, range } from './pageLoaderStubs.js';
 
 // Which release groups each artist surface asks get_artist_albums for. There

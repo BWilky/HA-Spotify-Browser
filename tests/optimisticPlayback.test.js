@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { OptimisticPlaybackController, HOLD_MS, TRACK_HOLD_MS } from '../components/controllers/optimistic-playback-controller.js';
+import { OptimisticPlaybackController, HOLD_MS, TRACK_HOLD_MS } from '../src/components/controllers/optimistic-playback-controller.js';
 
 function setup(t, { context = { uri: 'spotify:playlist:p', type: 'playlist' } } = {}) {
     t.mock.timers.enable({ apis: ['setTimeout'] });

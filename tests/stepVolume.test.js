@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { stepVolume } from '../utils.js';
-import { ConfigParser } from '../config_parser.js';
+import { stepVolume } from '../src/utils.js';
+import { ConfigParser } from '../src/config_parser.js';
 
 test('stepVolume nudges by the step and clamps to 0..100', () => {
     assert.equal(stepVolume(50, +1, 2), 52);

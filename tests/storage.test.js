@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { StorageManager } from '../components/controllers/storage-manager.js';
-import { PinnedItemsManager } from '../components/controllers/pinned-items-manager.js';
-import { DeviceManager } from '../components/devices/device-manager.js';
+import { StorageManager } from '../src/components/controllers/storage-manager.js';
+import { PinnedItemsManager } from '../src/components/controllers/pinned-items-manager.js';
+import { DeviceManager } from '../src/components/devices/device-manager.js';
 
 const SENSOR = 'sensor.test_store';
 const TIMEOUT = StorageManager.PENDING_WRITE_MS;
@@ -402,7 +402,7 @@ test('guest with a storage script: writes go through the script and behave like 
 });
 
 test('admin writes fire the configured event; the default sensor name is one exported constant', async () => {
-    const { DEFAULT_STORAGE_SENSOR } = await import('../components/controllers/storage-manager.js');
+    const { DEFAULT_STORAGE_SENSOR } = await import('../src/components/controllers/storage-manager.js');
     assert.equal(DEFAULT_STORAGE_SENSOR, 'sensor.spotify_browser_data');
 
     const ha = fakeHA({ data: { a: 1 }, config: { event: 'my_event' } }); // no sensor configured

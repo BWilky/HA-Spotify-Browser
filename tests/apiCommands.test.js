@@ -5,7 +5,7 @@
 // what data, what came back, what was logged), so the refactor must keep it.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { SpotifyApi } from '../api.js';
+import { SpotifyApi } from '../src/api.js';
 
 const ENTITY = 'media_player.spotifyplus_test';
 
