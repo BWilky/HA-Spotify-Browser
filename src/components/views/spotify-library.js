@@ -7,7 +7,7 @@ import { menuIcon, heartIcon } from '../common/icons.js';
 import { renderListRow, renderRowSkeletons, renderEmptyState, itemSubtitle, SUBTITLE_STYLE } from '../media-templates.js';
 import {
     playlistMenuItems, playlistMenuState, openActionMenu, togglePin, playlistPinItem,
-    openPlaylistEditor, confirmDeletePlaylist,
+    openPlaylistEditor, togglePlaylistFlag, setPlaylistFollowed, confirmDeletePlaylist,
 } from '../playlist-actions.js';
 
 // Filter pills. `null` = the default "Recents" view; the rest map to a saved /
@@ -204,7 +204,11 @@ class SpotifyLibrary extends LitElement {
                     try {
                         const pr = await this.api.fetchSpotifyPlus('get_playlist', { playlist_id: e.id });
                         const p = pr?.result;
-                        if (p) { e.name = p.name; e.images = p.images; e.owner = p.owner; e.uri = p.uri || e.uri; }
+                        if (p) {
+                            e.name = p.name; e.images = p.images; e.owner = p.owner; e.uri = p.uri || e.uri;
+                            // The row menu's privacy / collaborative items read these.
+                            e.public = p.public; e.collaborative = p.collaborative; e.description = p.description;
+                        }
                     } catch (_) { /* drop below if unhydrated */ }
                 }),
                 ...artistEntries.map(async (e) => {
@@ -313,9 +317,46 @@ class SpotifyLibrary extends LitElement {
     }
 
     /**
-     * Re-fetch after a playlist mutation elsewhere in the app (create, rename,
-     * delete) so names/artwork/ordering here don't go stale.
+     * A playlist changed somewhere in the app (the app passes on every
+     * `playlist-changed` detail), so names, artwork, order and membership
+     * here don't go stale. A settings patch (public / collaborative, from
+     * "Make Private" and the like) is applied to its rows in place; an
+     * unfollowed playlist's rows are dropped; anything else (create, delete,
+     * items, follow) re-reads playlists and recents.
      */
+    playlistChanged({ playlistId, action, patch } = {}) {
+        if (playlistId && action === 'edit' && patch) {
+            this._updatePlaylistRows(playlistId, (row) => ({ ...row, ...patch }));
+        } else if (playlistId && action === 'unfollow') {
+            this._updatePlaylistRows(playlistId, () => null);
+        } else {
+            this.refresh();
+        }
+    }
+
+    /**
+     * Replace (`update` returns the new row) or drop (it returns null) every
+     * row of one playlist in the Playlists bucket and in Recents. Paging by
+     * offset then resumes where Spotify's list now is: each dropped row
+     * moved the ones after it up (A–Z holds its whole list: offset 0).
+     */
+    _updatePlaylistRows(playlistId, update) {
+        const apply = (list, isRow) => {
+            if (!list?.some(isRow)) return { list, dropped: 0 };
+            const next = [];
+            for (const row of list) {
+                const kept = isRow(row) ? update(row) : row;
+                if (kept) next.push(kept);
+            }
+            return { list: next, dropped: list.length - next.length };
+        };
+        const playlists = apply(this._playlists, (row) => row.id === playlistId);
+        this._playlists = playlists.list;
+        this._recent = apply(this._recent, (row) => row.type === 'playlist' && row.id === playlistId).list;
+        const pg = this._paging.playlist;
+        if (pg && playlists.dropped) pg.offset = Math.max(0, pg.offset - playlists.dropped);
+    }
+
     /**
      * Re-read the library. By default only what a playlist edit can change
      * (playlists + recents); `all` (the header's "Refresh Data") also drops
@@ -471,8 +512,8 @@ class SpotifyLibrary extends LitElement {
     }
 
     /**
-     * Context menu for a library row. Playlist: pin, and edit/delete when it
-     * is yours (playlist-actions.js); album: go to artist.
+     * Context menu for a library row. Playlist: the playlist page's menu
+     * (playlist-actions.js); album: go to artist.
      */
     async _openRowMenu(e, item, type) {
         e.stopPropagation();
@@ -481,12 +522,21 @@ class SpotifyLibrary extends LitElement {
         let actions = {};
 
         if (type === 'playlist') {
-            const state = await playlistMenuState(this.api, this.pinned, item);
-            items = playlistMenuItems(item, { surface: 'row', ...state });
+            // The Playlists filter lists the playlists you own or follow;
+            // Recents also holds recently played ones, so the state asks.
+            const state = await playlistMenuState(this.api, this.pinned, item,
+                this._filter === 'playlist' ? { isFollowing: true } : {});
+            items = playlistMenuItems(item, state);
+            // The row's playlist as the menu opened; a change patches the
+            // rows (playlistChanged), so the next menu reads the new state.
             actions = {
-                'pin': () => togglePin(this, this.pinned, playlistPinItem(item)),
                 'edit': () => openPlaylistEditor(this, item),
-                'delete': () => confirmDeletePlaylist(this, this.api, item, { cancelText: 'Cancel' }),
+                'toggle-public': () => togglePlaylistFlag(this, this.api, item, 'public'),
+                'toggle-collab': () => togglePlaylistFlag(this, this.api, item, 'collaborative'),
+                'follow': () => setPlaylistFollowed(this, this.api, item, true),
+                'unfollow': () => setPlaylistFollowed(this, this.api, item, false),
+                'pin': () => togglePin(this, this.pinned, playlistPinItem(item)),
+                'delete': () => confirmDeletePlaylist(this, this.api, item),
             };
         } else if (type === 'album') {
             const artist = (item.artists || []).find(a => a.id);

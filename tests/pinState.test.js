@@ -113,6 +113,32 @@ test('toggle: pins, flips the state and tells Home', async () => {
     assert.equal(pinned.storage.data.pinned_items.some(i => i.id === 'p1'), false);
 });
 
+test('toggle on a full list (D2): pinned, the oldest pin goes, and the toast names it', async () => {
+    const stored = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map(id => ({ id, type: 'album', name: `Album ${id}`, title: `Album ${id}` }));
+    const pinned = makeManager({ stored });
+    const { pin, events } = setup({ pinned, data: { id: 'ar1', type: 'artist', name: 'An Artist', uri: 'spotify:artist:ar1' } });
+    await pin.check();
+    await pin.toggle();
+    assert.equal(pin.isPinned, true);
+    assert.deepEqual(pinned.storage.data.pinned_items.map(i => i.id), ['user-library', 'ar1', 'a', 'b', 'c', 'd', 'e', 'f']);
+    assert.deepEqual(events.map(e => [e.type, e.detail]), [['pinned-changed', null], ['show-toast', { message: 'Removed Album g to make room' }]]);
+    assert.ok(events.every(e => e.bubbles && e.composed));
+});
+
+test('toggle goes through togglePin (playlist-actions.js): the same events for the same manager result', async () => {
+    const { togglePin } = await import('../src/components/playlist-actions.js');
+    for (const result of [{ success: true }, { success: true, evicted: { id: 'x', title: 'X' } }, { success: false, error: 'nope' }]) {
+        const fake = { canEdit: () => true, sensorEntity: 'sensor.s', getItems: async () => [], toggle: async () => result };
+        const { pin, events } = setup({ pinned: fake });
+        await pin.check();
+        await pin.toggle();
+        const direct = [];
+        await togglePin({ dispatchEvent: (e) => direct.push(e) }, fake, {});
+        assert.deepEqual(events.map(e => [e.type, e.detail, e.bubbles, e.composed]), direct.map(e => [e.type, e.detail, e.bubbles, e.composed]));
+        assert.equal(pin.isPinned, result.success, 'the state flips only on success');
+    }
+});
+
 test('toggle: a failure keeps the state and shows an alert with the reason', async () => {
     const pinned = makeManager();
     pinned.storage.saveFails = true;

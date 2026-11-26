@@ -226,6 +226,13 @@ export class PinnedItemsManager {
         }
     }
 
+    /**
+     * Pin `item` at the top of the user's pins. When the list is full the
+     * oldest pin (oldestPin) makes room, and a successful result carries it
+     * as `evicted` (the stored entry: its `name` / `title` name it) so the
+     * caller can say so — togglePin (playlist-actions.js) and the reorder
+     * dialog's add-by-URI show "Removed <name> to make room".
+     */
     async add(item) {
         if (!this._hasBackend()) return { success: false, error: "No storage configured" };
         // Liked Songs is always pinned at #0; pinning it is a no-op.
@@ -290,6 +297,7 @@ export class PinnedItemsManager {
         }
     }
 
+    /** Unpin a pinned item, else add() it (its result, `evicted` included). */
     async toggle(item) {
         if (this.isConfigPinned(item.id)) return { success: false, error: CONFIG_PIN_ERROR };
         const items = this._normalize(this._readItems());
@@ -298,6 +306,7 @@ export class PinnedItemsManager {
         else return await this.add(item);
     }
 
+    /** Look up a pasted Spotify URI and add() it (its result, `evicted` included). */
     async addByUri(api, uri) {
         if (!this._hasBackend()) return { success: false, error: "No storage configured" };
         if (!uri || !uri.startsWith('spotify:')) return { success: false, error: "Invalid URI format" };

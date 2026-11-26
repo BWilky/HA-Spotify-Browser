@@ -1,3 +1,5 @@
+import { togglePin } from '../playlist-actions.js';
+
 /**
  * Pin-to-Home state of the page shown, for its pin button (and the playlist
  * header menu's "Pin to Home"), against the PinnedItemsManager.
@@ -16,9 +18,10 @@
  * then at most MAX_PINNED_OTHERS stored pins). The manager's isPinned() now
  * reads the same capped list; this stays async because getItems() is.
  *
- * toggle(): the manager's toggle; on success the state flips and a bubbling
- * `pinned-changed` event refreshes Home's pinned row at once; on failure a
- * `show-alert` says why and nothing changes.
+ * toggle(): togglePin (playlist-actions.js) — the manager's toggle, a
+ * bubbling `pinned-changed` that refreshes Home's pinned row at once and the
+ * "Removed <name> to make room" toast when the pin pushed the oldest one off,
+ * or a `show-alert` saying why it failed; on success the state flips here.
  */
 export class PinStateController {
     constructor(host, { getPinned = () => host.pinned, hasPage = () => !!host.data, getPinId, getPinItem }) {
@@ -59,25 +62,8 @@ export class PinStateController {
         const pinned = this._getPinned();
         if (!this._entity || !pinned) return;
 
-        const result = await pinned.toggle(this._getPinItem());
-
-        if (result.success) {
-            this._setPinned(!this._isPinned);
-            // Refresh the home pinned row now rather than waiting for the sensor's
-            // event round-trip (which the hass reactive path would eventually catch).
-            this.host.dispatchEvent(new CustomEvent('pinned-changed', { bubbles: true, composed: true }));
-        } else {
-            this.host.dispatchEvent(new CustomEvent('show-alert', {
-                detail: {
-                    title: "Pinning Failed",
-                    message: result.error || "Unknown error",
-                    confirmText: "OK",
-                    size: 'mini'
-                },
-                bubbles: true,
-                composed: true
-            }));
-        }
+        const result = await togglePin(this.host, pinned, this._getPinItem());
+        if (result.success) this._setPinned(!this._isPinned);
     }
 
     _setPinned(value) {

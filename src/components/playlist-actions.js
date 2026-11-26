@@ -1,24 +1,24 @@
 /**
  * Playlist actions shared by the playlist page (header "…" menu, hero pin
- * button) and the library (row "…" menu): the menu items, ownership, pin,
- * public/collaborative, edit and delete.
+ * and heart buttons) and the library (row "…" menu): one menu, and the same
+ * actions with the same messages from both places — ownership, edit,
+ * public/collaborative, follow, pin and delete. The pin flow (togglePin)
+ * also serves PinStateController, so every page's pin button.
  *
  * Plain functions, no element: each takes the element to dispatch from
  * (`host`), the api / pinned-items manager it needs and the playlist, and
  * returns (or resolves to) its result. Every event bubbles and is composed;
  * the app root handles them:
  *   open-context-menu  { header, items, anchor, onAction(id) }
- *   show-alert         { title, message, confirmText, cancelText?, size?, onConfirm? }
+ *   show-alert         { title, message, confirmText, size?, onConfirm? }
  *   show-toast         { message }
  *   playlist-changed   { playlistId, action: 'edit', patch } | { playlistId, action: 'delete' }
  *                      (the app invalidates the cached page, leaves a deleted
- *                      playlist's page, unpins it and refreshes the library)
+ *                      playlist's page, unpins it and updates the library)
+ *                      | { playlistId, action: 'follow' | 'unfollow' }
+ *                      (only the library list changes)
  *   pinned-changed     (no detail: refresh Home's pinned row)
  *   navigate           { pageId, data }
- *
- * Where the two surfaces still differ (menu order, what each offers, the
- * delete confirmation's success toast) the difference is an explicit
- * option or layout below, not a guess.
  */
 
 /** Spotify's rule, and the page loader's: you own a playlist when its owner id is yours. */
@@ -27,57 +27,52 @@ export function isPlaylistOwner(playlist, userId) {
 }
 
 /**
- * What each surface's menu offers, in order. An entry is shown only when it
- * applies: edit / public / collab / delete for the owner, follow for anyone
- * else, pin when the user may edit pins. Item ids are `<prefix><action>`.
- *   page: the playlist page header — owner settings first, delete last.
- *   row:  a library row — pin first; no public/collaborative, no follow.
+ * Where you may edit a playlist's tracks: your own, or a collaborative one
+ * you follow (the page loader's `canEditItems`). Name, privacy,
+ * collaborative and delete stay the owner's.
+ * @param {{collaborative?: boolean|null}|null|undefined} playlist
+ * @param {{isOwner?: boolean, isFollowing?: boolean}} state
  */
-const MENU_LAYOUTS = {
-    page: { prefix: 'pm-', entries: ['edit', 'public', 'collab', 'follow', 'pin', 'delete'] },
-    row: { prefix: 'lm-', entries: ['pin', 'edit', 'delete'] },
-};
+export function canEditPlaylistItems(playlist, { isOwner = false, isFollowing } = {}) {
+    return isOwner || (!!playlist?.collaborative && isFollowing === true);
+}
 
 /**
- * The "…" menu items for a playlist.
- * @param {object} playlist  reads `public` and `collaborative` (owner settings labels)
- * @param {object} [opts]
- * @param {'page'|'row'} [opts.surface]  which surface's layout (MENU_LAYOUTS)
- * @param {boolean} [opts.isOwner]
- * @param {boolean} [opts.isFollowing]  non-owner, page: the follow item's direction
- * @param {boolean} [opts.canPin]       the user may edit pins
- * @param {boolean} [opts.isPinned]
+ * The "…" menu items for a playlist, in order — the same on the playlist
+ * page and a library row. An item is shown only when it applies:
+ *   Edit Playlist                      canEdit (the owner, or a collaborator)
+ *   Make Private / Make Public         the owner, when the settings are known
+ *   Make / Remove Collaborative        the owner, when the settings are known
+ *   Add to / Remove from Your Library  anyone else, when isFollowing is known
+ *   Pin to / Unpin from Home           canPin (the user may edit pins)
+ *   Delete Playlist                    the owner
+ * "The settings are known": `public` and `collaborative` are booleans and
+ * `description` is present — togglePlaylistFlag sends all of them (a missing
+ * one would be overwritten with a guess).
+ * @param {{public?: boolean|null, collaborative?: boolean|null, description?: string|null}|null|undefined} playlist
+ * @param {object} [state]
+ * @param {boolean} [state.isOwner]
+ * @param {boolean} [state.canEdit]      may edit the tracks (canEditPlaylistItems)
+ * @param {boolean} [state.isFollowing]  undefined: not known, no follow item
+ * @param {boolean} [state.canPin]
+ * @param {boolean} [state.isPinned]
  * @returns {Array<{id: string, label: string, icon: string, danger?: boolean}>}
  */
-export function playlistMenuItems(playlist, { surface = 'page', isOwner = false, isFollowing = false, canPin = false, isPinned = false } = {}) {
-    const { prefix, entries } = MENU_LAYOUTS[surface];
+export function playlistMenuItems(playlist, { isOwner = false, canEdit = false, isFollowing, canPin = false, isPinned = false } = {}) {
     const items = [];
-    for (const entry of entries) {
-        switch (entry) {
-            case 'edit':
-                if (isOwner) items.push({ id: `${prefix}edit`, label: 'Edit Playlist', icon: 'pencil' });
-                break;
-            case 'public':
-                if (isOwner) items.push({ id: `${prefix}toggle-public`, label: playlist?.public !== false ? 'Make Private' : 'Make Public', icon: 'lock' });
-                break;
-            case 'collab':
-                if (isOwner) items.push({ id: `${prefix}toggle-collab`, label: playlist?.collaborative ? 'Remove Collaborative' : 'Make Collaborative', icon: 'people' });
-                break;
-            case 'follow':
-                if (!isOwner) {
-                    items.push(isFollowing
-                        ? { id: `${prefix}unfollow`, label: 'Remove from Your Library', icon: 'heart-filled' }
-                        : { id: `${prefix}follow`, label: 'Add to Your Library', icon: 'heart' });
-                }
-                break;
-            case 'pin':
-                if (canPin) items.push({ id: `${prefix}pin`, label: isPinned ? 'Unpin from Home' : 'Pin to Home', icon: 'pin' });
-                break;
-            case 'delete':
-                if (isOwner) items.push({ id: `${prefix}delete`, label: 'Delete Playlist', icon: 'trash', danger: true });
-                break;
-        }
+    if (isOwner || canEdit) items.push({ id: 'pm-edit', label: 'Edit Playlist', icon: 'pencil' });
+    if (isOwner && playlist && typeof playlist.public === 'boolean' && typeof playlist.collaborative === 'boolean'
+        && playlist.description !== undefined) {
+        items.push({ id: 'pm-toggle-public', label: playlist.public ? 'Make Private' : 'Make Public', icon: 'lock' });
+        items.push({ id: 'pm-toggle-collab', label: playlist.collaborative ? 'Remove Collaborative' : 'Make Collaborative', icon: 'people' });
     }
+    if (!isOwner && typeof isFollowing === 'boolean') {
+        items.push(isFollowing
+            ? { id: 'pm-unfollow', label: 'Remove from Your Library', icon: 'heart-filled' }
+            : { id: 'pm-follow', label: 'Add to Your Library', icon: 'heart' });
+    }
+    if (canPin) items.push({ id: 'pm-pin', label: isPinned ? 'Unpin from Home' : 'Pin to Home', icon: 'pin' });
+    if (isOwner) items.push({ id: 'pm-delete', label: 'Delete Playlist', icon: 'trash', danger: true });
     return items;
 }
 
@@ -87,19 +82,34 @@ export function menuActionKey(id) {
 }
 
 /**
- * Ownership and pin state of a playlist that is not open as a page (a
- * library row): one user-id lookup and one pinned-list read, in parallel.
- * Either failing counts as "not owner" / "not pinned".
- * @returns {Promise<{isOwner: boolean, canPin: boolean, isPinned: boolean}>}
+ * The menu state of a playlist that is not open as a page (a library row):
+ * one user-id lookup and one pinned-list read, in parallel; then, for a
+ * playlist you do not own whose follow state the caller does not know, one
+ * follow check. A failed lookup counts as "not owner" / "not pinned"; a
+ * failed follow check leaves isFollowing unknown (no follow item, no edit).
+ * @param {object} api
+ * @param {object|null|undefined} pinned
+ * @param {{id: string, owner?: {id?: string}, collaborative?: boolean|null}} playlist
+ * @param {{isFollowing?: boolean}} [known]  isFollowing when the caller knows it (a Playlists-filter row)
+ * @returns {Promise<{isOwner: boolean, isFollowing?: boolean, canEdit: boolean, canPin: boolean, isPinned: boolean}>}
  */
-export async function playlistMenuState(api, pinned, playlist) {
+export async function playlistMenuState(api, pinned, playlist, { isFollowing } = {}) {
     const canPin = !!(pinned?.canEdit() && pinned.sensorEntity);
     const [userId, pinnedItems] = await Promise.all([
         api.getCurrentUserId().catch(() => null),
         canPin ? pinned.getItems().catch(() => []) : Promise.resolve([]),
     ]);
+    const isOwner = isPlaylistOwner(playlist, userId);
+    if (!isOwner && isFollowing === undefined && userId) {
+        try {
+            const follows = await api.checkUserFollowsPlaylist(playlist.id, userId);
+            if (Array.isArray(follows) && follows.length > 0) isFollowing = !!follows[0];
+        } catch (_) { /* unknown */ }
+    }
     return {
-        isOwner: isPlaylistOwner(playlist, userId),
+        isOwner,
+        ...(isOwner || isFollowing === undefined ? {} : { isFollowing }),
+        canEdit: canEditPlaylistItems(playlist, { isOwner, isFollowing }),
         canPin,
         isPinned: canPin && !!pinnedItems.find(p => p.id === playlist.id),
     };
@@ -133,16 +143,31 @@ export function playlistPinItem(playlist) {
 }
 
 /**
+ * The toast for a pin that pushed the oldest one off the full list
+ * (PinnedItemsManager.add's `evicted`), or null when none was.
+ * @param {{evicted?: {name?: string, title?: string}|null}|null|undefined} result
+ * @returns {string|null}
+ */
+export function evictedPinMessage(result) {
+    const evicted = result?.evicted;
+    if (!evicted) return null;
+    const name = evicted.name || evicted.title;
+    return name ? `Removed ${name} to make room` : 'Removed the oldest pin to make room';
+}
+
+/**
  * Pin or unpin through the pinned-items manager. Success: `pinned-changed`
- * (Home's pinned row refreshes now, not on the sensor's round trip).
+ * (Home's pinned row refreshes now, not on the sensor's round trip), then
+ * "Removed <name> to make room" when the pin pushed the oldest one off.
  * Failure: a "Pinning Failed" alert with the reason. Resolves to the
- * manager's result. (PinStateController.toggle does the same for the page's
- * own pin state.)
+ * manager's result.
  */
 export async function togglePin(host, pinned, item) {
     const result = await pinned.toggle(item);
     if (result.success) {
         emit(host, 'pinned-changed');
+        const evicted = evictedPinMessage(result);
+        if (evicted) toast(host, evicted);
     } else {
         emit(host, 'show-alert', { title: 'Pinning Failed', message: result.error || 'Unknown error', confirmText: 'OK', size: 'mini' });
     }
@@ -193,31 +218,49 @@ export async function togglePlaylistFlag(host, api, playlist, flag) {
 }
 
 /**
+ * Add a playlist to Your Library or remove it from there (Spotify's follow /
+ * unfollow). Toasts the outcome; on success `playlist-changed`
+ * {action: 'follow' | 'unfollow'} lets the app update the library list.
+ * Resolves to whether it worked.
+ * @param {EventTarget} host
+ * @param {{followPlaylist(id: string): Promise<{success?: boolean}|null|undefined>, unfollowPlaylist(id: string): Promise<{success?: boolean}|null|undefined>}} api
+ * @param {{id: string}} playlist
+ * @param {boolean} follow
+ */
+export async function setPlaylistFollowed(host, api, playlist, follow) {
+    const { id } = playlist;
+    const res = follow ? await api.followPlaylist(id) : await api.unfollowPlaylist(id);
+    if (!res?.success) {
+        toast(host, `Failed to ${follow ? 'follow' : 'unfollow'} playlist.`);
+        return false;
+    }
+    toast(host, `${follow ? 'Added to' : 'Removed from'} your library.`);
+    emit(host, 'playlist-changed', { playlistId: id, action: follow ? 'follow' : 'unfollow' });
+    return true;
+}
+
+/**
  * Ask, then delete an owned playlist (Spotify deletes by unfollowing). The
  * playlist is captured now: confirming deletes the one the dialog named.
- * Confirmed: api.unfollowPlaylist(id); success -> [successToast] then
+ * Confirmed: api.unfollowPlaylist(id); success -> "Playlist deleted" then
  * `playlist-changed` {action: 'delete'}; failure -> "Couldn't delete playlist".
- *   successToast  toast after a delete (the playlist page says 'Playlist deleted'; the library says nothing)
- *   cancelText    passed through to the alert when given (it defaults to 'Cancel' there)
  * @param {EventTarget} host
  * @param {{unfollowPlaylist(id: string): Promise<{success?: boolean}|null|undefined>}} api
  * @param {{id: string, name?: string}} playlist
- * @param {{successToast?: string|null, cancelText?: string}} [opts]
  */
-export function confirmDeletePlaylist(host, api, playlist, { successToast = null, cancelText } = {}) {
+export function confirmDeletePlaylist(host, api, playlist) {
     const { id, name } = playlist;
     emit(host, 'show-alert', {
         title: 'Delete playlist?',
         message: `"${name}" will be removed from Your Library.`,
         confirmText: 'Delete',
-        ...(cancelText !== undefined ? { cancelText } : {}),
         onConfirm: async () => {
             const res = await api.unfollowPlaylist(id);
             if (!res?.success) {
                 toast(host, "Couldn't delete playlist");
                 return false;
             }
-            if (successToast) toast(host, successToast);
+            toast(host, 'Playlist deleted');
             emit(host, 'playlist-changed', { playlistId: id, action: 'delete' });
             return true;
         }

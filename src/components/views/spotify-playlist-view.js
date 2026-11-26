@@ -8,7 +8,9 @@ import { HeroScrollController } from '../controllers/hero-scroll-controller.js';
 import { TrackLikesController } from '../controllers/track-likes-controller.js';
 import { OptimisticPlaybackController } from '../controllers/optimistic-playback-controller.js';
 import { PinStateController } from '../controllers/pin-state-controller.js';
-import { playlistMenuItems, openActionMenu, togglePlaylistFlag, confirmDeletePlaylist } from '../playlist-actions.js';
+import {
+    playlistMenuItems, openActionMenu, togglePlaylistFlag, setPlaylistFollowed, confirmDeletePlaylist, canEditPlaylistItems,
+} from '../playlist-actions.js';
 import './spotify-playlist-editor.js';
 
 // Stable empty list, so "no tracks yet" doesn't look like a new array each render.
@@ -891,42 +893,36 @@ export class SpotifyPlaylistView extends LitElement {
         this._playback.heroClick();
     }
 
+    /**
+     * Heart button and the menu's Add to / Remove from Your Library
+     * (playlist-actions.js: the toast, and `playlist-changed` so the library
+     * list follows). Optimistic; reverted when the call fails.
+     */
     async _toggleFollowPlaylist(e) {
         e?.stopPropagation();
         const playlistId = this.data?.id;
         if (!playlistId || !this.api) return;
 
-        const optimisticState = !this._isFollowing;
-        this._isFollowing = optimisticState; // Optimistic update
-
-        let res;
-        if (optimisticState) {
-            res = await this.api.followPlaylist(playlistId);
-        } else {
-            res = await this.api.unfollowPlaylist(playlistId);
+        const follow = !this._isFollowing;
+        this._isFollowing = follow;
+        if (!await setPlaylistFollowed(this, this.api, { id: playlistId }, follow)) {
+            this._isFollowing = !follow;
+            return;
         }
-
-        if (!res.success) {
-            this._isFollowing = !optimisticState; // Revert on failure
-            this.dispatchEvent(new CustomEvent('show-toast', {
-                detail: { message: `Failed to ${optimisticState ? 'follow' : 'unfollow'} playlist.` },
-                bubbles: true,
-                composed: true
-            }));
-        } else {
-            // Keep the (cached) page data in step: a rebuilt view reads it.
-            this.data.isFollowing = optimisticState;
-            this.dispatchEvent(new CustomEvent('show-toast', {
-                detail: { message: `${optimisticState ? 'Added to' : 'Removed from'} your library.` },
-                bubbles: true,
-                composed: true
-            }));
-        }
+        // Keep the (cached) page data in step: a rebuilt view reads it, and
+        // a collaborator's edit rights go with following.
+        const data = this.data;
+        if (data?.id !== playlistId) return;
+        data.isFollowing = follow;
+        if (!data.isOwner) data.canEditItems = canEditPlaylistItems(data, { isFollowing: follow });
     }
 
     /* --- PLAYLIST MANAGEMENT (header menu + edit mode) --- */
 
-    /** Playlist header "..." menu (playlist-actions.js); items depend on ownership. */
+    /**
+     * Playlist header "..." menu (playlist-actions.js, the same as a library
+     * row's); items depend on ownership, edit rights and follow state.
+     */
     _openHeaderMenu(e) {
         e?.stopPropagation();
         const data = this.data;
@@ -938,8 +934,8 @@ export class SpotifyPlaylistView extends LitElement {
                 subtitle: data.owner?.display_name || 'Playlist'
             },
             items: playlistMenuItems(data, {
-                surface: 'page',
                 isOwner: !!data.isOwner,
+                canEdit: !!data.canEditItems,
                 isFollowing: this._isFollowing,
                 canPin: !!this._pin.entity,
                 isPinned: this._pin.isPinned,
@@ -953,7 +949,7 @@ export class SpotifyPlaylistView extends LitElement {
                 'pin': () => this._pin.toggle(),
                 'follow': () => this._toggleFollowPlaylist(),
                 'unfollow': () => this._toggleFollowPlaylist(),
-                'delete': () => confirmDeletePlaylist(this, this.api, this.data, { successToast: 'Playlist deleted' }),
+                'delete': () => confirmDeletePlaylist(this, this.api, this.data),
             },
         });
     }

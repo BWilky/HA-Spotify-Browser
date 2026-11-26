@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    isPlaylistOwner, playlistMenuItems, menuActionKey, playlistMenuState, openActionMenu,
-    playlistPinItem, togglePin, togglePlaylistFlag, confirmDeletePlaylist, openPlaylistEditor,
+    isPlaylistOwner, canEditPlaylistItems, playlistMenuItems, menuActionKey, playlistMenuState, openActionMenu,
+    playlistPinItem, evictedPinMessage, togglePin, togglePlaylistFlag, setPlaylistFollowed, confirmDeletePlaylist,
+    openPlaylistEditor,
 } from '../src/components/playlist-actions.js';
 import { PinnedItemsManager } from '../src/components/controllers/pinned-items-manager.js';
 
@@ -19,14 +20,19 @@ function makeHost() {
     };
 }
 
-function makeApi({ fail = false, userId = 'me', userIdFails = false, unfollowResult } = {}) {
+function makeApi({ fail = false, userId = 'me', userIdFails = false, unfollowResult, follows = [true], followsFails = false } = {}) {
     const calls = [];
+    const command = (name) => async (id) => {
+        calls.push([name, id]);
+        return fail ? { success: false, error: new Error('boom') } : { success: true };
+    };
     return {
         calls,
         async changePlaylistDetails(id, opts) {
             calls.push(['changePlaylistDetails', id, opts]);
             return fail ? { success: false, error: new Error('boom') } : { success: true };
         },
+        followPlaylist: command('followPlaylist'),
         async unfollowPlaylist(id) {
             calls.push(['unfollowPlaylist', id]);
             if (unfollowResult !== undefined) return unfollowResult;
@@ -36,6 +42,11 @@ function makeApi({ fail = false, userId = 'me', userIdFails = false, unfollowRes
             calls.push(['getCurrentUserId']);
             if (userIdFails) throw new Error('no profile');
             return userId;
+        },
+        async checkUserFollowsPlaylist(id, user) {
+            calls.push(['checkUserFollowsPlaylist', id, user]);
+            if (followsFails) throw new Error('no answer');
+            return follows;
         },
     };
 }
@@ -55,58 +66,52 @@ function makePinned({ canEdit = true, items = [], toggleResult = { success: true
     };
 }
 
+/** A PinnedItemsManager over an in-memory store. */
+function realManager(pinned_items = []) {
+    const store = { pinned_items };
+    const storage = {
+        writeStatus: () => 'ok', sensorEntity: 'sensor.spotify_browser_data',
+        getData: (k) => store[k],
+        async saveData(k, v) { store[k] = v; return { success: true }; },
+    };
+    return { store, pinned: new PinnedItemsManager(null, { entity: 'media_player.spotify' }, storage) };
+}
+
 const OWNED = { id: 'p1', name: 'Mine', uri: 'spotify:playlist:p1', images: [{ url: 'a.png' }], description: 'd', owner: { id: 'me' }, public: true, collaborative: false };
-const OTHER = { id: 'p2', name: 'Theirs', uri: 'spotify:playlist:p2', images: [], owner: { id: 'someone' } };
+const OTHER = { id: 'p2', name: 'Theirs', uri: 'spotify:playlist:p2', images: [], description: '', owner: { id: 'someone' }, public: true, collaborative: false };
+const SHARED = { ...OTHER, id: 'p5', name: 'Shared', public: false, collaborative: true };
 
-// The menus as each surface built them by hand before playlist-actions.js
-// (copied verbatim; `this` became parameters).
-const legacy = {
-    // spotify-playlist-view.js _openHeaderMenu
-    pageItems(data, isFollowing, pinEntity, pinIsPinned) {
-        const isOwner = !!data.isOwner;
-        const items = [];
-        if (isOwner) {
-            items.push({ id: 'pm-edit', label: 'Edit Playlist', icon: 'pencil' });
-            items.push(data.public !== false
-                ? { id: 'pm-toggle-public', label: 'Make Private', icon: 'lock' }
-                : { id: 'pm-toggle-public', label: 'Make Public', icon: 'lock' });
-            items.push(data.collaborative
-                ? { id: 'pm-toggle-collab', label: 'Remove Collaborative', icon: 'people' }
-                : { id: 'pm-toggle-collab', label: 'Make Collaborative', icon: 'people' });
-        } else {
-            items.push(isFollowing
-                ? { id: 'pm-unfollow', label: 'Remove from Your Library', icon: 'heart-filled' }
-                : { id: 'pm-follow', label: 'Add to Your Library', icon: 'heart' });
-        }
-        if (pinEntity) {
-            items.push({ id: 'pm-pin', label: pinIsPinned ? 'Unpin from Home' : 'Pin to Home', icon: 'pin' });
-        }
-        if (isOwner) {
-            items.push({ id: 'pm-delete', label: 'Delete Playlist', icon: 'trash', danger: true });
-        }
-        return items;
-    },
-    // spotify-library.js _openRowMenu, playlist branch
-    async rowItems(api, pinned, item) {
-        const items = [];
-        const canPin = !!(pinned?.canEdit() && pinned.sensorEntity);
-        const [userId, pinnedItems] = await Promise.all([
-            api.getCurrentUserId().catch(() => null),
-            canPin ? pinned.getItems().catch(() => []) : Promise.resolve([]),
-        ]);
-        if (canPin) {
-            const isPinned = !!pinnedItems.find(p => p.id === item.id);
-            items.push({ id: 'lm-pin', label: isPinned ? 'Unpin from Home' : 'Pin to Home', icon: 'pin' });
-        }
-        if (userId && item.owner?.id === userId) {
-            items.push({ id: 'lm-edit', label: 'Edit Playlist', icon: 'pencil' });
-            items.push({ id: 'lm-delete', label: 'Delete Playlist', icon: 'trash', danger: true });
-        }
-        return items;
-    },
-};
+const labels = (items) => items.map(i => i.label);
 
-// ---- Ownership and menus ----------------------------------------------------
+// The playlist page's menu as it was built by hand before playlist-actions.js
+// (copied verbatim; `this` became parameters). The one menu still matches it
+// for everyone but a collaborator (D5), when the settings are known.
+function legacyPageItems(data, isFollowing, pinEntity, pinIsPinned) {
+    const isOwner = !!data.isOwner;
+    const items = [];
+    if (isOwner) {
+        items.push({ id: 'pm-edit', label: 'Edit Playlist', icon: 'pencil' });
+        items.push(data.public !== false
+            ? { id: 'pm-toggle-public', label: 'Make Private', icon: 'lock' }
+            : { id: 'pm-toggle-public', label: 'Make Public', icon: 'lock' });
+        items.push(data.collaborative
+            ? { id: 'pm-toggle-collab', label: 'Remove Collaborative', icon: 'people' }
+            : { id: 'pm-toggle-collab', label: 'Make Collaborative', icon: 'people' });
+    } else {
+        items.push(isFollowing
+            ? { id: 'pm-unfollow', label: 'Remove from Your Library', icon: 'heart-filled' }
+            : { id: 'pm-follow', label: 'Add to Your Library', icon: 'heart' });
+    }
+    if (pinEntity) {
+        items.push({ id: 'pm-pin', label: pinIsPinned ? 'Unpin from Home' : 'Pin to Home', icon: 'pin' });
+    }
+    if (isOwner) {
+        items.push({ id: 'pm-delete', label: 'Delete Playlist', icon: 'trash', danger: true });
+    }
+    return items;
+}
+
+// ---- Ownership and edit rights ----------------------------------------------
 
 test('isPlaylistOwner: owner id matches a known user id', () => {
     assert.equal(isPlaylistOwner(OWNED, 'me'), true);
@@ -117,8 +122,19 @@ test('isPlaylistOwner: owner id matches a known user id', () => {
     assert.equal(isPlaylistOwner(null, 'me'), false);
 });
 
-test('page menu, owner: edit, privacy, collaborative, pin, delete', () => {
-    assert.deepEqual(playlistMenuItems(OWNED, { surface: 'page', isOwner: true, canPin: true, isPinned: false }), [
+test('canEditPlaylistItems: the owner, or a collaborative playlist you follow (the page loader\'s rule)', () => {
+    assert.equal(canEditPlaylistItems(OWNED, { isOwner: true }), true);
+    assert.equal(canEditPlaylistItems(SHARED, { isFollowing: true }), true);
+    assert.equal(canEditPlaylistItems(SHARED, { isFollowing: false }), false);
+    assert.equal(canEditPlaylistItems(SHARED, {}), false, 'follow state unknown: no');
+    assert.equal(canEditPlaylistItems(OTHER, { isFollowing: true }), false, 'not collaborative');
+    assert.equal(canEditPlaylistItems(null, { isFollowing: true }), false);
+});
+
+// ---- The one menu -----------------------------------------------------------
+
+test('menu, owner: edit, privacy, collaborative, pin, delete', () => {
+    assert.deepEqual(playlistMenuItems(OWNED, { isOwner: true, canEdit: true, canPin: true, isPinned: false }), [
         { id: 'pm-edit', label: 'Edit Playlist', icon: 'pencil' },
         { id: 'pm-toggle-public', label: 'Make Private', icon: 'lock' },
         { id: 'pm-toggle-collab', label: 'Make Collaborative', icon: 'people' },
@@ -126,90 +142,131 @@ test('page menu, owner: edit, privacy, collaborative, pin, delete', () => {
         { id: 'pm-delete', label: 'Delete Playlist', icon: 'trash', danger: true },
     ]);
     const priv = playlistMenuItems({ ...OWNED, public: false, collaborative: true }, { isOwner: true, canPin: true, isPinned: true });
-    assert.deepEqual(priv.map(i => i.label), ['Edit Playlist', 'Make Public', 'Remove Collaborative', 'Unpin from Home', 'Delete Playlist']);
-    assert.equal(playlistMenuItems({ id: 'x' }, { isOwner: true })[1].label, 'Make Private', 'public unknown counts as public');
+    assert.deepEqual(labels(priv), ['Edit Playlist', 'Make Public', 'Remove Collaborative', 'Unpin from Home', 'Delete Playlist']);
+    assert.deepEqual(labels(playlistMenuItems(OWNED, { isOwner: true })), ['Edit Playlist', 'Make Private', 'Make Collaborative', 'Delete Playlist'],
+        'no pin item without pin rights; the owner never gets the follow item');
 });
 
-test('page menu, not owner: follow toggle, then pin; never edit or delete', () => {
-    assert.deepEqual(playlistMenuItems(OTHER, { surface: 'page', isFollowing: false, canPin: true }), [
+test('menu, owner: the settings items need public, collaborative and description (they are all sent)', () => {
+    const settings = (p) => labels(playlistMenuItems(p, { isOwner: true })).filter(l => /Private|Public|Collaborative/.test(l));
+    assert.deepEqual(settings(OWNED), ['Make Private', 'Make Collaborative']);
+    assert.deepEqual(settings({ ...OWNED, description: null }), ['Make Private', 'Make Collaborative'], 'a null description is known (empty)');
+    for (const missing of ['public', 'collaborative', 'description']) {
+        const p = { ...OWNED };
+        delete p[missing];
+        assert.deepEqual(settings(p), [], `no ${missing}: no settings items`);
+    }
+    assert.deepEqual(settings({ ...OWNED, public: null }), [], 'public null: not known');
+    assert.deepEqual(labels(playlistMenuItems({ id: 'x' }, { isOwner: true })), ['Edit Playlist', 'Delete Playlist']);
+    assert.deepEqual(labels(playlistMenuItems(null, { isOwner: true })), ['Edit Playlist', 'Delete Playlist']);
+});
+
+test('menu, collaborator (D5): Edit Playlist first, then the follow item and pin; never settings or delete', () => {
+    assert.deepEqual(playlistMenuItems(SHARED, { canEdit: true, isFollowing: true, canPin: true }), [
+        { id: 'pm-edit', label: 'Edit Playlist', icon: 'pencil' },
+        { id: 'pm-unfollow', label: 'Remove from Your Library', icon: 'heart-filled' },
+        { id: 'pm-pin', label: 'Pin to Home', icon: 'pin' },
+    ]);
+});
+
+test('menu, follower and non-follower: the follow item, then pin; never edit, settings or delete', () => {
+    assert.deepEqual(playlistMenuItems(OTHER, { isFollowing: true, canPin: true, isPinned: true }), [
+        { id: 'pm-unfollow', label: 'Remove from Your Library', icon: 'heart-filled' },
+        { id: 'pm-pin', label: 'Unpin from Home', icon: 'pin' },
+    ]);
+    assert.deepEqual(playlistMenuItems(OTHER, { isFollowing: false, canPin: true }), [
         { id: 'pm-follow', label: 'Add to Your Library', icon: 'heart' },
         { id: 'pm-pin', label: 'Pin to Home', icon: 'pin' },
     ]);
-    assert.deepEqual(playlistMenuItems(OTHER, { surface: 'page', isFollowing: true }), [
-        { id: 'pm-unfollow', label: 'Remove from Your Library', icon: 'heart-filled' },
-    ]);
+    assert.deepEqual(labels(playlistMenuItems(OTHER, { canPin: true })), ['Pin to Home'], 'follow state unknown: no follow item');
+    assert.deepEqual(playlistMenuItems(OTHER, {}), [], 'nothing to offer: no menu');
 });
 
-test('row menu: pin first, edit and delete only for the owner; no settings or follow', () => {
-    assert.deepEqual(playlistMenuItems(OWNED, { surface: 'row', isOwner: true, canPin: true, isPinned: true }), [
-        { id: 'lm-pin', label: 'Unpin from Home', icon: 'pin' },
-        { id: 'lm-edit', label: 'Edit Playlist', icon: 'pencil' },
-        { id: 'lm-delete', label: 'Delete Playlist', icon: 'trash', danger: true },
-    ]);
-    assert.deepEqual(playlistMenuItems(OWNED, { surface: 'row', isOwner: true }).map(i => i.id), ['lm-edit', 'lm-delete']);
-    assert.deepEqual(playlistMenuItems(OTHER, { surface: 'row', canPin: true, isFollowing: true }), [
-        { id: 'lm-pin', label: 'Pin to Home', icon: 'pin' },
-    ]);
-    assert.deepEqual(playlistMenuItems(OTHER, { surface: 'row' }), [], 'nothing to offer: no menu');
-});
-
-test('page menu matches the hand-built one for every combination', () => {
+test('menu, owner or plain follower: unchanged from the page\'s hand-built menu for every combination', () => {
     for (const isOwner of [true, false, undefined])
         for (const isFollowing of [true, false])
             for (const pinEntity of ['sensor.x', null])
                 for (const isPinned of [true, false])
-                    for (const pub of [true, false, undefined])
-                        for (const collaborative of [true, false, undefined]) {
-                            const data = { ...OWNED, isOwner, public: pub, collaborative };
+                    for (const pub of [true, false])
+                        for (const collaborative of [true, false]) {
+                            const data = { ...OWNED, isOwner, public: pub, collaborative, canEditItems: !!isOwner };
                             assert.deepEqual(
-                                playlistMenuItems(data, { surface: 'page', isOwner: !!data.isOwner, isFollowing, canPin: !!pinEntity, isPinned }),
-                                legacy.pageItems(data, isFollowing, pinEntity, isPinned),
+                                playlistMenuItems(data, { isOwner: !!data.isOwner, canEdit: data.canEditItems, isFollowing, canPin: !!pinEntity, isPinned }),
+                                legacyPageItems(data, isFollowing, pinEntity, isPinned),
                                 JSON.stringify({ isOwner, isFollowing, pinEntity, isPinned, pub, collaborative }));
                         }
 });
 
-test('row menu (state + items) matches the hand-built one for every combination', async () => {
-    const pinnedVariants = [
-        () => makePinned({ items: [{ id: 'p1' }] }),
-        () => makePinned({ items: [{ id: 'zz' }] }),
-        () => makePinned({ canEdit: false, items: [{ id: 'p1' }] }),
-        () => makePinned({ getItemsFails: true }),
-        () => null,
+test('one menu: a library row\'s state gives the playlist page\'s items (owner, collaborator, follower)', async () => {
+    const pinnedItems = [{ id: 'p1' }];
+    const cases = [
+        // [playlist, the page's data flags, the user]
+        [OWNED, { isOwner: true, canEditItems: true }, 'me', undefined],
+        [SHARED, { isOwner: false, canEditItems: true }, 'me', [true]],
+        [OTHER, { isOwner: false, canEditItems: false }, 'me', [true]],
+        [OTHER, { isOwner: false, canEditItems: false }, 'me', [false]],
     ];
-    const apiVariants = [() => makeApi(), () => makeApi({ userId: 'someone' }), () => makeApi({ userId: null }), () => makeApi({ userIdFails: true })];
-    for (const item of [OWNED, OTHER, { id: 'p3', name: 'No owner' }]) {
-        for (const mkPinned of pinnedVariants) {
-            for (const mkApi of apiVariants) {
-                const state = await playlistMenuState(mkApi(), mkPinned(), item);
-                assert.deepEqual(
-                    playlistMenuItems(item, { surface: 'row', ...state }),
-                    await legacy.rowItems(mkApi(), mkPinned(), item));
-            }
-        }
+    for (const [playlist, page, userId, follows] of cases) {
+        const state = await playlistMenuState(makeApi({ userId, follows }), makePinned({ items: pinnedItems }), playlist);
+        const pageItems = playlistMenuItems({ ...playlist, ...page }, {
+            isOwner: page.isOwner, canEdit: page.canEditItems, isFollowing: follows?.[0] ?? false,
+            canPin: true, isPinned: playlist.id === 'p1',
+        });
+        assert.deepEqual(playlistMenuItems(playlist, state), pageItems, playlist.name);
     }
 });
 
-test('playlistMenuState: one user lookup and one pinned read; failures count as no', async () => {
+// ---- Menu state (library rows) ----------------------------------------------
+
+test('playlistMenuState, owner: one user lookup and one pinned read, no follow check', async () => {
     const api = makeApi();
     const pinned = makePinned({ items: [{ id: 'user-library' }, { id: 'p1' }] });
-    assert.deepEqual(await playlistMenuState(api, pinned, OWNED), { isOwner: true, canPin: true, isPinned: true });
+    assert.deepEqual(await playlistMenuState(api, pinned, OWNED), { isOwner: true, canEdit: true, canPin: true, isPinned: true });
     assert.deepEqual(api.calls, [['getCurrentUserId']]);
     assert.deepEqual(pinned.calls, [['getItems']]);
-
-    assert.deepEqual(await playlistMenuState(makeApi(), makePinned(), OTHER), { isOwner: false, canPin: true, isPinned: false });
-    assert.deepEqual(await playlistMenuState(makeApi({ userIdFails: true }), makePinned({ getItemsFails: true }), OWNED),
-        { isOwner: false, canPin: true, isPinned: false });
-
-    const readOnly = makePinned({ canEdit: false, items: [{ id: 'p1' }] });
-    assert.deepEqual(await playlistMenuState(makeApi(), readOnly, OWNED), { isOwner: true, canPin: false, isPinned: false });
-    assert.deepEqual(readOnly.calls, [], 'no pinned read when the user cannot pin');
-    assert.deepEqual(await playlistMenuState(makeApi(), null, OWNED), { isOwner: true, canPin: false, isPinned: false });
 });
 
-test('menuActionKey strips the surface prefix', () => {
+test('playlistMenuState, not owner: a known follow state is used as is; an unknown one is checked once', async () => {
+    const known = makeApi();
+    assert.deepEqual(await playlistMenuState(known, makePinned(), SHARED, { isFollowing: true }),
+        { isOwner: false, isFollowing: true, canEdit: true, canPin: true, isPinned: false });
+    assert.deepEqual(known.calls, [['getCurrentUserId']], 'no follow check');
+
+    const asked = makeApi({ follows: [true] });
+    assert.deepEqual(await playlistMenuState(asked, makePinned(), SHARED),
+        { isOwner: false, isFollowing: true, canEdit: true, canPin: true, isPinned: false });
+    assert.deepEqual(asked.calls, [['getCurrentUserId'], ['checkUserFollowsPlaylist', 'p5', 'me']]);
+
+    assert.deepEqual(await playlistMenuState(makeApi({ follows: [false] }), makePinned(), SHARED),
+        { isOwner: false, isFollowing: false, canEdit: false, canPin: true, isPinned: false });
+    assert.deepEqual(await playlistMenuState(makeApi({ follows: [true] }), makePinned(), OTHER),
+        { isOwner: false, isFollowing: true, canEdit: false, canPin: true, isPinned: false }, 'following but not collaborative');
+});
+
+test('playlistMenuState: a failed or empty follow check leaves the follow state unknown (no follow item, no edit)', async () => {
+    for (const api of [makeApi({ followsFails: true }), makeApi({ follows: null }), makeApi({ follows: [] })]) {
+        const state = await playlistMenuState(api, makePinned(), SHARED);
+        assert.deepEqual(state, { isOwner: false, canEdit: false, canPin: true, isPinned: false });
+        assert.deepEqual(labels(playlistMenuItems(SHARED, state)), ['Pin to Home']);
+    }
+    const noUser = makeApi({ userId: null });
+    assert.deepEqual(await playlistMenuState(noUser, makePinned(), SHARED), { isOwner: false, canEdit: false, canPin: true, isPinned: false });
+    assert.deepEqual(noUser.calls, [['getCurrentUserId']], 'no follow check without a user id');
+});
+
+test('playlistMenuState: failures count as no; no pinned read when the user cannot pin', async () => {
+    assert.deepEqual(await playlistMenuState(makeApi({ userIdFails: true }), makePinned({ getItemsFails: true }), OWNED),
+        { isOwner: false, canEdit: false, canPin: true, isPinned: false });
+    const readOnly = makePinned({ canEdit: false, items: [{ id: 'p1' }] });
+    assert.deepEqual(await playlistMenuState(makeApi(), readOnly, OWNED), { isOwner: true, canEdit: true, canPin: false, isPinned: false });
+    assert.deepEqual(readOnly.calls, [], 'no pinned read when the user cannot pin');
+    assert.deepEqual(await playlistMenuState(makeApi(), null, OWNED), { isOwner: true, canEdit: true, canPin: false, isPinned: false });
+});
+
+test('menuActionKey strips the menu prefix', () => {
     assert.equal(menuActionKey('pm-toggle-public'), 'toggle-public');
     assert.equal(menuActionKey('pm-delete'), 'delete');
-    assert.equal(menuActionKey('lm-pin'), 'pin');
+    assert.equal(menuActionKey('pm-unfollow'), 'unfollow');
     assert.equal(menuActionKey('lm-artist'), 'artist');
     assert.equal(menuActionKey('tm-queue'), 'tm-queue', 'other menus are left alone');
 });
@@ -245,6 +302,15 @@ test('playlistPinItem: what a library row pin stores', () => {
     assert.deepEqual(playlistPinItem(OWNED), { id: 'p1', type: 'playlist', name: 'Mine', images: [{ url: 'a.png' }], uri: 'spotify:playlist:p1', description: 'd' });
 });
 
+test('evictedPinMessage: names the pin pushed off by name, else title; null when none was', () => {
+    assert.equal(evictedPinMessage({ success: true, evicted: { id: 'a', name: 'Old Mix', title: 'Other' } }), 'Removed Old Mix to make room');
+    assert.equal(evictedPinMessage({ success: true, evicted: { id: 'a', name: '', title: 'Old Album' } }), 'Removed Old Album to make room');
+    assert.equal(evictedPinMessage({ success: true, evicted: { id: 'a' } }), 'Removed the oldest pin to make room');
+    assert.equal(evictedPinMessage({ success: true }), null);
+    assert.equal(evictedPinMessage({ success: false, error: 'x' }), null);
+    assert.equal(evictedPinMessage(null), null);
+});
+
 test('togglePin success: the manager toggles the item, Home is told (no detail)', async () => {
     const host = makeHost();
     const pinned = makePinned({ toggleResult: { success: true } });
@@ -256,6 +322,15 @@ test('togglePin success: the manager toggles the item, Home is told (no detail)'
     assert.equal(host.events[0].type, 'pinned-changed');
     assert.equal(host.events[0].detail, null);
     assert.equal(host.events[0].bubbles && host.events[0].composed, true);
+});
+
+test('togglePin success that pushed a pin off (D2): pinned-changed, then "Removed <name> to make room"', async () => {
+    const host = makeHost();
+    const evicted = { id: 'old', name: 'Old Mix', title: 'Old Mix' };
+    const res = await togglePin(host, makePinned({ toggleResult: { success: true, evicted } }), playlistPinItem(OTHER));
+    assert.equal(res.evicted, evicted);
+    assert.deepEqual(host.log(), [['pinned-changed', null], ['show-toast', { message: 'Removed Old Mix to make room' }]]);
+    assert.ok(host.events.every(e => e.bubbles && e.composed));
 });
 
 test('togglePin failure: a mini alert with the reason, nothing else', async () => {
@@ -271,13 +346,7 @@ test('togglePin failure: a mini alert with the reason, nothing else', async () =
 });
 
 test('togglePin against the real manager: pins then unpins the playlist', async () => {
-    const store = { pinned_items: [] };
-    const storage = {
-        writeStatus: () => 'ok', sensorEntity: 'sensor.spotify_browser_data',
-        getData: (k) => store[k],
-        async saveData(k, v) { store[k] = v; return { success: true }; },
-    };
-    const pinned = new PinnedItemsManager(null, { entity: 'media_player.spotify' }, storage);
+    const { store, pinned } = realManager();
     const host = makeHost();
     await togglePin(host, pinned, playlistPinItem(OWNED));
     const stored = store.pinned_items.find(i => i.id === 'p1');
@@ -288,6 +357,18 @@ test('togglePin against the real manager: pins then unpins the playlist', async 
     await togglePin(host, pinned, playlistPinItem(OWNED));
     assert.equal(store.pinned_items.some(i => i.id === 'p1'), false);
     assert.deepEqual(host.events.map(e => e.type), ['pinned-changed', 'pinned-changed']);
+});
+
+test('togglePin against the real manager, list full: the oldest pin goes and the toast names it', async () => {
+    // Stored newest first, legacy pins without pinnedAt: the bottom one is the oldest.
+    const seven = Array.from({ length: 7 }, (_, i) => ({ id: 'u' + i, type: 'album', name: 'Album ' + i, title: 'Album ' + i }));
+    const { store, pinned } = realManager(seven);
+    const host = makeHost();
+    const res = await togglePin(host, pinned, playlistPinItem(OWNED));
+    assert.equal(res.success, true);
+    assert.equal(res.evicted.id, 'u6');
+    assert.deepEqual(store.pinned_items.map(i => i.id), ['user-library', 'p1', 'u0', 'u1', 'u2', 'u3', 'u4', 'u5']);
+    assert.deepEqual(host.log(), [['pinned-changed', null], ['show-toast', { message: 'Removed Album 6 to make room' }]]);
 });
 
 // ---- Public / collaborative -----------------------------------------------
@@ -349,6 +430,42 @@ test('togglePlaylistFlag without a playlist id or api does nothing', async () =>
     assert.equal(host.events.length, 0);
 });
 
+// ---- Follow -----------------------------------------------------------------
+
+test('setPlaylistFollowed: follow -> followPlaylist, toast, playlist-changed {action: follow}', async () => {
+    const host = makeHost();
+    const api = makeApi();
+    assert.equal(await setPlaylistFollowed(host, api, OTHER, true), true);
+    assert.deepEqual(api.calls, [['followPlaylist', 'p2']]);
+    assert.deepEqual(host.log(), [
+        ['show-toast', { message: 'Added to your library.' }],
+        ['playlist-changed', { playlistId: 'p2', action: 'follow' }],
+    ]);
+    assert.ok(host.events.every(e => e.bubbles && e.composed));
+});
+
+test('setPlaylistFollowed: unfollow -> unfollowPlaylist, toast, playlist-changed {action: unfollow}', async () => {
+    const host = makeHost();
+    const api = makeApi();
+    assert.equal(await setPlaylistFollowed(host, api, OTHER, false), true);
+    assert.deepEqual(api.calls, [['unfollowPlaylist', 'p2']]);
+    assert.deepEqual(host.log(), [
+        ['show-toast', { message: 'Removed from your library.' }],
+        ['playlist-changed', { playlistId: 'p2', action: 'unfollow' }],
+    ]);
+});
+
+test('setPlaylistFollowed failure: the failure toast only (also for an empty answer)', async () => {
+    for (const [follow, message] of [[true, 'Failed to follow playlist.'], [false, 'Failed to unfollow playlist.']]) {
+        const host = makeHost();
+        assert.equal(await setPlaylistFollowed(host, makeApi({ fail: true }), OTHER, follow), false);
+        assert.deepEqual(host.log(), [['show-toast', { message }]]);
+    }
+    const host = makeHost();
+    assert.equal(await setPlaylistFollowed(host, makeApi({ unfollowResult: null }), OTHER, false), false);
+    assert.deepEqual(host.log(), [['show-toast', { message: 'Failed to unfollow playlist.' }]]);
+});
+
 // ---- Delete -----------------------------------------------------------------
 
 test('confirmDeletePlaylist asks first: the alert names the playlist; nothing is called yet', () => {
@@ -365,17 +482,12 @@ test('confirmDeletePlaylist asks first: the alert names the playlist; nothing is
     assert.equal(e.detail.confirmText, 'Delete');
     assert.equal(typeof e.detail.onConfirm, 'function');
     assert.deepEqual(api.calls, []);
-
-    const lib = makeHost();
-    confirmDeletePlaylist(lib, api, OWNED, { cancelText: 'Cancel' });
-    assert.deepEqual(Object.keys(lib.events[0].detail), ['title', 'message', 'confirmText', 'cancelText', 'onConfirm']);
-    assert.equal(lib.events[0].detail.cancelText, 'Cancel');
 });
 
-test('confirmDeletePlaylist confirmed (playlist page): unfollow, "Playlist deleted", then playlist-changed', async () => {
+test('confirmDeletePlaylist confirmed (page and library alike): unfollow, "Playlist deleted", then playlist-changed', async () => {
     const host = makeHost();
     const api = makeApi();
-    confirmDeletePlaylist(host, api, OWNED, { successToast: 'Playlist deleted' });
+    confirmDeletePlaylist(host, api, OWNED);
     assert.equal(await host.events[0].detail.onConfirm(), true);
     assert.deepEqual(api.calls, [['unfollowPlaylist', 'p1']]);
     assert.deepEqual(host.log().slice(1), [
@@ -385,21 +497,12 @@ test('confirmDeletePlaylist confirmed (playlist page): unfollow, "Playlist delet
     assert.ok(host.events.every(e => e.bubbles && e.composed));
 });
 
-test('confirmDeletePlaylist confirmed (library): no success toast, just playlist-changed', async () => {
-    const host = makeHost();
-    confirmDeletePlaylist(host, makeApi(), OWNED, { cancelText: 'Cancel' });
-    await host.events[0].detail.onConfirm();
-    assert.deepEqual(host.log().slice(1), [['playlist-changed', { playlistId: 'p1', action: 'delete' }]]);
-});
-
 test('confirmDeletePlaylist failure: a toast, no playlist-changed (also for an empty answer)', async () => {
     for (const api of [makeApi({ fail: true }), makeApi({ unfollowResult: null }), makeApi({ unfollowResult: {} })]) {
-        for (const opts of [{ successToast: 'Playlist deleted' }, { cancelText: 'Cancel' }]) {
-            const host = makeHost();
-            confirmDeletePlaylist(host, api, OWNED, opts);
-            assert.equal(await host.events[0].detail.onConfirm(), false);
-            assert.deepEqual(host.log().slice(1), [['show-toast', { message: "Couldn't delete playlist" }]]);
-        }
+        const host = makeHost();
+        confirmDeletePlaylist(host, api, OWNED);
+        assert.equal(await host.events[0].detail.onConfirm(), false);
+        assert.deepEqual(host.log().slice(1), [['show-toast', { message: "Couldn't delete playlist" }]]);
     }
 });
 
@@ -411,7 +514,7 @@ test('confirmDeletePlaylist deletes the playlist the dialog named', async () => 
     data.id = 'other'; // the page's data swapped while the dialog was open
     await host.events[0].detail.onConfirm();
     assert.deepEqual(api.calls, [['unfollowPlaylist', 'p1']]);
-    assert.equal(host.events[1].detail.playlistId, 'p1');
+    assert.equal(host.events[2].detail.playlistId, 'p1');
 });
 
 // ---- Edit -------------------------------------------------------------------

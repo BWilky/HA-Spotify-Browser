@@ -22,6 +22,7 @@ import './components/popups/spotify-playlist-picker.js';
 import './components/popups/spotify-playlist-create-sheet.js';
 import './components/popups/spotify-context-menu.js';
 import { PinnedItemsManager } from './components/controllers/pinned-items-manager.js';
+import { evictedPinMessage } from './components/playlist-actions.js';
 import { DeviceManager } from './components/devices/device-manager.js';
 import { SonosBridge } from './components/devices/sonos-bridge.js';
 import { StorageManager } from './components/controllers/storage-manager.js';
@@ -1481,12 +1482,19 @@ class SpotifyBrowserApp extends LitElement {
 
     /**
      * A playlist was mutated somewhere in the app. Bust the context-view cache
-     * for that page, resync whatever is showing it, and refresh the browse
-     * lists that surface playlist names/artwork/counts.
+     * for that page, resync whatever is showing it, and update the library
+     * list, which shows playlist names/artwork/counts. A follow or unfollow
+     * (the playlist page's heart or menu, a library row) changes only what
+     * the library lists: the playlist's page already shows its follow state.
      */
     async _handlePlaylistChanged(e) {
         const { playlistId, action, patch } = e.detail || {};
         if (!playlistId) return;
+        const lib = this.router?.pageCache.get('library');
+        if (action === 'follow' || action === 'unfollow') {
+            lib?.playlistChanged?.(e.detail);
+            return;
+        }
         const pageId = `playlist:${playlistId}`;
         SpotifyContextView.invalidate(pageId);
 
@@ -1508,8 +1516,7 @@ class SpotifyBrowserApp extends LitElement {
             if (view?.refresh) view.refresh(patch || null);
         }
 
-        const lib = this.router?.pageCache.get('library');
-        if (lib?.refresh) lib.refresh();
+        lib?.playlistChanged?.(e.detail);
         if (action === 'create' || action === 'delete') this._refreshHomePinned();
     }
 
@@ -1734,6 +1741,9 @@ class SpotifyBrowserApp extends LitElement {
 
         if (result.success) {
             this._toast("Item pinned successfully");
+            // A full list made room by dropping its oldest pin: say which.
+            const evicted = evictedPinMessage(result);
+            if (evicted) this._toast(evicted);
             // Refresh items for the dialog
             this.pinnedManager.getItems().then(items => {
                 this._pinnedItems = items;
