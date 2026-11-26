@@ -10,12 +10,12 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 ## Decisions (owner, 2026-11-26) — to implement
 
-- [~] **D1 Subtitle wording, one style**: lists (Library, Search, "See All") read "Playlist • Owner", "Album • Artists", "Song • Artists", "Artist"; Home cards read just the owner / artists; the artist discography reads "2015 • Album" (or "• Single", etc.). Replaces `SUBTITLE_STYLE`'s per-screen variants.
+- [x] **D1 Subtitle wording, one style**: lists (Library, Search, "See All") read "Playlist • Owner", "Album • Artists", "Song • Artists", "Artist"; Home cards read just the owner / artists; the artist discography reads "2015 • Album" (or "• Single", etc.). Replaces `SUBTITLE_STYLE`'s per-screen variants. — **Done (e9f894d):** one rule with three styles (`list`, `card`, `discography`); `library` / `search` / `section` remain as aliases of `list` until the library call site is updated.
 - [~] **D2 Toast when a pin is pushed off** the full list: "Removed X to make room".
 - [ ] **D3 Alerts always on top**, including over the desktop device picker.
 - [~] **D4 One playlist "…" menu**: the Library row offers the same actions as the playlist page (Edit, Make Private/Public, Collaborative, Pin, Delete for the owner; Remove from Your Library and Pin otherwise), and "Playlist deleted" is shown from both places.
 - [~] **D5 Collaborators get "Edit Playlist"** where they are allowed to edit (collaborative playlist they follow).
-- [~] **D6 Discography page uses the app header** like every other page (drop its own sticky header and back arrow).
+- [x] **D6 Discography page uses the app header** like every other page (drop its own sticky header and back arrow). — **Done (e9f894d):** the discography page uses the app header (one back button, title in the header, opaque from the start) and the shared list-page scroll handling.
 
 ## Shared helpers / duplicated code
 
@@ -38,7 +38,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 ## Dead code
 
-- [ ] **X4 Artist view leftovers**: class `circle-cards` on the "Fans Also Like" row has no CSS anywhere (`src/components/views/spotify-artist-view.js` ~328); an unused `index` parameter (~299) and an unused `e` in `_playPopularTrack`'s handler.
+- [x] **X4 Artist view leftovers**: class `circle-cards` on the "Fans Also Like" row has no CSS anywhere (`src/components/views/spotify-artist-view.js` ~328); an unused `index` parameter (~299) and an unused `e` in `_playPopularTrack`'s handler. — **Done (e9f894d):** removed.
 
 - [x] **X1 Dead CSS** (no element renders them): `.mobile-drag-handle`, `spotify-queue`, `.grid-layout` (×2), `.list-item-title/-subtitle`, `.track-duration`, `.device-list`, `.media-card.playing .media-title`, `.popup-scroll-content`, `.popup-close-btn`, `.page.has-hero-header`. — **Done (6e333c8):** all listed rules removed after re-checking adopters.
 - [~] **X2 Unused helpers**: ~~`renderMediaRowTemplate`~~ (removed b89c6b5), `heldVolume` (utils, replaced by `VolumeController`; its test stays only if the helper does).
@@ -62,7 +62,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - [x] **B12 Dead fallbacks in `playMedia`**: the play-the-track-alone fallback and three "Call Failed" returns can never run, because the context play throws (`src/api.js` ~872–899). — **Done (617605b):** the unreachable fallback and "Call Failed" returns removed; a failed play reaches the existing error handling (pinned by `tests/playMediaFailure.test.js`).
 - [x] **B13 Artist albums rail** could use `fetchPaginated`'s new `failed` flag to show a failure instead of an empty rail. — **Done (617605b):** a failed albums rail is flagged (`albumsFailed`) and the page is not cached; the view still shows it as an empty rail — showing a failure message there is a small follow-up in `spotify-artist-view.js`.
 - [x] **B6 "Fans Also Like" loading skeletons were square** while the loaded artist cards are round (b89c6b5).
-- [ ] **B7 Discography page shows two back buttons**: it draws its own sticky header with a back arrow right under the app header's back button (`src/components/views/spotify-context-list.js` ~110). Decide which header the page should use.
+- [x] **B7 Discography page shows two back buttons**: it draws its own sticky header with a back arrow right under the app header's back button (`src/components/views/spotify-context-list.js` ~110). Decide which header the page should use. — **Done (e9f894d):** fixed by D6.
 
 - [x] **B1 Progress may jump back** after an attribute-only update (e.g. volume): `extrapolatedPosition` (utils) extrapolates from `last_updated`, not `media_position_updated_at`. Suspected — verify which timestamp HA moves on a volume change before changing. — **Done (05b0ac7):** progress counts from `media_position_updated_at`, falling back to `last_updated`.
 - [x] **B2 Page loading edge cases** (`src/components/controllers/page-loaders.js`): a refresh issued while a load is in flight can leave the page on "Loading..." if the older load's follow check lands first; Liked Songs, sections and discography show an empty page instead of the failure state when their read fails (and cache it); after a refresh whose follow check returns nothing, `canEditItems` uses the previous answer; two cached instances of the same half-loaded playlist can both page it. — **Done (05b0ac7):** all four fixed with tests (load counter on refresh; failed Liked Songs/section/discography reads show the failure, uncached; edit rights from this load only; one pager per page id).

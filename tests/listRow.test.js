@@ -23,7 +23,7 @@ const noop = () => {};
 function legacyLibraryRow(item, type, playing) {
     const img = getItemImage(item, type, IMG_THUMB);
     const isArtist = type === 'artist';
-    const sub = itemSubtitle(item, type, SUBTITLE_STYLE.library);
+    const sub = itemSubtitle(item, type, SUBTITLE_STYLE.list);
     return html`
             <div class="row" @click=${noop}>
                 <div class="art ${isArtist ? 'circle' : ''} ${img ? '' : 'art-fallback'}" style="${img ? `background-image: url('${img}')` : ''}"></div>
@@ -54,7 +54,7 @@ const searchTrailing = (type) => html`
 function legacySearchRow(item, type) {
     const img = getItemImage(item, type, IMG_THUMB);
     const isArtist = type === 'artist';
-    const sub = itemSubtitle(item, type, SUBTITLE_STYLE.search);
+    const sub = itemSubtitle(item, type, SUBTITLE_STYLE.list);
     return html`
             <div class="row" @click=${noop}>
                 <div class="art ${isArtist ? 'circle' : ''}" style="background-image: url('${img}')"></div>
@@ -71,7 +71,10 @@ function legacySearchRow(item, type) {
 const legacySkeletons = (n) => html`${Array(n).fill(0).map(() => html`
             <div class="skel skeleton-pulse"><div class="art"></div><div class="skel-lines"><div></div><div></div></div></div>`)}`;
 
-// components/spotify-home.js — cardSubtitle + _cardTemplate + _carouselSection
+// components/spotify-home.js — cardSubtitle + _cardTemplate + _carouselSection.
+// S14: the header's inline flex and the title's margin:0 repeated
+// .section-header / .section-header .section-title (sharedStyles) and are
+// left out below (computed styles identical); the rest is verbatim.
 function legacyCardSubtitle(item, type) {
     let subtitle = item.subtitle;
     if (!subtitle && item.owner) subtitle = item.owner.display_name;
@@ -96,9 +99,9 @@ function legacyCarousel(host, title, sectionId, items = null) {
     }
     return html`
         <section class="home-section" data-section-id="${sectionId}">
-            <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
+            <div class="section-header">
                 <div style="display: flex; align-items: center;">
-                    <h3 class="section-title" style="margin:0;">${title}</h3>
+                    <h3 class="section-title">${title}</h3>
                     <button class="icon-btn expand-btn" @click=${(e) => host._toggleSectionView(e, sectionId)} aria-label="Toggle View" style="background:none; border:none; color:var(--secondary-text-color, #b3b3b3); cursor:pointer; margin-left: 8px; padding: 4px; display: flex; align-items: center;">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(${expanded ? 180 : 0}deg);">
                             <polyline points="6 9 12 15 18 9"></polyline>
@@ -127,7 +130,7 @@ test('renderListRow: library rows match the library markup', () => {
     for (const [item, type] of [[album, 'album'], [playlist, 'playlist'], [artist, 'artist'], [noArt, 'album']]) {
         for (const playing of [false, true]) {
             const row = renderListRow(item, type, {
-                subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.library),
+                subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.list),
                 playing,
                 onClick: noop,
                 trailing: type === 'artist' ? '' : html`
@@ -142,7 +145,7 @@ test('renderListRow: library rows match the library markup', () => {
 test('renderListRow: search rows match the search markup (art present)', () => {
     for (const [item, type] of [[track, 'track'], [album, 'album'], [playlist, 'playlist'], [artist, 'artist']]) {
         const row = renderListRow(item, type, {
-            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.search),
+            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.list),
             fallbackArt: false,
             onClick: noop,
             trailing: searchTrailing(type),

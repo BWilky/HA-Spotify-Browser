@@ -334,7 +334,7 @@ class SpotifySearch extends LitElement {
         const isTrack = type === 'track';
         // Search rows draw no music-note placeholder for missing art.
         return renderListRow(item, type, {
-            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.search),
+            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.list),
             fallbackArt: false,
             onClick: () => isTrack ? this._playTrack(item) : this._navigate(type, item),
             trailing: html`

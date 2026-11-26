@@ -279,11 +279,7 @@ export class SpotifyArtistView extends LitElement {
                                 </button>
                             ` : ''}
 
-                            <button
-                                class="hero-btn-fav"
-                                @click=${this._toggleFollow}
-                                style="${this._isFollowing ? 'border-color: var(--spf-brand); color: var(--spf-brand);' : ''}"
-                            >
+                            <button class="hero-btn-fav ${this._isFollowing ? 'is-favorite' : ''}" @click=${this._toggleFollow}>
                                 ${this._isFollowing ? 'FOLLOWING' : 'FOLLOW'}
                             </button>
                         </div>
@@ -296,7 +292,7 @@ export class SpotifyArtistView extends LitElement {
                             <div class="artist-track-grid">
                                 ${data.topTracks === null
                     ? Array(5).fill(0).map(() => renderPillSkeletonTemplate())
-                    : data.topTracks.map((item, index) => this.renderArtistTopTrack(item.track || item))
+                    : data.topTracks.map(item => this.renderArtistTopTrack(item.track || item))
                 }
                             </div>
                         </section>
@@ -305,9 +301,9 @@ export class SpotifyArtistView extends LitElement {
                     ${data.albums === null || data.albums?.length ? renderCarouselSection({
                         ...ARTIST_CAROUSEL,
                         header: html`
-                            <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <div class="section-header">
                                 <h2 style="margin: 0;">Discography</h2>
-                                <button class="see-all-btn" @click=${() => this._navigate(`artist-discography:${data.id}`, { name: data.name, id: data.id })} style="background: none; border: none; color: #b3b3b3; font-size: var(--spf-text-sm, 12px); font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase;">SEE ALL</button>
+                                <button class="see-all-btn" @click=${() => this._navigate(`artist-discography:${data.id}`, { name: data.name, id: data.id })} style="color: var(--spf-text-sub);">SEE ALL</button>
                             </div>`,
                         items: data.albums,
                         type: 'album',
@@ -325,7 +321,6 @@ export class SpotifyArtistView extends LitElement {
                     ${data.similarArtists === null || data.similarArtists?.length ? renderCarouselSection({
                         ...ARTIST_CAROUSEL,
                         header: html`<h2>Fans Also Like</h2>`,
-                        layoutClass: 'circle-cards',
                         items: data.similarArtists,
                         type: 'artist',
                         onItem: (artist, _type, _sub, e) => this._navigate(`artist:${artist.id}`, artist, e),
@@ -344,7 +339,7 @@ export class SpotifyArtistView extends LitElement {
 
         return renderPillTemplate(
             track,
-            (e) => this._playPopularTrack(track),
+            () => this._playPopularTrack(track),
             (e) => {
                 e.preventDefault();
                 e.stopPropagation();

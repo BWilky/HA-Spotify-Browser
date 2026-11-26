@@ -139,6 +139,32 @@ test('header-scroll is relayed only from the page currently shown', (t) => {
     assert.deepEqual(relayed, ['Playlist', 'Artist']);
 });
 
+test('hero pages: Liked Songs, playlists, albums and artists; the section and discography pages use the opaque app header', (t) => {
+    const router = makeRouter();
+    for (const id of ['likedsongs', 'playlist:p1', 'album:al1', 'artist:ar1']) assert.equal(router.isHeroPage(id), true, id);
+    for (const id of ['artist-discography:ar1', 'section:favorites', 'home', 'search', 'library', '', null, undefined]) {
+        assert.equal(router.isHeroPage(id), false, String(id));
+    }
+
+    // route-changed carries it (the app starts the header transparent only on a
+    // hero page), and Back from the discography page returns to the artist.
+    const prevDocument = globalThis.document;
+    globalThis.document = { createElement: () => fakeElement() };
+    t.after(() => { globalThis.document = prevDocument; });
+    router.container = {};
+    const routes = [];
+    router.addEventListener('route-changed', (e) => routes.push([e.detail.pageId, e.detail.isHeroPage, e.detail.direction]));
+    router.navigateTo('artist:ar1');
+    router.navigateTo('artist-discography:ar1', { id: 'ar1', name: 'Artist 1' });
+    router.goBack();
+    assert.deepEqual(routes, [
+        ['artist:ar1', true, 'forward'],
+        ['artist-discography:ar1', false, 'forward'],
+        ['artist:ar1', true, 'back'],
+    ]);
+    assert.deepEqual(router.history, []);
+});
+
 // A cached page that records every hass it is handed.
 function fakeHassPage() {
     return { seen: [], set hass(h) { this.seen.push(h); }, requestUpdate() {} };

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    HeroScrollController, fixedHeaderFade, heroHeightHeaderFade, HERO_PAGE_CLASS
+    HeroScrollController, fixedHeaderFade, heroHeightHeaderFade, HERO_PAGE_CLASS, listPageScroll
 } from '../src/components/controllers/hero-scroll-controller.js';
 
 /*
@@ -374,17 +374,7 @@ function legacySectionView(host) {
 
 // The section view now: the same wiring as spotify-section-view.js.
 function controllerSectionView(host) {
-    const ctrl = new HeroScrollController(host, {
-        getTitle: () => host.data?.name || '',
-        heroClass: null,
-        fade: () => ({ alpha: 1, textAlpha: 1 }),
-        dedupe: true,
-        nearBottom: 300,
-        onNearBottom: () => {
-            if (!host.data || host.data.isLoading || !host.data.hasMore) return;
-            host.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
-        },
-    });
+    const ctrl = listPageScroll(host, { nearBottom: 300 });
     return {
         updated(changedProperties) { if (changedProperties.has('data')) ctrl.sync(); },
         updateHeaderState() { ctrl.updateHeaderState(); },
@@ -458,4 +448,82 @@ test('section page: the controller sends the same events, at the same points, as
         assert.deepEqual(now.log, legacy.log, `after step ${i}`);
     });
     assert.ok(legacy.log.length >= 10, `scenario exercised (${legacy.log.length} events)`);
+});
+
+// components/views/spotify-context-list.js (the artist discography) before it
+// moved onto listPageScroll, copied verbatim (`this` became `host`): a
+// load-more check on every scroll event, and no header events (it drew its
+// own header bar with a back button).
+function legacyDiscography(host) {
+    return {
+        _handleScroll(e) {
+            const target = e.target;
+            // Infinite Scroll Logic
+            if (target.scrollTop + target.clientHeight >= target.scrollHeight - 100) {
+                if (!host.data.isLoading && host.data.hasMore) {
+                    host.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
+                }
+            }
+        },
+    };
+}
+
+test('discography page: load-more at the same offsets as before (once per frame), and it now drives the app header', (t) => {
+    const frames = new Map();
+    let nextFrame = 1;
+    globalThis.requestAnimationFrame = (cb) => { const id = nextFrame++; frames.set(id, cb); return id; };
+    globalThis.cancelAnimationFrame = (id) => { frames.delete(id); };
+    t.after(() => { delete globalThis.requestAnimationFrame; delete globalThis.cancelAnimationFrame; });
+    const flush = () => { const cbs = [...frames.values()]; frames.clear(); cbs.forEach(cb => cb()); };
+
+    const container = makeContainer({ hero: false, clientHeight: 800, scrollHeight: 3000 });
+    const make = (log) => ({
+        data: { items: [], isLoading: true }, // the list's constructor default
+        controllers: [],
+        shadowRoot: { querySelector: (sel) => (sel === '.main-scroll-container' ? container : null) },
+        addController(c) { this.controllers.push(c); },
+        dispatchEvent(e) { log.push(e.type === 'header-scroll' ? ['header', e.detail.alpha, e.detail.textAlpha, e.detail.title] : [e.type, e.bubbles, e.composed]); return true; },
+    });
+    const oldLog = [], newLog = [];
+    const oldHost = make(oldLog), newHost = make(newLog);
+    const legacy = legacyDiscography(oldHost);
+    const ctrl = listPageScroll(newHost, { nearBottom: 100 });
+    const setData = (data) => { oldHost.data = data; newHost.data = data; ctrl.sync(); }; // updated(): sync on data
+    const scroll = (top) => {
+        container.scrollTop = top;
+        const e = { target: container, currentTarget: container };
+        legacy._handleScroll(e);
+        ctrl.onScroll(e);
+        flush();
+    };
+    const loadMores = (log) => log.filter(e => e[0] === 'load-more');
+
+    setData({ name: 'Artist 1 Discography', items: [], isLoading: false, hasMore: true });
+    assert.deepEqual(newLog, [['header', 1, 1, 'Artist 1 Discography']], 'opaque, titled header on data');
+    for (const top of [0, 500, 2099, 2100, 2101, 2200]) scroll(top); // threshold: 2100 + 800 >= 2900
+    setData({ ...newHost.data, isLoading: true });
+    scroll(2200);
+    setData({ ...newHost.data, isLoading: false, hasMore: false });
+    scroll(2200);
+    setData({ ...newHost.data, hasMore: true });
+    scroll(2200);
+    assert.deepEqual(loadMores(newLog), loadMores(oldLog), 'same load-more decisions');
+    assert.equal(loadMores(newLog).length, 4);
+    assert.deepEqual(loadMores(newLog)[0], ['load-more', true, true]);
+    // The header was re-sent only when the title changed (never here); a page
+    // shown again re-sends it.
+    assert.equal(newLog.filter(e => e[0] === 'header').length, 1);
+    ctrl.updateHeaderState();
+    assert.equal(newLog.filter(e => e[0] === 'header').length, 2);
+
+    // A burst of scroll events: the old list checked each one, now one frame does.
+    const before = [loadMores(oldLog).length, loadMores(newLog).length];
+    for (const top of [2150, 2160, 2170]) {
+        container.scrollTop = top;
+        const e = { target: container, currentTarget: container };
+        legacy._handleScroll(e);
+        ctrl.onScroll(e);
+    }
+    flush();
+    assert.deepEqual([loadMores(oldLog).length - before[0], loadMores(newLog).length - before[1]], [3, 1]);
 });

@@ -2,7 +2,8 @@
  * Scroll behaviour of a "hero page" (the playlist/album/Liked Songs view and
  * the artist view): a scroll container that opens with a hero banner and
  * drives the app header while it scrolls. Pages without a hero use it too
- * (the "See All" section page: `heroClass: null`, a constant `fade`).
+ * (the "See All" section page and the artist discography: listPageScroll,
+ * i.e. `heroClass: null` and a constant `fade`).
  *
  *   - rAF-coalesced scroll handling (one frame of work per burst of events)
  *   - decorative parallax: the hero image stretches on over-scroll and,
@@ -238,4 +239,36 @@ export class HeroScrollController {
             composed: true
         }));
     }
+}
+
+/** No hero: the app header stays opaque and titled at every scroll offset. */
+const OPAQUE_HEADER = () => ({ alpha: 1, textAlpha: 1 });
+
+/**
+ * The controller of a page without a hero that lists `host.data.items` (the
+ * "See All" section page, the artist discography). It drives the shared app
+ * header (back button + centred title `host.data.name`, always opaque)
+ * instead of the page drawing its own header bar: sent while the page is on
+ * screen and only when the title changed, except from updateHeaderState
+ * (another page may have changed the app header in between). On each scroll
+ * frame ending within `nearBottom` px of the end it sends `load-more`
+ * (bubbling, composed), unless a page is loading or there is none left.
+ *
+ * Host wiring: scroll container class="main-scroll-container"
+ * @scroll=${ctrl.onScroll}; ctrl.sync() when `data` changed (updated);
+ * updateHeaderState() { ctrl.updateHeaderState(); }.
+ */
+export function listPageScroll(host, { nearBottom }) {
+    return new HeroScrollController(host, {
+        getTitle: () => host.data?.name || '',
+        heroClass: null,
+        fade: OPAQUE_HEADER,
+        dedupe: true,
+        nearBottom,
+        onNearBottom: () => {
+            const data = host.data;
+            if (!data || data.isLoading || !data.hasMore) return;
+            host.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
+        },
+    });
 }

@@ -312,13 +312,16 @@ export class Router extends EventTarget {
         return !!page && this._editingPages.has(page);
     }
 
-    /** Whether the page renders a hero header (transparent app header, hero layout). */
+    /**
+     * Whether the page renders a hero header (transparent app header, hero
+     * layout). The "See All" section and discography pages have none: the
+     * app header starts opaque there.
+     */
     isHeroPage(pageId) {
         if (!pageId) return false;
         return pageId === 'likedsongs' ||
             pageId.startsWith('artist:') ||
             pageId.startsWith('album:') ||
-            pageId.startsWith('playlist:') ||
-            pageId.startsWith('artist-discography:');
+            pageId.startsWith('playlist:');
     }
 }

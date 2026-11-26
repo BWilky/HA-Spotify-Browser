@@ -4,79 +4,59 @@ import { heartIcon, heartToggleIcon, queueIcon, menuIcon, playIcon, playingBarsI
 import { trackMenuDetail } from "./track-menu.js";
 
 /**
- * The line under an item's name in lists and cards.
- *
- * Base rule (no options): a playlist shows its owner, an album or track its
- * artists, an artist "Artist". Each option is a point where the lists
- * disagree today; SUBTITLE_STYLE holds every list's current combination.
+ * The wordings of itemSubtitle: one per kind of screen.
+ *   list         Library, Search and the "See All" section pages.
+ *   card         Home cards.
+ *   discography  The artist discography list.
+ */
+export const SUBTITLE_STYLE = Object.freeze({
+    list: 'list',
+    card: 'card',
+    discography: 'discography',
+    // Aliases of `list`, so spotify-library.js (SUBTITLE_STYLE.library) keeps
+    // working unchanged; to be dropped once every call site says `list`.
+    library: 'list',
+    search: 'list',
+    section: 'list',
+});
+
+/** The type word that leads a list subtitle. */
+const LIST_TYPE_LABEL = { playlist: 'Playlist', album: 'Album', track: 'Song' };
+
+/**
+ * The line under an item's name, by one rule:
+ *   - who: a playlist's owner (display name, else owner.name), an album's or
+ *     track's artists (blank names skipped), "Artist" for an artist;
+ *   - list: led by the type — "Playlist • Owner" (owner "Spotify" when it has
+ *     no name), "Album • Artists", "Song • Artists" (just the type when there
+ *     are no artists), "Artist"; no year;
+ *   - card: just who ("" when unknown); a precomputed item.subtitle (pinned
+ *     items) wins;
+ *   - discography: an album reads "<year> • <Album|Single|Compilation>" from
+ *     release_date and album_type ("Album" when album_type is missing, just
+ *     the type when there is no date); any other item as in a list.
  *
  * @param {Object} item - Spotify playlist / album / artist / track (or a flattened pinned item).
  * @param {string} [type] - defaults to item.type.
- * @param {Object} [options]
- * @param {boolean} [options.preset] - a precomputed item.subtitle (pinned items) wins when non-empty.
- * @param {boolean} [options.typeLabel] - lead with the type: "Playlist • Owner", "Album • Artists", "Song • Artists".
- * @param {boolean} [options.byOwner] - playlist owner written "By <name>" (without typeLabel); "Playlist" when the owner has no name.
- * @param {boolean} [options.ownerAltName] - use owner.name when owner.display_name is empty.
- * @param {string}  [options.ownerFallback] - (typeLabel) owner text when the playlist has no owner name.
- * @param {boolean} [options.description] - a playlist with no owner shows its description.
- * @param {'lead'|'trail'|'fallback'} [options.year] - album release year: after the type label ('lead'), after the
- *        artists ('trail'), or only for an album without an artists list, else "Album" ('fallback').
- * @param {string}  [options.unknownArtist] - text for an album without an artists list.
+ * @param {string} [style] - a SUBTITLE_STYLE value; defaults to (and anything unknown reads as) `list`.
  * @returns {string}
  */
-export function itemSubtitle(item, type = item?.type, options = {}) {
+export function itemSubtitle(item, type = item?.type, style = SUBTITLE_STYLE.list) {
     if (!item) return '';
-    const {
-        preset = false, typeLabel = false, byOwner = false, ownerAltName = false,
-        ownerFallback = '', description = false, year = null, unknownArtist = '',
-    } = options;
-    if (preset && item.subtitle) return item.subtitle;
-
-    const artists = Array.isArray(item.artists) ? item.artists.map(a => a.name).join(', ') : null;
-    const yr = item.release_date ? item.release_date.split('-')[0] : '';
-    switch (type) {
-        case 'artist':
-            return 'Artist';
-        case 'playlist': {
-            const owner = item.owner;
-            let name = owner?.display_name;
-            if (!name && ownerAltName) name = owner?.name;
-            if (typeLabel) return `Playlist • ${name || ownerFallback}`;
-            if (!owner) return (description && item.description) || '';
-            // An owner without a display name reads "Playlist", not "By undefined".
-            return byOwner ? (name ? `By ${name}` : 'Playlist') : (name || '');
-        }
-        case 'album': {
-            if (typeLabel) return ['Album', year === 'lead' && yr, artists].filter(Boolean).join(' • ');
-            if (year === 'fallback') return artists || (yr || 'Album');
-            // An empty artists list counts as missing (no leading " • 2020").
-            const text = artists || unknownArtist;
-            return year === 'trail' && yr ? (text ? `${text} • ${yr}` : yr) : text;
-        }
-        case 'track':
-            return typeLabel ? `Song • ${artists || ''}` : (artists || '');
-        default:
-            return artists || '';
+    if (style === SUBTITLE_STYLE.card && item.subtitle) return item.subtitle;
+    if (type === 'artist') return 'Artist';
+    if (style === SUBTITLE_STYLE.discography && type === 'album') {
+        const year = item.release_date ? item.release_date.split('-')[0] : '';
+        const kind = item.album_type ? item.album_type.charAt(0).toUpperCase() + item.album_type.slice(1) : 'Album';
+        return year ? `${year} • ${kind}` : kind;
     }
+    const isList = style !== SUBTITLE_STYLE.card;
+    const who = type === 'playlist'
+        ? (item.owner?.display_name || item.owner?.name || (isList ? 'Spotify' : ''))
+        : (Array.isArray(item.artists) ? item.artists.map(a => a?.name).filter(Boolean).join(', ') : '');
+    const label = isList ? LIST_TYPE_LABEL[type] : null;
+    return label ? (who ? `${label} • ${who}` : label) : who;
 }
-
-/**
- * Each list's subtitle wording as it stands (the lists disagree; see
- * itemSubtitle). Kept apart so one wording can be chosen later without
- * changing any list by accident.
- */
-export const SUBTITLE_STYLE = Object.freeze({
-    /** Your Library: "Playlist • Owner", "Album • Artists", "Artist". */
-    library: Object.freeze({ typeLabel: true, ownerAltName: true, ownerFallback: 'Spotify' }),
-    /** Search results: "Song • Artists", "Playlist • Owner", "Album • 2020 • Artists", "Artist". */
-    search: Object.freeze({ typeLabel: true, ownerFallback: 'Spotify', year: 'lead' }),
-    /** Home "See All" section pages: "By Owner" (else the description), "Artists • 2020", "Artist". */
-    section: Object.freeze({ byOwner: true, description: true, year: 'trail', unknownArtist: 'Unknown Artist' }),
-    /** Artist discography list: "By Owner", "Artists" (else the year, else "Album"), "Artist". */
-    mediaRow: Object.freeze({ byOwner: true, year: 'fallback' }),
-    /** Home cards: the item's own subtitle (pinned items), else "Owner", "Artists", "Artist". */
-    card: Object.freeze({ preset: true }),
-});
 
 /** Right chevron at the end of a navigating row (discography list). */
 export const rowChevronIcon = html`<svg width="24" height="24" fill="var(--spf-text-sub)" viewBox="0 0 24 24"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6-1.41-1.41z"/></svg>`;
@@ -162,14 +142,13 @@ export const ARTIST_CAROUSEL = Object.freeze({ sectionClass: 'artist-section', s
  * @param {Function} [o.seeAll] - (e) "See All" click; the button shows once there are items.
  * @param {*} [o.header] - (artist) template that replaces the default header row (title, toggle, See All).
  * @param {string} [o.sectionClass='home-section'] - (artist) class of the <section>.
- * @param {string} [o.layoutClass] - (artist) extra class on the carousel row.
  * @param {number} [o.skeletons=6] - (artist) number of card skeletons while loading.
  * @param {boolean} [o.roundSkeletons] - (artist) round card skeletons; defaults to type === 'artist'.
  * @param {boolean} [o.scrollButton=true] - (artist) the hover "scroll right" button.
  */
 export function renderCarouselSection({
     title, id, items = null, type, onItem, subtitle, expanded = false, onToggle, seeAll,
-    header, sectionClass = 'home-section', layoutClass = '', skeletons = 6,
+    header, sectionClass = 'home-section', skeletons = 6,
     roundSkeletons = type === 'artist', scrollButton = true,
 }) {
     const hasItems = !!items && items.length > 0;
@@ -191,9 +170,9 @@ export function renderCarouselSection({
     return html`
         <section class="${sectionClass}" data-section-id="${id ?? nothing}">
             ${header ?? html`
-            <div class="section-header" style="display: flex; align-items: center; justify-content: space-between;">
+            <div class="section-header">
                 <div style="display: flex; align-items: center;">
-                    <h3 class="section-title" style="margin:0;">${title}</h3>
+                    <h3 class="section-title">${title}</h3>
                     ${onToggle ? html`<button class="icon-btn expand-btn" @click=${onToggle} aria-label="Toggle View" style="background:none; border:none; color:var(--secondary-text-color, #b3b3b3); cursor:pointer; margin-left: 8px; padding: 4px; display: flex; align-items: center;">
                         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="transform: rotate(${expanded ? 180 : 0}deg);">
                             <polyline points="6 9 12 15 18 9"></polyline>
@@ -205,7 +184,7 @@ export function renderCarouselSection({
                 : html`<button class="see-all-btn" style="display:none">See All</button>`}
             </div>`}
             <div class="carousel-wrapper">
-                <div class="${expanded ? 'section-grid' : 'carousel-layout'}${layoutClass ? ` ${layoutClass}` : ''}" id="${id == null ? nothing : `carousel-${id}`}" data-section="${id ?? nothing}">
+                <div class="${expanded ? 'section-grid' : 'carousel-layout'}" id="${id == null ? nothing : `carousel-${id}`}" data-section="${id ?? nothing}">
                     ${content}
                 </div>
                 ${scrollButton ? html`

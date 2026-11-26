@@ -2,10 +2,7 @@ import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { listRowStyles } from '../../styles/list-row.styles.js';
 import { renderListRow, renderEmptyState, itemSubtitle, SUBTITLE_STYLE } from '../media-templates.js';
-import { HeroScrollController } from '../controllers/hero-scroll-controller.js';
-
-/** No hero: the app header stays opaque and titled at every scroll offset. */
-const OPAQUE_HEADER = () => ({ alpha: 1, textAlpha: 1 });
+import { listPageScroll } from '../controllers/hero-scroll-controller.js';
 
 export class SpotifySectionView extends LitElement {
     static get properties() {
@@ -62,24 +59,9 @@ export class SpotifySectionView extends LitElement {
 
     constructor() {
         super();
-        // Drives the shared app header (back button + centered title) instead
-        // of rendering our own header bar. The header is sent while the page is
-        // on screen (a cached page's data can still change, e.g. a load-more
-        // finishing after navigating away) and only when the title changed,
-        // except from updateHeaderState: another page may have changed the app
-        // header in between.
-        this._scroll = new HeroScrollController(this, {
-            getTitle: () => this.data?.name || '',
-            heroClass: null,
-            fade: OPAQUE_HEADER,
-            dedupe: true,
-            // Infinite scroll: request the next page when near the bottom.
-            nearBottom: 300,
-            onNearBottom: () => {
-                if (!this.data || this.data.isLoading || !this.data.hasMore) return;
-                this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
-            },
-        });
+        // The app header (opaque, titled with the section name) and infinite
+        // scroll: load-more within 300px of the end.
+        this._scroll = listPageScroll(this, { nearBottom: 300 });
     }
 
     updated(changedProperties) {
@@ -110,7 +92,7 @@ export class SpotifySectionView extends LitElement {
         const type = item.type;
         return renderListRow(item, type, {
             name: item.name || 'Unknown',
-            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.section),
+            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.list),
             fallbackArt: false,
             onClick: () => {
                 this.dispatchEvent(new CustomEvent('navigate', {

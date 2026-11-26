@@ -17,7 +17,7 @@ function recentPillSkeleton() {
     `;
 }
 
-/** Subtitle shown on home cards (the item's own, then owner, then artists, then 'Artist'). */
+/** Subtitle shown on home cards: a pinned item's own, else the owner / artists / "Artist". */
 const cardSubtitle = (item, type) => itemSubtitle(item, type, SUBTITLE_STYLE.card);
 
 /** Item type of each library section (round skeletons while artists load). */

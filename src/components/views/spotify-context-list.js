@@ -2,6 +2,7 @@ import { LitElement, html, css } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
 import { listRowStyles } from '../../styles/list-row.styles.js';
 import { renderTrackSkeletonTemplate, renderListRow, renderEmptyState, itemSubtitle, SUBTITLE_STYLE, rowChevronIcon } from '../media-templates.js';
+import { listPageScroll } from '../controllers/hero-scroll-controller.js';
 
 export class SpotifyContextList extends LitElement {
     static get properties() {
@@ -27,7 +28,7 @@ export class SpotifyContextList extends LitElement {
                     --list-row-art: 64px;
                     --list-row-gap: 0px;
                 }
-                .list-container {
+                .main-scroll-container {
                     width: 100%;
                     height: 100%;
                     overflow-y: auto;
@@ -37,28 +38,13 @@ export class SpotifyContextList extends LitElement {
                     padding-bottom: 50px; /* Spacer */
                     background: var(--spf-bg);
                 }
-                .list-header {
-                    padding: 16px 24px;
-                    display: flex;
-                    align-items: center;
-                    gap: 16px;
-                    /* sticky header? */
-                    position: sticky; top: 0; z-index: 10;
-                    background: rgba(18,18,18,0.95);
-                    backdrop-filter: blur(8px);
-                    border-bottom: 1px solid var(--spf-border);
-                }
-                .back-btn {
-                    background: none; border: none; color: white; cursor: pointer;
-                }
-                .list-title {
-                    font-size: var(--spf-text-lg, 17px); font-weight: bold; color: white;
-                }
 
                 .content-list {
                     display: flex;
                     flex-direction: column;
-                    padding: 0;
+                    /* Clear the app header (which overlays the top) + safe
+                       area, as on the section page. */
+                    padding: calc(64px + var(--spf-safe-top, 0px)) 0 0;
                 }
 
                 /* Rows (renderListRow) keep the discography's larger look: 64px
@@ -83,21 +69,18 @@ export class SpotifyContextList extends LitElement {
     constructor() {
         super();
         this.data = { items: [], isLoading: true };
+        // The app header (opaque, titled "<Artist> Discography", with its own
+        // back button) and infinite scroll: load-more within 100px of the end.
+        this._scroll = listPageScroll(this, { nearBottom: 100 });
     }
 
-    _handleScroll(e) {
-        const target = e.target;
-        // Infinite Scroll Logic
-        if (target.scrollTop + target.clientHeight >= target.scrollHeight - 100) {
-            if (!this.data.isLoading && this.data.hasMore) {
-                this.dispatchEvent(new CustomEvent('load-more', { bubbles: true, composed: true }));
-            }
-        }
+    updated(changedProperties) {
+        if (changedProperties.has('data')) this._scroll.sync();
     }
 
-    _handleBack(e) {
-        e.stopPropagation();
-        this.dispatchEvent(new CustomEvent('back', { bubbles: true, composed: true }));
+    /** Called by the parent context-view when this page becomes visible again. */
+    updateHeaderState() {
+        this._scroll.updateHeaderState();
     }
 
     render() {
@@ -106,14 +89,7 @@ export class SpotifyContextList extends LitElement {
         const type = this.type || this.data?.type || 'track';
 
         return html`
-            <div class="list-container" @scroll=${this._handleScroll}>
-                <div class="list-header">
-                    <button class="back-btn" @click=${this._handleBack}>
-                        <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
-                    </button>
-                    <div class="list-title">${this.data?.name || 'List'}</div>
-                </div>
-
+            <div class="main-scroll-container" @scroll=${this._scroll.onScroll}>
                 <div class="content-list">
                     ${items.map((item) => this._renderRow(item, item.type || type))}
                     
@@ -131,7 +107,7 @@ export class SpotifyContextList extends LitElement {
     _renderRow(item, itemType) {
         return renderListRow(item, itemType, {
             name: item.name || 'Unknown',
-            subtitle: itemSubtitle(item, itemType, SUBTITLE_STYLE.mediaRow),
+            subtitle: itemSubtitle(item, itemType, SUBTITLE_STYLE.discography),
             onClick: () => {
                 this.dispatchEvent(new CustomEvent('navigate', {
                     detail: { pageId: `${itemType}:${item.id}`, data: item },

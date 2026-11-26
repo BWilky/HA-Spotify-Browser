@@ -108,9 +108,9 @@ function newRails(host, data) {
                     ${data.albums === null || data.albums?.length ? renderCarouselSection({
                         ...ARTIST_CAROUSEL,
                         header: html`
-                            <div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <div class="section-header">
                                 <h2 style="margin: 0;">Discography</h2>
-                                <button class="see-all-btn" @click=${() => host._navigate(`artist-discography:${data.id}`, { name: data.name, id: data.id })} style="background: none; border: none; color: #b3b3b3; font-size: var(--spf-text-sm, 12px); font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase;">SEE ALL</button>
+                                <button class="see-all-btn" @click=${() => host._navigate(`artist-discography:${data.id}`, { name: data.name, id: data.id })} style="color: var(--spf-text-sub);">SEE ALL</button>
                             </div>`,
                         items: data.albums,
                         type: 'album',
@@ -128,7 +128,6 @@ function newRails(host, data) {
                     ${data.similarArtists === null || data.similarArtists?.length ? renderCarouselSection({
                         ...ARTIST_CAROUSEL,
                         header: html`<h2>Fans Also Like</h2>`,
-                        layoutClass: 'circle-cards',
                         items: data.similarArtists,
                         type: 'artist',
                         onItem: (artist, _type, _sub, e) => host._navigate(`artist:${artist.id}`, artist, e),
@@ -168,10 +167,27 @@ const STATES = {
     'one of each, one item without a type': { ...BASE, albums: [{ ...album(1), type: undefined }], playlists: [playlist(1)], similarArtists: [{ ...artist(1), type: undefined }] },
 };
 
-test('artist rails: renderCarouselSection + ARTIST_CAROUSEL reproduce the old markup', () => {
+/**
+ * The intended differences from the old markup (X4, S14), applied to it:
+ *  - the Discography header's inline flex repeated .section-header (sharedStyles);
+ *  - the SEE ALL button's inline declarations repeated .see-all-btn, except its
+ *    colour: kept, as the token (#b3b3b3), because it also holds the hover
+ *    colour (.see-all-btn:hover would turn it white);
+ *  - "circle-cards" had no CSS anywhere.
+ */
+const intended = (markup) => markup
+    .replace('<div class="section-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">', '<div class="section-header">')
+    .replace('style="background: none; border: none; color: #b3b3b3; font-size: var(--spf-text-sm, 12px); font-weight: 700; letter-spacing: 1px; cursor: pointer; text-transform: uppercase;"', 'style="color: var(--spf-text-sub);"')
+    .replace('class="carousel-layout circle-cards"', 'class="carousel-layout"');
+
+test('artist rails: renderCarouselSection + ARTIST_CAROUSEL reproduce the old markup (minus the intended X4/S14 changes)', () => {
+    let changed = 0;
     for (const [name, data] of Object.entries(STATES)) {
-        assert.equal(same(newRails(host(), data)), same(legacyRails(host(), data)), name);
+        const legacy = same(legacyRails(host(), data));
+        if (intended(legacy) !== legacy) changed++;
+        assert.equal(same(newRails(host(), data)), intended(legacy), name);
     }
+    assert.ok(changed >= 2, 'the intended changes were exercised');
 });
 
 test('artist rails: same listeners, dispatching the same navigate events, stopping propagation where they did', () => {
