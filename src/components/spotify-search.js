@@ -212,8 +212,13 @@ class SpotifySearch extends LitElement {
         this._topFollow.following = null;
         const artist = this._topArtist();
         if (!artist?.id || !this.api) return;
+        // The search these results came from: a newer search (or refresh)
+        // supersedes this check, so a slow answer for an earlier top artist
+        // cannot set the button.
+        const searchId = this._searchId;
         try {
             const res = await this.api.checkArtistsFollowing(artist.id);
+            if (searchId !== this._searchId) return;
             if (typeof res === 'boolean') this._topFollow.following = res;
             else if (Array.isArray(res)) this._topFollow.following = !!res[0];
             else if (res && typeof res === 'object') this._topFollow.following = !!res[artist.id];

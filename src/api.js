@@ -49,6 +49,33 @@ export function classifyPlaybackError(e) {
     return p ? { ...p, message: p.message || msg } : null;
 }
 
+/**
+ * @typedef {{ items: any[], total: number|undefined }} ListPage
+ * One page of a list read. `total` is passed through as SpotifyPlus sent it
+ * (undefined when it sent none): callers default it their own way.
+ */
+
+/**
+ * The page a list read's response holds: `{ result: { items, total } }` as
+ * `{ items, total }`; null when the read failed or the response holds no
+ * items list.
+ * @param {any} res
+ * @returns {ListPage|null}
+ */
+function listPage(res) {
+    const page = res?.result;
+    return Array.isArray(page?.items) ? { items: page.items, total: page.total } : null;
+}
+
+/**
+ * The object a single-object read's response holds (`res.result`), or null
+ * when the read failed or the response holds none.
+ * @param {any} res
+ */
+function resultObject(res) {
+    return res?.result || null;
+}
+
 /** JSON with object keys sorted, so equal params always serialize identically. */
 function stableStringify(value) {
     return JSON.stringify(value, (_key, v) => (v && typeof v === 'object' && !Array.isArray(v))
@@ -325,20 +352,30 @@ export class SpotifyApi {
     }
 
     /**
-     * The account's recently played tracks: get_player_recent_tracks,
-     * RECENT_TRACKS_LIMIT of them, newest first, as fetchSpotifyPlus returns
-     * them (null on failure). Home's "Recently Played" row and the player
-     * (the previous track, the queue sheet's history) both re-read them on
-     * every open, moments apart. `since` (a Date.now() stamp) lets a caller
-     * take the latest read that started at or after it, landed or still in
-     * flight, instead of asking again; without it the call always reads
-     * afresh (a track change must not be answered from before it), and that
-     * read is the one later callers share. A failed read is not shared. Each
-     * caller gets its own copy of the response.
-     * @param {{since?: number|null}} [options]
+     * The account's recently played tracks (get_player_recent_tracks), newest
+     * first, as a ListPage of play-history items ({ track, context,
+     * played_at }); null when the read failed or held no list.
+     *
+     * Asked for RECENT_TRACKS_LIMIT of them (the default `limit`), the read
+     * is shared: home's "Recently Played" row and the player (the previous
+     * track, the queue sheet's history) both re-read them on every open,
+     * moments apart. `since` (a Date.now() stamp) lets a caller take the
+     * latest read that started at or after it, landed or still in flight,
+     * instead of asking again; without it the call always reads afresh (a
+     * track change must not be answered from before it), and that read is
+     * the one later callers share. A failed read is not shared. Each caller
+     * gets its own copy of the page.
+     *
+     * Any other `limit` is a plain read of its own: never shared, `since`
+     * ignored.
+     * @param {{since?: number|null, limit?: number}} [options]
+     * @returns {Promise<ListPage|null>}
      */
-    getRecentTracks({ since = null } = {}) {
-        const copy = (json) => (typeof json === 'string' ? JSON.parse(json) : null);
+    getRecentTracks({ since = null, limit = SpotifyApi.RECENT_TRACKS_LIMIT } = {}) {
+        if (limit !== SpotifyApi.RECENT_TRACKS_LIMIT) {
+            return this.fetchSpotifyPlus('get_player_recent_tracks', { limit }).then(listPage);
+        }
+        const copy = (json) => listPage(typeof json === 'string' ? JSON.parse(json) : null);
         const last = this._recentRead;
         if (since !== null && last && last.startedAt >= since) return last.promise.then(copy);
 
@@ -1387,17 +1424,84 @@ export class SpotifyApi {
         return this._checkIds('check_track_favorites', ids, 'Check Track Favorites');
     }
 
-    async getTrackFavorites(options = {}) {
-        if (!this.hass) return null;
-        // options: limit, offset, market
-        return await this.fetchSpotifyPlus('get_track_favorites', options);
+    // --- LIBRARY & CATALOG READS ---
+    // Each makes the one fetchSpotifyPlus call its name says, with `params`
+    // exactly as given, and unwraps the response here instead of at every
+    // caller. A list read resolves to a ListPage, a single-object read to the
+    // object; either resolves to null when the read failed (or the response
+    // holds nothing of that shape). A thrown error (throwOnError is never set
+    // here, so only a broken transport) passes through.
+
+    /**
+     * Saved playlists (get_playlist_favorites): playlist objects.
+     * @param {object} [params]  limit / offset or limit_total, sort_result, ...
+     * @returns {Promise<ListPage|null>}
+     */
+    async getSavedPlaylists(params = {}) {
+        return listPage(await this.fetchSpotifyPlus('get_playlist_favorites', params));
     }
 
-    async getCurrentUserPlaylists(options = {}) {
-        if (!this.hass) return null;
-        // options: limit, offset
-        // Using 'get_playlist_favorites' as confirmed in old code and Wiki
-        return await this.fetchSpotifyPlus('get_playlist_favorites', { ...playlistSortParams(), ...options });
+    /**
+     * Saved albums (get_album_favorites): the album objects themselves, out of
+     * Spotify's { added_at, album } wrappers; a wrapper without an album is
+     * dropped. `total` counts wrappers, as Spotify reports it.
+     * @param {object} [params]  limit / offset or limit_total, sort_result, ...
+     * @returns {Promise<ListPage|null>}
+     */
+    async getSavedAlbums(params = {}) {
+        const page = listPage(await this.fetchSpotifyPlus('get_album_favorites', params));
+        return page && { items: page.items.map(i => i?.album).filter(Boolean), total: page.total };
+    }
+
+    /**
+     * Saved tracks (get_track_favorites): Spotify's { added_at, track }
+     * wrappers, kept as they are (Liked Songs renders them as playlist items).
+     * @param {object} [params]  limit, offset, sort_result, ...
+     * @returns {Promise<ListPage|null>}
+     */
+    async getSavedTracks(params = {}) {
+        return listPage(await this.fetchSpotifyPlus('get_track_favorites', params));
+    }
+
+    /**
+     * Followed artists (get_artists_followed), which page by cursor, not
+     * offset: `after` is the cursor for the next page — the page's
+     * `cursors.after`, else the last artist's id, else null. Robust parsing:
+     * SpotifyPlus sends the page flat in `result`; the Web API's own shape
+     * nests it under `result.artists`, which is read when it holds a list.
+     * @param {object} [params]  limit, after, sort_result, ...
+     * @returns {Promise<(ListPage & { after: string|null })|null>}
+     */
+    async getFollowedArtists(params = {}) {
+        const r = (await this.fetchSpotifyPlus('get_artists_followed', params))?.result;
+        const page = Array.isArray(r?.artists?.items) ? r.artists : r;
+        if (!Array.isArray(page?.items)) return null;
+        const items = page.items;
+        return { items, total: page.total, after: page.cursors?.after || items[items.length - 1]?.id || null };
+    }
+
+    /** The artist object (get_artist, read-cached), or null. @param {string} artistId */
+    async getArtist(artistId) {
+        return resultObject(await this.fetchSpotifyPlus('get_artist', { artist_id: artistId }));
+    }
+
+    /** The album object (get_album, read-cached), or null. @param {string} albumId */
+    async getAlbum(albumId) {
+        return resultObject(await this.fetchSpotifyPlus('get_album', { album_id: albumId }));
+    }
+
+    /** The track object (get_track, read-cached), or null. @param {string} trackId */
+    async getTrack(trackId) {
+        return resultObject(await this.fetchSpotifyPlus('get_track', { track_id: trackId }));
+    }
+
+    /**
+     * The playlist object (get_playlist; never cached: playlists are
+     * editable), with only its first page of tracks inline. Null on failure.
+     * @param {string} playlistId
+     */
+    async getPlaylist(playlistId) {
+        return resultObject(await this.fetchSpotifyPlus('get_playlist', { playlist_id: playlistId }));
     }
 
     // Per-artist genre lookup. Returns string[] of genres (may be empty). Used

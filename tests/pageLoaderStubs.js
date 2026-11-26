@@ -2,6 +2,7 @@
 // a recording api, Spotify-shaped canned data, and a host that implements the
 // loader `ctx` the way spotify-context-view does.
 import { isCacheable } from '../src/components/controllers/page-loaders.js';
+import { SpotifyApi } from '../src/api.js';
 
 export const img = (seed) => [640, 300, 64].map(w => ({ url: `https://img.test/${w}/${seed}.png`, width: w, height: w }));
 export const artist = (i) => ({ id: `ar${i}`, uri: `spotify:artist:ar${i}`, name: `Artist ${i}`, type: 'artist', images: img(`ar${i}`), genres: ['indie'] });
@@ -24,11 +25,21 @@ export const placeholder = (type, id) => ({
 const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
 
 /**
+ * SpotifyApi's read methods (getArtist, getSavedTracks, ...): the stub runs
+ * the real ones, so they make their calls through the stub's
+ * fetchSpotifyPlus, where they are recorded and answered per service.
+ */
+const READ_METHODS = ['getArtist', 'getAlbum', 'getTrack', 'getPlaylist', 'getSavedPlaylists',
+    'getSavedAlbums', 'getSavedTracks', 'getFollowedArtists', 'getRecentTracks'];
+
+/**
  * An api whose every method records `[method, ...args]` in `api.calls` and
  * answers from `responses[method]` (a value, or a function of the call's
  * arguments; `responses['fetchSpotifyPlus:<service>']` and
  * `'fetchPaginated:<service>'` per service). Answers are deep copies, as the
  * real api's are. A missing answer is an error, so an unexpected call fails.
+ * The READ_METHODS are SpotifyApi's own, over the stub's fetchSpotifyPlus:
+ * only their SpotifyPlus calls are recorded.
  */
 export function stubApi(responses = {}) {
     const calls = [];
@@ -39,16 +50,17 @@ export function stubApi(responses = {}) {
         return clone(v);
     };
     const record = (method, args) => calls.push(clone([method, ...args]));
-    return {
+    const api = {
         calls,
         fetchSpotifyPlus(service, params) { record('fetchSpotifyPlus', [service, params]); return answer(`fetchSpotifyPlus:${service}`, [params]); },
         fetchPaginated(service, params, n) { record('fetchPaginated', [service, params, n]); return answer(`fetchPaginated:${service}`, [params, n]); },
         getPlaylistItemsPage(...a) { record('getPlaylistItemsPage', a); return answer('getPlaylistItemsPage', a); },
         checkUserFollowsPlaylist(...a) { record('checkUserFollowsPlaylist', a); return answer('checkUserFollowsPlaylist', a); },
         getCurrentUserId(...a) { record('getCurrentUserId', a); return answer('getCurrentUserId', a); },
-        getTrackFavorites(...a) { record('getTrackFavorites', a); return answer('getTrackFavorites', a); },
         searchPlaylists(...a) { record('searchPlaylists', a); return answer('searchPlaylists', a); },
     };
+    for (const name of READ_METHODS) api[name] = (...a) => SpotifyApi.prototype[name].apply(api, a);
+    return api;
 }
 
 /** A promise you settle by hand, to control which read lands first. */

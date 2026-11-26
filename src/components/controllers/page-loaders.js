@@ -178,10 +178,8 @@ export async function pageInPlaylistTracks(ctx) {
 }
 
 async function album(ctx) {
-    const response = await ctx.api.fetchSpotifyPlus('get_album', { album_id: ctx.id });
-    if (response?.result) {
-        let albumData = response.result;
-
+    const albumData = await ctx.api.getAlbum(ctx.id);
+    if (albumData) {
         // Check if tracks are missing or empty (API quirk)
         if (!albumData.tracks || !albumData.tracks.items || albumData.tracks.items.length === 0) {
             const tracksRes = await ctx.api.fetchSpotifyPlus('get_album_tracks', { album_id: ctx.id, limit: 50 });
@@ -195,7 +193,7 @@ async function album(ctx) {
         // hasMore: albums arrive whole; nothing to load more of.
         ctx.commit({ ...albumData, type: 'album', isLoading: false, hasMore: false });
     } else {
-        console.error('[ContextView] Album Load Failed:', response);
+        console.error('[ContextView] Album Load Failed:', albumData);
     }
 }
 
@@ -207,7 +205,7 @@ async function album(ctx) {
  */
 async function artist(ctx) {
     const id = ctx.id;
-    const artistPromise = ctx.api.fetchSpotifyPlus('get_artist', { artist_id: id });
+    const artistPromise = ctx.api.getArtist(id);
     const albumsPromise = ctx.api.fetchPaginated('get_artist_albums', { artist_id: id, include_groups: 'album,single' }, 10);
     const topTracksPromise = (async () => {
         // Spotify's own top-tracks list (market-aware, by popularity).
@@ -220,23 +218,23 @@ async function artist(ctx) {
             if (items.length) return items.slice(0, 12);
         } catch (e) { /* fall through to search */ }
         try {
-            const artistRes = await artistPromise;
-            if (!artistRes?.result?.name) return [];
+            const name = (await artistPromise)?.name;
+            if (!name) return [];
             const { items } = await ctx.api.fetchPaginated('search_tracks', {
-                criteria: `artist:"${artistRes.result.name}"`
+                criteria: `artist:"${name}"`
             }, 10);
             return items;
         } catch (e) { return []; }
     })();
     const similarArtistsPromise = (async () => {
-        const artistRes = await artistPromise;
-        if (!artistRes?.result?.name) return [];
-        return fetchLastFmSimilarArtists(artistRes.result.name, ctx.options.lastFmApiKey);
+        const name = (await artistPromise)?.name;
+        if (!name) return [];
+        return fetchLastFmSimilarArtists(name, ctx.options.lastFmApiKey);
     })();
 
-    const artistResult = await artistPromise;
-    if (artistResult?.result) {
-        if (!ctx.commit({ ...artistResult.result, isLoading: false })) return;
+    const artistData = await artistPromise;
+    if (artistData) {
+        if (!ctx.commit({ ...artistData, isLoading: false })) return;
     }
 
     const wireRails = () => {
@@ -256,9 +254,9 @@ async function artist(ctx) {
 
         const playlistsPromise = (async () => {
             try {
-                const artistRes = await artistPromise;
-                if (!artistRes?.result?.name) return [];
-                const res = await ctx.api.searchPlaylists(artistRes.result.name, 10);
+                const name = (await artistPromise)?.name;
+                if (!name) return [];
+                const res = await ctx.api.searchPlaylists(name, 10);
                 return res?.result?.items || [];
             } catch (e) { return []; }
         })();
@@ -280,7 +278,7 @@ async function artist(ctx) {
     // With the artist on screen a rail may land at once. Without it the host
     // has yet to show its failed state, which a rail landing first would
     // mask (the page would sit on "Loading..."): wire them after that.
-    if (!artistResult?.result) return wireRails;
+    if (!artistData) return wireRails;
     wireRails();
 }
 
@@ -333,8 +331,7 @@ async function artistDiscography(ctx) {
     // missing.
     let artistName = ctx.options.artistName;
     if (!artistName) {
-        const artistRes = await ctx.api.fetchSpotifyPlus('get_artist', { artist_id: id });
-        artistName = artistRes?.result?.name || 'Artist';
+        artistName = (await ctx.api.getArtist(id))?.name || 'Artist';
     }
     const limit = 50;
     const { items, total, failed } = await ctx.api.fetchPaginated('get_artist_albums', { artist_id: id, include_groups: 'album,single,compilation' }, limit);
@@ -365,15 +362,15 @@ async function likedSongs(ctx) {
     }, { replace: true, cache: false });
     if (!shown) return;
     try {
-        const res = await ctx.api.getTrackFavorites({ limit: 50, offset: 0, sort_result: false });
+        const page = await ctx.api.getSavedTracks({ limit: 50, offset: 0, sort_result: false });
         // A failed read (null) is the failed state, not an empty list. The
         // shell has replaced the placeholder, so it is committed here.
-        if (!Array.isArray(res?.result?.items)) {
+        if (!page) {
             ctx.commit(LOAD_FAILED, { cache: false });
             return;
         }
-        const items = res.result.items;
-        const total = res.result.total ?? items.length;
+        const items = page.items;
+        const total = page.total ?? items.length;
         // Use the real user id so the URI matches the playable context
         // we start from a track row (and the hero "is playing" check).
         // `me` is not a valid owner in a playable collection URI.
@@ -410,34 +407,35 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
         if (sectionId === 'recent') {
             title = 'Recently Played';
             // The recent-tracks endpoint is cursor-based and capped (~50 items),
-            // so this section loads a single page only.
-            const res = await ctx.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: limit });
-            if (res?.result?.items) {
+            // so this section loads a single page only: a read of its own (a
+            // limit other than the 30 home and the player share).
+            const page = await ctx.api.getRecentTracks({ limit });
+            if (page) {
                 read = true;
                 // A later offset (never asked for: the first page is all
                 // there is) adds nothing, and so ends the paging.
                 if (offset === 0) {
-                    newItems = dedupeRecentAlbums(res.result.items);
+                    newItems = dedupeRecentAlbums(page.items);
                     total = newItems.length;
                 }
             }
         } else if (sectionId === 'favorites') {
             title = 'Your Favorite Playlists';
-            const res = await ctx.api.fetchSpotifyPlus('get_playlist_favorites', { limit, offset, ...playlistSortParams() });
-            if (res?.result?.items) {
+            const page = await ctx.api.getSavedPlaylists({ limit, offset, ...playlistSortParams() });
+            if (page) {
                 read = true;
-                newItems = res.result.items;
-                total = res.result.total;
+                newItems = page.items;
+                total = page.total;
             }
         } else if (sectionId === 'albums') {
             title = 'Your Favorite Albums';
             // User requested logic for Albums (Offset based)
-            const res = await ctx.api.fetchSpotifyPlus('get_album_favorites', { limit, offset });
-            if (res?.result?.items) {
+            // The albums themselves, out of their saved-album wrappers.
+            const page = await ctx.api.getSavedAlbums({ limit, offset });
+            if (page) {
                 read = true;
-                // Saved Album object structure: item.album is the album object
-                newItems = res.result.items.map(i => i.album).filter(Boolean);
-                total = res.result.total;
+                newItems = page.items;
+                total = page.total;
             }
         } else if (sectionId === 'artists') {
             title = 'Followed Artists';
@@ -450,21 +448,15 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
                 params.after = cursor;
             }
 
-            const res = await ctx.api.fetchSpotifyPlus('get_artists_followed', params);
+            const page = await ctx.api.getFollowedArtists(params);
 
-            if (res?.result) {
-                // Check for flattened structure first
-                if (res.result.items) {
-                    read = true;
-                    newItems = res.result.items;
-                    total = res.result.total;
-                } else if (res.result.artists && res.result.artists.items) {
-                    read = true;
-                    newItems = res.result.artists.items;
-                    total = res.result.artists.total;
-                }
+            if (page) {
+                read = true;
+                newItems = page.items;
+                total = page.total;
 
-                // Logic: Cursor is strictly the ID of the last item
+                // Logic: Cursor is strictly the ID of the last item (not
+                // the page's own `after`).
                 if (newItems.length > 0) {
                     nextCursor = newItems[newItems.length - 1].id;
                 }
@@ -561,16 +553,16 @@ export async function loadMore(ctx) {
         let total = data.total;
 
         if (type === 'likedsongs') {
-            const res = await ctx.api.getTrackFavorites({ limit, offset, sort_result: false });
+            const page = await ctx.api.getSavedTracks({ limit, offset, sort_result: false });
             const current = ctx.current();
             if (!current) return;
             // A failed read (null) is not the end of the list.
-            if (!Array.isArray(res?.result?.items)) {
+            if (!page) {
                 ctx.commit(LOAD_MORE_FAILED, { cache: false });
                 return;
             }
-            newItems = res.result.items;
-            total = res.result.total || total;
+            newItems = page.items;
+            total = page.total || total;
 
             // Liked Songs renders via spotify-playlist-view, which reads
             // tracks.items (not .items). Append there.

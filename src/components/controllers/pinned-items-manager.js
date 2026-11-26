@@ -334,33 +334,29 @@ export class PinnedItemsManager {
             let image = null;
 
             if (type === 'artist') {
-                const res = await api.fetchSpotifyPlus('get_artist', { artist_id: id }, true);
-                if (res) {
-                    data = res.result || res;
+                data = await api.getArtist(id);
+                if (data) {
                     title = data.name;
                     subtitle = 'Artist';
                     image = pickImage(data.images, IMG_CARD) || undefined;
                 }
             } else if (type === 'album') {
-                const res = await api.fetchSpotifyPlus('get_album', { album_id: id }, true);
-                if (res) {
-                    data = res.result || res;
+                data = await api.getAlbum(id);
+                if (data) {
                     title = data.name;
                     subtitle = data.artists ? data.artists.map(a => a.name).join(', ') : 'Album';
                     image = pickImage(data.images, IMG_CARD) || undefined;
                 }
             } else if (type === 'playlist') {
-                const res = await api.fetchSpotifyPlus('get_playlist', { playlist_id: id }, true);
-                if (res) {
-                    data = res.result || res;
+                data = await api.getPlaylist(id);
+                if (data) {
                     title = data.name;
                     subtitle = data.description || (data.owner ? `By ${data.owner.display_name}` : 'Playlist');
                     image = pickImage(data.images, IMG_CARD) || undefined;
                 }
             } else if (type === 'track') {
-                const res = await api.fetchSpotifyPlus('get_track', { track_id: id }, true);
-                if (res) {
-                    data = res.result || res;
+                data = await api.getTrack(id);
+                if (data) {
                     title = data.name;
                     const artistName = data.artists ? data.artists.map(a => a.name).join(', ') : '';
                     const albumName = data.album ? data.album.name : '';

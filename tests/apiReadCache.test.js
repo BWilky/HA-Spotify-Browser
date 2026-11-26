@@ -576,7 +576,7 @@ test('getRecentTracks reads 30, and without `since` always reads afresh', async 
     assert.equal(calls.length, 2);
     assert.deepEqual(calls[0].service_data, { entity_id: ENTITY, limit: 30 });
     assert.equal(calls[0].return_response, true);
-    assert.deepEqual([a.result.items[0].track.id, b.result.items[0].track.id], ['t1', 't2']);
+    assert.deepEqual([a.items[0].track.id, b.items[0].track.id], ['t1', 't2']);
 });
 
 test('getRecentTracks({ since }) takes the latest read that started at or after `since`, landed or in flight', async (t) => {
@@ -587,14 +587,14 @@ test('getRecentTracks({ since }) takes the latest read that started at or after 
     assert.equal(calls.length, 1, 'joined while in flight');
     assert.deepEqual(player, home);
     assert.notEqual(player, home, 'each caller gets its own copy');
-    player.result.items.push('mutated');
-    assert.equal(home.result.items.length, 1);
+    player.items.push('mutated');
+    assert.equal(home.items.length, 1);
 
     mock.timers.tick(40);
     assert.deepEqual(await api.getRecentTracks({ since: openedAt }), home, 'landed: still shared');
     assert.equal(calls.length, 1);
 
-    assert.equal((await api.getRecentTracks({ since: Date.now() })).result.items[0].track.id, 't2', 'started before `since`: a new read');
+    assert.equal((await api.getRecentTracks({ since: Date.now() })).items[0].track.id, 't2', 'started before `since`: a new read');
     assert.equal(calls.length, 2);
 });
 
@@ -609,7 +609,7 @@ test('getRecentTracks: a failed read is not shared, and clearReadCache forgets t
     const since = Date.now();
     assert.equal(await api.getRecentTracks(), null);
     fail = false;
-    assert.deepEqual(await api.getRecentTracks({ since }), { result: { items: [] } });
+    assert.deepEqual(await api.getRecentTracks({ since }), { items: [], total: undefined });
     assert.equal(calls.length, 2);
 
     api.clearReadCache();

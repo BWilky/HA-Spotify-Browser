@@ -1,18 +1,21 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadConfigPins, buildPinnedRow } from '../src/components/controllers/home-content.js';
+import { SpotifyApi } from '../src/api.js';
+
+/** SpotifyApi's own read methods (getAlbum, ...) over a stubbed fetchSpotifyPlus. */
+const withReads = (fetchSpotifyPlus) => Object.assign(Object.create(SpotifyApi.prototype), { fetchSpotifyPlus });
 
 function fakeApi(calls) {
-    return {
-        async fetchSpotifyPlus(method, params) {
+    return withReads(
+        async function fetchSpotifyPlus(method, params) {
             calls.push([method, params]);
             if (method === 'get_playlist_cover_image') return { result: { url: 'cover.jpg' } };
             if (method === 'get_playlist') return { result: { id: params.playlist_id, name: 'PL ' + params.playlist_id, type: 'playlist', uri: 'spotify:playlist:' + params.playlist_id, images: [{ url: 'pl.jpg' }], owner: { display_name: 'Me' } } };
             if (method === 'get_album') return { result: { id: params.album_id, name: 'AL', type: 'album', uri: 'spotify:album:' + params.album_id, images: [{ url: 'al.jpg' }], artists: [{ name: 'Band' }] } };
             if (method === 'get_artist') return { result: { id: params.artist_id, name: 'AR', type: 'artist', uri: 'spotify:artist:' + params.artist_id, images: [{ url: 'ar.jpg' }] } };
             throw new Error('unexpected ' + method);
-        },
-    };
+        });
 }
 
 test('recommended playlists resolve artwork through the cover-image endpoint', async () => {
@@ -51,7 +54,7 @@ test('a config title overrides the fetched name', async () => {
 });
 
 test('a fetch failure drops that item and keeps the rest', async () => {
-    const api = { async fetchSpotifyPlus(m, p) { if (p.playlist_id === 'bad') throw new Error('nope'); return { result: { id: p.playlist_id, name: 'ok', images: [] } }; } };
+    const api = withReads(async (m, p) => { if (p.playlist_id === 'bad') throw new Error('nope'); return { result: { id: p.playlist_id, name: 'ok', images: [] } }; });
     const items = await loadConfigPins(api, [{ id: 'bad', type: 'playlist' }, { id: 'good', type: 'playlist' }]);
     assert.deepEqual(items.map(i => i.id), ['good']);
 });

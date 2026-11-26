@@ -128,13 +128,13 @@ class SpotifyLibrary extends LitElement {
             // Play history drives the top of the list; the favorites fetches
             // (newest first) fill the tail. Only the history call is fatal.
             const quiet = (p) => p.catch(() => null);
-            const [res, albumsRes, playlistsRes, followedRes] = await Promise.all([
-                this.api.fetchSpotifyPlus('get_player_recent_tracks', { limit: 50 }),
-                quiet(this.api.fetchSpotifyPlus('get_album_favorites', { limit: 12, sort_result: false })),
-                quiet(this.api.fetchSpotifyPlus('get_playlist_favorites', { limit: 12, sort_result: false })),
-                quiet(this.api.fetchSpotifyPlus('get_artists_followed', { limit: 12, sort_result: false })),
+            const [history, albumsPage, playlistsPage, followedPage] = await Promise.all([
+                this.api.getRecentTracks({ limit: 50 }),
+                quiet(this.api.getSavedAlbums({ limit: 12, sort_result: false })),
+                quiet(this.api.getSavedPlaylists({ limit: 12, sort_result: false })),
+                quiet(this.api.getFollowedArtists({ limit: 12, sort_result: false })),
             ]);
-            const items = res?.result?.items || [];
+            const items = history?.items || [];
             const seen = new Set();
             const entries = [];
             const playlists = [];
@@ -169,11 +169,9 @@ class SpotifyLibrary extends LitElement {
 
             // Tail: newest saved playlists/albums + last-followed artists not
             // already shown, round-robin for variety.
-            const savedAlbums = (albumsRes?.result?.items || []).map(i => i.album).filter(Boolean);
-            const savedPlaylists = playlistsRes?.result?.items || [];
-            let fd = followedRes?.result;
-            if (fd?.artists) fd = fd.artists;
-            const followedArtists = fd?.items || [];
+            const savedAlbums = albumsPage?.items || [];
+            const savedPlaylists = playlistsPage?.items || [];
+            const followedArtists = followedPage?.items || [];
             const pools = [
                 { type: 'playlist', prefix: 'p', items: savedPlaylists },
                 { type: 'album', prefix: 'a', items: savedAlbums },
@@ -202,8 +200,7 @@ class SpotifyLibrary extends LitElement {
             await Promise.all([
                 ...playlists.map(async (e) => {
                     try {
-                        const pr = await this.api.fetchSpotifyPlus('get_playlist', { playlist_id: e.id });
-                        const p = pr?.result;
+                        const p = await this.api.getPlaylist(e.id);
                         if (p) {
                             e.name = p.name; e.images = p.images; e.owner = p.owner; e.uri = p.uri || e.uri;
                             // The row menu's privacy / collaborative items read these.
@@ -215,8 +212,8 @@ class SpotifyLibrary extends LitElement {
                     const f = followedById.get(e.id);
                     if (f?.images?.length) { e.images = f.images; return; }
                     try {
-                        const ar = await this.api.fetchSpotifyPlus('get_artist', { artist_id: e.id });
-                        if (ar?.result?.images) e.images = ar.result.images;
+                        const ar = await this.api.getArtist(e.id);
+                        if (ar?.images) e.images = ar.images;
                     } catch (_) { /* renders with fallback art */ }
                 }),
             ]);
@@ -236,20 +233,15 @@ class SpotifyLibrary extends LitElement {
     /** One service call for a bucket. Returns { items, after } (after = artist page cursor). */
     async _fetchPage(filter, params) {
         if (filter === 'playlist') {
-            const res = await this.api.fetchSpotifyPlus('get_playlist_favorites', params);
-            return { items: res?.result?.items || [] };
+            return { items: (await this.api.getSavedPlaylists(params))?.items || [] };
         }
         if (filter === 'album') {
-            const res = await this.api.fetchSpotifyPlus('get_album_favorites', params);
-            return { items: (res?.result?.items || []).map(i => i.album).filter(Boolean) };
+            return { items: (await this.api.getSavedAlbums(params))?.items || [] };
         }
-        // Artists page by cursor (`after` = last artist id), not offset.
+        // Artists page by cursor (`after`), not offset.
         const { offset, ...rest } = params;
-        const res = await this.api.fetchSpotifyPlus('get_artists_followed', rest);
-        let d = res?.result;
-        if (d?.artists) d = d.artists;
-        const items = d?.items || [];
-        return { items, after: d?.cursors?.after || items[items.length - 1]?.id || null };
+        const page = await this.api.getFollowedArtists(rest);
+        return { items: page?.items || [], after: page?.after || null };
     }
 
     async _loadBucket(filter) {

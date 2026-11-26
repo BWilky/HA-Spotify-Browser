@@ -102,23 +102,22 @@ export async function loadConfigPins(api, items) {
 }
 
 async function fetchConfigPin(api, item) {
-    const first = (res) => res?.result || null;
     if (item.recommended) {
         const res = await api.fetchSpotifyPlus('get_playlist_cover_image', { playlist_id: item.id });
         return { image: res?.result?.url || null, subtitle: 'By Spotify', uri: `spotify:playlist:${item.id}` };
     }
     if (item.type === 'album') {
-        const d = first(await api.fetchSpotifyPlus('get_album', { album_id: item.id }));
+        const d = await api.getAlbum(item.id);
         return d && { name: d.name, image: pickImage(d.images, IMG_CARD) || undefined, uri: d.uri, subtitle: (d.artists || []).map(a => a.name).join(', ') || 'Album' };
     }
     if (item.type === 'artist') {
-        const d = first(await api.fetchSpotifyPlus('get_artist', { artist_id: item.id }));
+        const d = await api.getArtist(item.id);
         return d && { name: d.name, image: pickImage(d.images, IMG_CARD) || undefined, uri: d.uri, subtitle: 'Artist' };
     }
     if (item.type === 'track') {
-        const d = first(await api.fetchSpotifyPlus('get_track', { track_id: item.id }));
+        const d = await api.getTrack(item.id);
         return d && { name: d.name, image: pickImage(d.album?.images, IMG_CARD) || undefined, uri: d.uri, subtitle: (d.artists || []).map(a => a.name).join(', ') };
     }
-    const d = first(await api.fetchSpotifyPlus('get_playlist', { playlist_id: item.id }));
+    const d = await api.getPlaylist(item.id);
     return d && { name: d.name, image: pickImage(d.images, IMG_CARD) || undefined, uri: d.uri, subtitle: d.owner?.display_name ? `By ${d.owner.display_name}` : 'Playlist' };
 }

@@ -565,8 +565,8 @@ class SpotifyHome extends LitElement {
             let type = 'playlist';
 
             if (sectionKey === 'favorites') {
-                const res = await this.api.fetchSpotifyPlus('get_playlist_favorites', { limit: limit, offset: offset, ...playlistSortParams() });
-                data = res?.result; type = 'playlist';
+                data = await this.api.getSavedPlaylists({ limit: limit, offset: offset, ...playlistSortParams() });
+                type = 'playlist';
             }
             else if (sectionKey === 'recent') {
                 if (offset > 0) return;
@@ -577,28 +577,24 @@ class SpotifyHome extends LitElement {
                 // 50 full track objects made this the heaviest concurrent call — it
                 // would intermittently time out and blank the section. 20 tracks
                 // still dedupe to plenty of unique albums.
-                const res = await this.api.getRecentTracks({ since });
-                if (res?.result?.items) {
-                    const uniqueItems = dedupeRecentAlbums(res.result.items.slice(0, HOME_RECENT_TRACKS));
+                const page = await this.api.getRecentTracks({ since });
+                if (page) {
+                    const uniqueItems = dedupeRecentAlbums(page.items.slice(0, HOME_RECENT_TRACKS));
                     data = { items: uniqueItems, total: uniqueItems.length }; type = 'album';
                 }
             }
             else if (sectionKey === 'artists') {
                 if (offset > 0) return;
-                const res = await this.api.fetchSpotifyPlus('get_artists_followed', { limit });
-                // Robust parsing: Check for direct items, or nested artists object
-                if (res?.result) {
-                    data = res.result;
-                    if (data.artists) data = data.artists;
-                }
+                data = await this.api.getFollowedArtists({ limit });
                 type = 'artist';
             }
             else if (sectionKey === 'albums') {
-                const res = await this.api.fetchSpotifyPlus('get_album_favorites', { limit, offset });
-                if (res?.result?.items) { data = { items: res.result.items.map(i => i.album).filter(Boolean), total: res.result.total }; type = 'album'; }
+                data = await this.api.getSavedAlbums({ limit, offset });
+                type = 'album';
             }
 
-            if (data && Array.isArray(data.items)) {
+            // data: a page ({ items, total }) or null (failed / nothing read).
+            if (data) {
                 if (data.total !== undefined) this._totals[sectionKey] = data.total;
                 this._offsets[sectionKey] = (replace ? 0 : offset) + data.items.length;
 

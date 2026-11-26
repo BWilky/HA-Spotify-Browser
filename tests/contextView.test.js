@@ -126,8 +126,8 @@ test('clearAll (account switch) stops a running pager: it cannot put the old pag
 
 test('Liked Songs, a section and a discography whose read fails: failed state, not cached, retried on return', async () => {
     const cases = [
-        ['likedsongs', { getTrackFavorites: null, getCurrentUserId: 'u' },
-            { getTrackFavorites: { result: { items: [playlistItem(1)], total: 1 } }, getCurrentUserId: 'u' }],
+        ['likedsongs', { 'fetchSpotifyPlus:get_track_favorites': null, getCurrentUserId: 'u' },
+            { 'fetchSpotifyPlus:get_track_favorites': { result: { items: [playlistItem(1)], total: 1 } }, getCurrentUserId: 'u' }],
         ['section:favorites', { 'fetchSpotifyPlus:get_playlist_favorites': null },
             { 'fetchSpotifyPlus:get_playlist_favorites': { result: { items: [playlistObj('p1')], total: 1 } } }],
         ['artist-discography:ar1', { 'fetchSpotifyPlus:get_artist': null, 'fetchPaginated:get_artist_albums': { items: [], total: 0, offset: 50, failed: true } },
@@ -168,7 +168,7 @@ const hassTick = (view, n = 1) => { for (let i = 0; i < n; i++) view.updated(new
 const countCalls = (api, method, service) => api.calls.filter(c => c[0] === method && (!service || c[1] === service)).length;
 
 test('the first load starts as soon as pageId, hass and api are all there', async () => {
-    const api = stubApi({ getTrackFavorites: { result: { items: [], total: 0 } }, getCurrentUserId: 'u' });
+    const api = stubApi({ 'fetchSpotifyPlus:get_track_favorites': { result: { items: [], total: 0 } }, getCurrentUserId: 'u' });
     const view = new SpotifyContextView();
     view.pageId = 'likedsongs';
     view.updated(new Map([['pageId', undefined]]));
@@ -177,27 +177,27 @@ test('the first load starts as soon as pageId, hass and api are all there', asyn
     assert.equal(api.calls.length, 0, 'no api yet: nothing');
     view.api = api;
     view.updated(new Map([['api', undefined]]));
-    assert.equal(countCalls(api, 'getTrackFavorites'), 1);
+    assert.equal(countCalls(api, 'fetchSpotifyPlus', 'get_track_favorites'), 1);
     assert.equal(view._contextData.name, 'Liked Songs');
 });
 
 test('Liked Songs: hass ticks while its first read is in flight start no second load (B9)', async () => {
     const read = deferred();
-    const api = stubApi({ getTrackFavorites: () => read.promise, getCurrentUserId: 'u' });
+    const api = stubApi({ 'fetchSpotifyPlus:get_track_favorites': () => read.promise, getCurrentUserId: 'u' });
     const view = makeView('likedsongs', api);
     view.updated(new Map([['pageId', undefined]]));
     await flush();
     assert.equal(view._contextData.isLoading, true, 'the shell is up');
     hassTick(view, 5);
     await flush();
-    assert.equal(countCalls(api, 'getTrackFavorites'), 1);
+    assert.equal(countCalls(api, 'fetchSpotifyPlus', 'get_track_favorites'), 1);
 
     read.resolve({ result: { items: [playlistItem(1)], total: 1 } });
     await view.loadPageData(); // the load in flight
     assert.equal(view._contextData.isLoading, false);
     assert.equal(view._contextData.tracks.items.length, 1);
     assert.equal(SpotifyContextView.stateCache.get('likedsongs'), view._contextData);
-    assert.equal(countCalls(api, 'getTrackFavorites'), 1);
+    assert.equal(countCalls(api, 'fetchSpotifyPlus', 'get_track_favorites'), 1);
     assert.equal(view._pendingLoad, null);
 });
 
@@ -237,15 +237,15 @@ test('a page whose read fails while hass ticks: one read, then the failed state 
 test('a refresh while the first load is in flight starts a new one; the old answer is dropped', async () => {
     const reads = [deferred(), deferred()];
     let n = 0;
-    const api = stubApi({ getTrackFavorites: () => reads[n++].promise, getCurrentUserId: 'u' });
+    const api = stubApi({ 'fetchSpotifyPlus:get_track_favorites': () => reads[n++].promise, getCurrentUserId: 'u' });
     const view = makeView('likedsongs', api);
     const first = view.loadPageData();
     await flush();
     const second = view.refresh();
     await flush();
-    assert.equal(countCalls(api, 'getTrackFavorites'), 2);
+    assert.equal(countCalls(api, 'fetchSpotifyPlus', 'get_track_favorites'), 2);
     hassTick(view, 3);
-    assert.equal(countCalls(api, 'getTrackFavorites'), 2, 'ticks start nothing beside the refresh');
+    assert.equal(countCalls(api, 'fetchSpotifyPlus', 'get_track_favorites'), 2, 'ticks start nothing beside the refresh');
     reads[0].resolve({ result: { items: [playlistItem(1)], total: 1 } });
     reads[1].resolve({ result: { items: [playlistItem(2), playlistItem(3)], total: 2 } });
     await Promise.all([first, second]);
@@ -255,7 +255,7 @@ test('a refresh while the first load is in flight starts a new one; the old answ
 test('hass ticks during a load more: no cache restore, no second load more, no duplicated tracks (B9)', async () => {
     const more = deferred();
     const api = stubApi({
-        getTrackFavorites: ({ offset }) => (offset === 0
+        'fetchSpotifyPlus:get_track_favorites': ({ offset }) => (offset === 0
             ? { result: { items: range(50, playlistItem), total: 120 } }
             : more.promise),
         getCurrentUserId: 'u',
@@ -267,7 +267,7 @@ test('hass ticks during a load more: no cache restore, no second load more, no d
     hassTick(view, 3);
     assert.equal(view._contextData.isLoading, true, 'still loading more: the cached page (isLoading false) is not put back');
     await view._handleLoadMore(); // the view scrolls on: refused while one is under way
-    assert.deepEqual(api.calls.filter(c => c[0] === 'getTrackFavorites').map(c => c[1].offset), [0, 50]);
+    assert.deepEqual(api.calls.filter(c => c[1] === 'get_track_favorites').map(c => c[2].offset), [0, 50]);
 
     more.resolve({ result: { items: range(50, playlistItem, 50), total: 120 } });
     await loading;

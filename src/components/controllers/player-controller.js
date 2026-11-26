@@ -622,14 +622,8 @@ export class PlayerController extends EventTarget {
     async refreshRecent({ since = null } = {}) {
         if (!this.api) return;
         try {
-            const res = await this.api.getRecentTracks({ since });
-            if (res) {
-                let items = [];
-                if (res.result && res.result.items) items = res.result.items;
-                else if (res.items) items = res.items; // Direct
-
-                this._setState({ recentTracks: items });
-            }
+            const page = await this.api.getRecentTracks({ since });
+            if (page) this._setState({ recentTracks: page.items });
         } catch (e) {
             console.error('[PlayerController] Recent fetch failed', e);
         }

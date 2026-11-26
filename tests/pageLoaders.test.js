@@ -636,11 +636,18 @@ test('discography superseded: the first page is not committed', async () => {
 
 // ------------------------------------------------------------ liked songs --
 
-const likedApi = (total, extra = {}) => stubApi({
-    getTrackFavorites: ({ limit, offset }) => ({ result: { items: range(Math.max(0, Math.min(limit, total - offset)), playlistItem, offset), total } }),
-    getCurrentUserId: 'uid9',
-    ...extra,
-});
+/** Liked Songs of `total` tracks. `liked.answer`, while set, answers get_track_favorites instead. */
+const liked = { answer: null };
+const likedApi = (total, extra = {}) => {
+    liked.answer = null;
+    return stubApi({
+        'fetchSpotifyPlus:get_track_favorites': (p) => (liked.answer ? liked.answer(p)
+            : { result: { items: range(Math.max(0, Math.min(p.limit, total - p.offset)), playlistItem, p.offset), total } }),
+        getCurrentUserId: 'uid9',
+        ...extra,
+    });
+};
+const FAVS = 'get_track_favorites';
 
 test('liked songs: replaces the placeholder (uncached), then commits the first 50 with the playable URI', async () => {
     const api = likedApi(120);
@@ -648,7 +655,7 @@ test('liked songs: replaces the placeholder (uncached), then commits the first 5
     await pageLoaders.likedsongs(host.ctx);
 
     assert.deepEqual(api.calls, [
-        ['getTrackFavorites', { limit: 50, offset: 0, sort_result: false }],
+        ['fetchSpotifyPlus', FAVS, { limit: 50, offset: 0, sort_result: false }],
         ['getCurrentUserId'],
     ]);
     const shell = {
@@ -668,8 +675,8 @@ test('liked songs: replaces the placeholder (uncached), then commits the first 5
     await loadMore(host.ctx);
     await loadMore(host.ctx);
     assert.deepEqual(api.calls.slice(2), [
-        ['getTrackFavorites', { limit: 50, offset: 50, sort_result: false }],
-        ['getTrackFavorites', { limit: 50, offset: 100, sort_result: false }],
+        ['fetchSpotifyPlus', FAVS, { limit: 50, offset: 50, sort_result: false }],
+        ['fetchSpotifyPlus', FAVS, { limit: 50, offset: 100, sort_result: false }],
     ]);
     assert.deepEqual(host.data.tracks, { items: range(120, playlistItem), total: 120 });
     assert.equal(host.data.offset, 120);
@@ -684,10 +691,10 @@ test('liked songs without a user id: the `me` collection URI', async () => {
 });
 
 test('liked songs read fails (null): the failed state, uncached, and no user id lookup', async () => {
-    const api = stubApi({ getTrackFavorites: null, getCurrentUserId: 'uid9' });
+    const api = stubApi({ 'fetchSpotifyPlus:get_track_favorites': null, getCurrentUserId: 'uid9' });
     const host = makeHost({ pageId: 'likedsongs', type: 'likedsongs', id: 'me', api });
     await pageLoaders.likedsongs(host.ctx);
-    assert.deepEqual(api.calls, [['getTrackFavorites', { limit: 50, offset: 0, sort_result: false }]]);
+    assert.deepEqual(api.calls, [['fetchSpotifyPlus', FAVS, { limit: 50, offset: 0, sort_result: false }]]);
     assert.deepEqual(host.commits.at(-1), { patch: { ...LOAD_FAILED }, options: { cache: false }, applied: true });
     assert.equal(host.data.loadFailed, true);
     assert.equal(host.data.isLoading, false);
@@ -698,7 +705,7 @@ test('liked songs read fails (null): the failed state, uncached, and no user id 
 
 test('liked songs read throws: logged, the failed state, nothing cached', async (t) => {
     const errors = t.mock.method(console, 'error', () => {});
-    const api = stubApi({ getTrackFavorites: () => Promise.reject(new Error('kaboom')) });
+    const api = stubApi({ 'fetchSpotifyPlus:get_track_favorites': () => Promise.reject(new Error('kaboom')) });
     const host = makeHost({ pageId: 'likedsongs', type: 'likedsongs', id: 'me', api });
     await pageLoaders.likedsongs(host.ctx);
     assert.deepEqual(host.commits.at(-1), { patch: { ...LOAD_FAILED }, options: { cache: false }, applied: true });
@@ -708,7 +715,7 @@ test('liked songs read throws: logged, the failed state, nothing cached', async 
 
 test('liked songs superseded: the list is not committed', async () => {
     const gate = deferred();
-    const api = stubApi({ getTrackFavorites: () => gate.promise, getCurrentUserId: 'uid9' });
+    const api = stubApi({ 'fetchSpotifyPlus:get_track_favorites': () => gate.promise, getCurrentUserId: 'uid9' });
     const host = makeHost({ pageId: 'likedsongs', type: 'likedsongs', id: 'me', api });
     const loading = pageLoaders.likedsongs(host.ctx);
     host.supersede();
@@ -719,24 +726,21 @@ test('liked songs superseded: the list is not committed', async () => {
 });
 
 test('liked songs load more read fails (null): the list stays, paging does not end (uncached), scrolling on retries (B10)', async () => {
-    let failing = false;
     const api = likedApi(120);
-    const works = api.getTrackFavorites;
-    api.getTrackFavorites = (...a) => (failing ? (api.calls.push(['getTrackFavorites', ...a]), Promise.resolve(null)) : works(...a));
     const host = makeHost({ pageId: 'likedsongs', type: 'likedsongs', id: 'me', api });
     await pageLoaders.likedsongs(host.ctx);
     const page1 = host.data;
 
-    failing = true;
+    liked.answer = () => null;
     await loadMore(host.ctx);
     assert.deepEqual(host.commits.at(-1), { patch: { isLoading: false }, options: { cache: false }, applied: true });
     assert.deepEqual(host.data, { ...page1, isLoading: false });
     assert.equal(host.data.hasMore, true);
     assert.equal(host.cached, page1, 'not cached as exhausted');
 
-    failing = false;
+    liked.answer = null;
     await loadMore(host.ctx);
-    assert.deepEqual(api.calls.filter(c => c[0] === 'getTrackFavorites').map(c => c[1].offset), [0, 50, 50]);
+    assert.deepEqual(api.calls.filter(c => c[1] === FAVS).map(c => c[2].offset), [0, 50, 50]);
     assert.deepEqual(host.data.tracks.items, range(100, playlistItem));
     assert.equal(host.data.hasMore, true);
     assert.equal(host.cached, host.data);
@@ -746,7 +750,7 @@ test('liked songs load more that worked but came back empty: paging ends', async
     const api = likedApi(120);
     const host = makeHost({ pageId: 'likedsongs', type: 'likedsongs', id: 'me', api });
     await pageLoaders.likedsongs(host.ctx);
-    api.getTrackFavorites = async () => ({ result: { items: [], total: 120 } });
+    liked.answer = () => ({ result: { items: [], total: 120 } });
     await loadMore(host.ctx);
     assert.equal(host.data.hasMore, false);
     assert.equal(host.data.tracks.items.length, 50);
@@ -757,7 +761,7 @@ test('liked songs load more superseded: nothing appended', async () => {
     const api = likedApi(120);
     const host = makeHost({ pageId: 'likedsongs', type: 'likedsongs', id: 'me', api });
     await pageLoaders.likedsongs(host.ctx);
-    api.getTrackFavorites = () => gate.promise;
+    liked.answer = () => gate.promise;
     const more = loadMore(host.ctx);
     host.supersede();
     gate.resolve({ result: { items: [playlistItem(99)], total: 120 } });

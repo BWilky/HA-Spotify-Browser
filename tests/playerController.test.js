@@ -54,7 +54,7 @@ function setup(t) {
         getRecentTracks: async (options) => {
             calls.get_player_recent_tracks = (calls.get_player_recent_tracks || 0) + 1;
             api.recentOptions.push(options);
-            return { result: { items: api.recent } };
+            return { items: api.recent };  // a ListPage
         },
         recentOptions: [],
         checkTrackFavorites: async () => { calls.check_favorites = (calls.check_favorites || 0) + 1; return api.liked; },
