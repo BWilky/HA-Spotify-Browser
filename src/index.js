@@ -18,8 +18,31 @@ import './spotify-browser-app.js';
  *     label: launch            # default
  *     icon: mdi:spotify        # default
  *     color: green             # icon color: theme token or hex (default #1DB954)
+ *
+ * The card also feeds the extension (both only while it is on the page):
+ *   - hass: Lovelace sets `hass` on every card each time Home Assistant's
+ *     state changes (the custom-card contract), and the card passes it on, so
+ *     the app needs no polling while a card is shown.
+ *   - config: a card that turns up after the extension found no config (the
+ *     dashboard first loaded had none) asks it to look again; see
+ *     SpotifyExtension.cardConfigured.
  */
 const CARD_DEFAULTS = { title: 'Spotify Browser', label: 'launch', icon: 'mdi:spotify', color: '#1DB954' };
+
+// How often the extension copies Home Assistant's hass into the app while no
+// card on the page is passing it on (config at the dashboard root, no card on
+// the view — the README's recommended setup). Kept at the old 200 ms so the
+// app reacts as quickly as before; each tick is one querySelector and an
+// identity compare.
+const FALLBACK_HASS_POLL_MS = 200;
+// While a card IS passing hass on, a slow safety-net poll still runs: if some
+// Home Assistant version kept a card connected without updating its hass
+// (hidden or conditional cards), the app would otherwise go stale. Bounds that
+// at a couple of seconds; normally it finds the same object and does nothing.
+const SAFETY_NET_POLL_MS = 2000;
+
+// The SpotifyExtension singleton, created at the bottom of this module.
+let extension = null;
 
 // Resolve a user color value: literal CSS colors pass through, bare names map to
 // HA theme color tokens (e.g. `green` -> var(--green-color, green)).
@@ -46,13 +69,27 @@ class SpotifyBrowserCard extends HTMLElement {
             color: resolveCardColor(card.color),
         };
         if (this.isConnected) this._render();
+        extension?.cardConfigured();
     }
+
+    // Passed on only while connected: a card off the page (another view, a
+    // hidden card) may stop getting updates, and the extension must then
+    // fall back to polling. Connecting forwards nothing: the hass a card held
+    // while detached can be old, and the next one Lovelace sets is current.
+    set hass(hass) {
+        this._hass = hass;
+        if (this.isConnected) extension?.cardHass(this, hass);
+    }
+
+    get hass() { return this._hass; }
 
     getCardSize() { return 1; }
 
     getGridOptions() { return { rows: 1, columns: 6, min_rows: 1, min_columns: 3 }; }
 
     connectedCallback() { this._render(); }
+
+    disconnectedCallback() { extension?.cardDisconnected(this); }
 
     _render() {
         const { title, label, icon, color } = this._card || CARD_DEFAULTS;
@@ -150,12 +187,39 @@ if (!customElements.get('spotify-browser-card')) {
     customElements.define('spotify-browser-card', SpotifyBrowserCard);
 }
 
+/**
+ * Mounts one <spotify-browser-app> on the page once Home Assistant and a
+ * config are there, keeps its `hass` current, and opens it from the launch
+ * events and URL hashes.
+ *
+ * Where `hass` comes from:
+ *   - A spotify-browser-card on the page passes on each `hass` Lovelace gives
+ *     it (cardHass), with no delay; a slow SAFETY_NET_POLL_MS poll still
+ *     runs in case Lovelace stops updating a card that stays connected.
+ *   - Otherwise (config at the dashboard root and no card on the view, or the
+ *     card is on another view) a FALLBACK_HASS_POLL_MS poll copies
+ *     `<home-assistant>.hass`, the object every panel and card get theirs from.
+ */
 class SpotifyExtension {
     constructor() {
         this.app = null;
         this.config = null;
         this.initialized = false;
         this.hass = null;
+
+        // Cards that are connected and have been handed a hass since they
+        // connected: Lovelace keeps those current, so the poll is off while
+        // there is one.
+        this._forwardingCards = new Set();
+        this._pollTimer = null;
+
+        // True once init() has looked for a config. From then on, a card that
+        // appears while there is still no app makes the extension look again.
+        this._searched = false;
+        this._recheckQueued = false;
+        // The raw config _setup() last tried, so one that failed to parse is
+        // not parsed (and reported) again for every card on its dashboard.
+        this._lastTried = null;
 
         // Bind methods to ensure 'this' context is preserved in event listeners
         this._boundCheckHash = this._checkHash.bind(this);
@@ -174,10 +238,27 @@ class SpotifyExtension {
 
         // 2. Find Config
         const configRaw = await this._findLovelaceConfig();
+        this._searched = true;
         if (!configRaw) {
             console.warn("[SpotifyBrowser] No 'spotify_browser:' config found in dashboard YAML.");
             return;
         }
+
+        this._setup(configRaw);
+    }
+
+    /**
+     * Steps 3–5 of init(): parse, mount the app, start the hass feed, listen.
+     * Mounts at most one app; after a parse failure a different config may try again.
+     */
+    _setup(configRaw) {
+        if (this.app) return;
+        this._lastTried = configRaw;
+
+        // The newest hass: init() may have waited for the panel since it read
+        // it, and a late card can come long after.
+        const ha = document.querySelector("home-assistant");
+        if (ha && ha.hass) this.hass = ha.hass;
 
         // 3. Initialize Component
         try {
@@ -199,8 +280,8 @@ class SpotifyExtension {
             return;
         }
 
-        // 4. Start State Loop
-        this._startHassLoop();
+        // 4. Keep hass current (the poll only if no card is passing it on)
+        this._updatePoll();
 
         // 5. Event Listeners
         window.addEventListener('spotify-browser-open', () => this._open());
@@ -212,6 +293,71 @@ class SpotifyExtension {
 
         // Listen for HA internal navigation (which sometimes modifies URL)
         window.addEventListener('location-changed', this._boundCheckHash);
+    }
+
+    /** A connected card was handed `hass` by Lovelace. */
+    cardHass(card, hass) {
+        this._forwardingCards.add(card);
+        this._updatePoll();
+        this._setHass(hass);
+    }
+
+    /** A card left the page: if it was the last one passing hass on, poll again. */
+    cardDisconnected(card) {
+        if (this._forwardingCards.delete(card)) this._updatePoll();
+    }
+
+    /**
+     * A card got its config. If init() found none (the dashboard open at load
+     * had neither a `spotify_browser:` key nor a card), look again: the card
+     * is on the dashboard open now. The lookup is init()'s own, on the current
+     * dashboard, so the outcome is what a reload there would give (root key
+     * first, then the first card in the layout), and a card being typed in the
+     * card editor, not yet saved to the dashboard, cannot set the config.
+     * Deferred to a microtask: Lovelace calls setConfig while it builds the
+     * view, and mounting the app is no part of that.
+     */
+    cardConfigured() {
+        if (!this._searched || this.app || this._recheckQueued) return;
+        this._recheckQueued = true;
+        queueMicrotask(() => {
+            this._recheckQueued = false;
+            if (this.app) return;
+            let configRaw = null;
+            try {
+                const lovelace = this._currentLovelace();
+                configRaw = lovelace ? this._configFrom(lovelace) : null;
+            } catch (e) {
+                console.error("[SpotifyBrowser] Config lookup failed:", e);
+                return;
+            }
+            if (configRaw && configRaw !== this._lastTried) this._setup(configRaw);
+        });
+    }
+
+    _setHass(hass) {
+        if (!hass || hass === this.hass) return;
+        this.hass = hass;
+        if (this.app) this.app.hass = hass;
+    }
+
+    /** Copy `<home-assistant>.hass` into the app if it changed. */
+    _pullHass() {
+        const ha = document.querySelector("home-assistant");
+        if (ha && ha.hass) this._setHass(ha.hass);
+    }
+
+    /**
+     * Poll while there is an app: every FALLBACK_HASS_POLL_MS when no card
+     * passes hass on, every SAFETY_NET_POLL_MS while one does.
+     */
+    _updatePoll() {
+        const period = !this.initialized ? 0
+            : this._forwardingCards.size === 0 ? FALLBACK_HASS_POLL_MS : SAFETY_NET_POLL_MS;
+        if (period === this._pollPeriod) return;
+        if (this._pollTimer) clearInterval(this._pollTimer);
+        this._pollTimer = period ? setInterval(() => this._pullHass(), period) : null;
+        this._pollPeriod = period;
     }
 
     _checkHash() {
@@ -249,19 +395,29 @@ class SpotifyExtension {
 
     _open(nowPlaying = false) {
         if (!this.initialized || !this.app) return;
+        // On the poll, catch up now rather than up to a poll interval later.
+        if (this._pollTimer) this._pullHass();
         this.app.open(nowPlaying ? { nowPlaying: true } : undefined);
+    }
+
+    /** The open Lovelace dashboard's `lovelace` object, or undefined if none is there (yet). */
+    _currentLovelace() {
+        return document.querySelector("home-assistant")
+            ?.shadowRoot.querySelector("home-assistant-main")
+            ?.shadowRoot.querySelector("ha-panel-lovelace")?.lovelace;
     }
 
     async _findLovelaceConfig() {
         // Wait until the lovelace panel is available
         let lovelace = null;
         while (!lovelace) {
-            lovelace = document.querySelector("home-assistant")
-                ?.shadowRoot.querySelector("home-assistant-main")
-                ?.shadowRoot.querySelector("ha-panel-lovelace")?.lovelace;
+            lovelace = this._currentLovelace();
             if (!lovelace) await new Promise(r => setTimeout(r, 200));
         }
+        return this._configFrom(lovelace);
+    }
 
+    _configFrom(lovelace) {
         // 1. Check root config for spotify_browser
         if (lovelace.config.spotify_browser) {
             return lovelace.config.spotify_browser;
@@ -292,16 +448,6 @@ class SpotifyExtension {
         }
         return null;
     }
-
-    _startHassLoop() {
-        setInterval(() => {
-            const ha = document.querySelector("home-assistant");
-            if (ha && ha.hass && ha.hass !== this.hass) {
-                this.hass = ha.hass;
-                if (this.app) this.app.hass = this.hass;
-            }
-        }, 200);
-    }
 }
 
-new SpotifyExtension();
+extension = new SpotifyExtension();
