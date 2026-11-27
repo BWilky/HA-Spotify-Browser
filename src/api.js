@@ -1523,12 +1523,12 @@ export class SpotifyApi {
         if (!this.hass || !artistId) return [];
         if (!this._artistGenreCache) this._artistGenreCache = new Map();
         if (this._artistGenreCache.has(artistId)) return this._artistGenreCache.get(artistId);
-        let res = null;
+        let artist = null;
         try {
-            res = await this.fetchSpotifyPlus('get_artist', { artist_id: artistId });
-        } catch (e) { res = null; }
-        if (!res) return [];
-        const genres = res.result?.genres || res.genres || [];
+            artist = await this.getArtist(artistId);
+        } catch (e) { artist = null; }
+        if (!artist) return [];
+        const genres = artist.genres || [];
         this._remember(this._artistGenreCache, artistId, genres);
         return genres;
     }
@@ -1544,13 +1544,12 @@ export class SpotifyApi {
         if (!this.hass || !trackId) return null;
         if (!this._trackArtCache) this._trackArtCache = new Map();
         if (this._trackArtCache.has(trackId)) return this._trackArtCache.get(trackId);
-        let res = null;
+        let track = null;
         try {
-            res = await this.fetchSpotifyPlus('get_track', { track_id: trackId });
-        } catch (e) { res = null; }
-        if (!res) return null;
-        const track = res.result || res;
-        const url = track?.album?.images?.[0]?.url || null;
+            track = await this.getTrack(trackId);
+        } catch (e) { track = null; }
+        if (!track) return null;
+        const url = track.album?.images?.[0]?.url || null;
         this._remember(this._trackArtCache, trackId, url);
         return url;
     }
@@ -1561,11 +1560,14 @@ export class SpotifyApi {
         if (memo.size > SpotifyApi.DERIVED_MEMO_MAX_ENTRIES) memo.delete(memo.keys().next().value);
     }
 
+    /**
+     * Playlists matching `query` (search_playlists, paged internally up to
+     * `limit`), as `{ items, total }`; no items without a query or hass.
+     */
     async searchPlaylists(query, limit = 10, offset = 0) {
-        if (!this.hass || !query) return { result: { items: [] } };
-
+        if (!this.hass || !query) return { items: [], total: 0 };
         const { items, total } = await this.fetchPaginated('search_playlists', { criteria: query, offset }, limit);
-        return { result: { items, total } };
+        return { items, total };
     }
 
     async saveTrackFavorites(ids) {

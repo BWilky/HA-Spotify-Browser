@@ -256,8 +256,7 @@ async function artist(ctx) {
             try {
                 const name = (await artistPromise)?.name;
                 if (!name) return [];
-                const res = await ctx.api.searchPlaylists(name, 10);
-                return res?.result?.items || [];
+                return (await ctx.api.searchPlaylists(name, 10))?.items || [];
             } catch (e) { return []; }
         })();
 

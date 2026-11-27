@@ -438,10 +438,10 @@ test('getArtistGenres returns the genres and remembers them for the session', as
     assert.equal(calls.length, 1, 'still remembered after the read cache has expired');
 });
 
-test('getArtistGenres accepts a response without a result wrapper and an artist with no genres', async (t) => {
+test('getArtistGenres: an artist with no genres is an answer; a response without an artist is not (like getArtist)', async (t) => {
     freezeClock(t);
     const bare = makeApi(() => ({ id: 'a1', genres: ['jazz'] }));
-    assert.deepEqual(await bare.api.getArtistGenres('a1'), ['jazz']);
+    assert.deepEqual(await bare.api.getArtistGenres('a1'), [], 'no result wrapper: no artist');
 
     const none = makeApi(() => ({ result: { id: 'a2', genres: [] } }));
     assert.deepEqual(await none.api.getArtistGenres('a2'), []);
@@ -503,9 +503,9 @@ test('getTrackArt returns the album art URL and remembers it for the session', a
     assert.equal(calls.length, 1);
 });
 
-test('getTrackArt accepts a bare track and returns null for a track without art', async () => {
+test('getTrackArt: null for a response without a track (like getTrack) and for a track without art', async () => {
     const bare = makeApi(() => ({ album: { images: [{ url: 'bare.jpg' }] } }));
-    assert.equal(await bare.api.getTrackArt('t1'), 'bare.jpg');
+    assert.equal(await bare.api.getTrackArt('t1'), null, 'no result wrapper: no track');
 
     const noArt = makeApi(() => ({ result: { id: 't2', album: { images: [] } } }));
     assert.equal(await noArt.api.getTrackArt('t2'), null);

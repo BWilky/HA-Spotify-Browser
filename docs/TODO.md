@@ -86,7 +86,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - [x] `renderTrackRowTemplate`'s unused non-playlist branch and its `layout` option removed; the `.track-art-small` rule went too (its one skeleton sets every property inline).
 - `FollowStateController` could pass the toggle's context to `verify` instead of the artist view queueing ids.
 
-- `searchPlaylists` (`src/api.js` ~1554) still returns a raw-looking `{result:{items,total}}`; `getArtistGenres` / `getTrackArt` still accept a bare object. Both could sit on the new getters.
+- [x] `searchPlaylists` returns `{ items, total }`; `getArtistGenres` / `getTrackArt` read through `getArtist` / `getTrack` (same calls; a response without a `result` now counts as no answer, as for the getters).
 - Library Recents and the "See all" recent section each read 50 recent tracks unshared with the 30-track read home and the player share.
 
 - When playing with no device, the picker first shows saved devices only even if a recent live list exists (`spotify-browser-app.js` ~1202).

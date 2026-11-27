@@ -362,7 +362,7 @@ test('artist: all reads go out together; the artist, then each rail, commits as 
     await flush();
     d.albums.resolve({ items: range(10, album), total: 23, offset: 10 });
     await flush();
-    d.playlists.resolve({ result: { items: [{ id: 'p1' }] } });
+    d.playlists.resolve({ items: [{ id: 'p1' }], total: 1 });
     await flush();
 
     // (b) core first, then rails in the order they landed (similar artists
@@ -467,7 +467,7 @@ test('artist superseded after the artist landed: later rails are refused', async
     host.supersede();
     d.albums.resolve({ items: range(3, album), total: 3, offset: 10 });
     d.top.resolve({ result: range(3, track) });
-    d.playlists.resolve({ result: { items: [] } });
+    d.playlists.resolve({ items: [], total: 0 });
     await flush();
     assert.equal(host.applied.length, applied);
     assert.equal(host.data.albums, null);
@@ -490,7 +490,7 @@ test('artist albums rail read fails: marked failed (albums [] as before), and th
     assert.equal(host.data.albumsFailed, true, 'but can tell the two apart');
     assert.equal(host.cached, undefined, 'the entry cached before the failure is dropped');
 
-    d.playlists.resolve({ result: { items: [{ id: 'p1' }] } });
+    d.playlists.resolve({ items: [{ id: 'p1' }], total: 1 });
     await flush();
     assert.deepEqual(host.data.playlists, [{ id: 'p1' }]);
     assert.equal(host.cached, undefined, 'a later rail does not cache the page either');

@@ -93,15 +93,14 @@ test('fetchPaginated never issues a call with limit above the per-service cap', 
     assert.ok(calls.every(c => c.limit <= 10), 'no call should request more than 10 items');
 });
 
-test('searchPlaylists paginates internally and preserves its return shape', async () => {
+test('searchPlaylists paginates internally and returns { items, total }', async () => {
     const available = makeItems(20, 'playlist');
     const calls = [];
     const api = makeApi(available, calls);
 
     const res = await api.searchPlaylists('some artist', 12);
 
-    assert.deepEqual(res.result.items, available.slice(0, 12));
-    assert.equal(res.result.total, 20);
+    assert.deepEqual(res, { items: available.slice(0, 12), total: 20 });
     assert.equal(calls.length, 2);
     assert.ok(calls.every(c => c.limit <= 10));
 });
