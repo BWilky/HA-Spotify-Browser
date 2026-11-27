@@ -11,5 +11,5 @@ build.sh
 # (see README "Typeface"; deployed separately by build.sh)
 fonts/
 
-# Local design/plan docs — never commit
-docs/superpowers/
+# Local design/plan docs and the findings TODO — never commit
+docs/
