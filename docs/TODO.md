@@ -18,6 +18,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - [x] **D6 Discography page uses the app header** like every other page (drop its own sticky header and back arrow). — **Done (e9f894d):** the discography page uses the app header (one back button, title in the header, opaque from the start) and the shared list-page scroll handling.
 - [x] **D7 Mobile text mirrors the iOS app** (owner, 2026-11-27): the mobile type scale that never applied now does. — **Done:** the phone `.media-title` / `.media-subtitle` rules sit after the base rules in `shared-styles.js`, so card subtitles are 11px on phones (titles stay 13.5px, desktop unchanged; computed sizes checked in the harness).
 - [x] **D8 No handle bar on the phone panel** (owner, 2026-11-27): the bar sat under the Dynamic Island, where it can't be grabbed. Removed; dragging the header down still closes the panel.
+- [-] **D9 No drag-to-close on the phone Search and Library pages** (owner, 2026-11-27): they draw their own top bar instead of the app header, so the panel can't be dragged closed from them. Left that way on purpose.
 
 ## Shared helpers / duplicated code
 
