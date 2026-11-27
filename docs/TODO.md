@@ -4,7 +4,7 @@ A running list of improvements for this codebase: duplicated code that can share
 
 Paths are relative to the repo root (source lives under `src/`). Background: `docs/plans/architecture-review.md`, `docs/plans/phase3-dead-code-and-final-verification.md`, `docs/plans/HANDOFF.md`.
 
-**Now:** wave A, decisions D1–D8 and most cleanups are done. Open: B18 (needs a phone check), B19, and the small leftovers in S4, S6, S7, X2, X3 and the Notes.
+**Now:** wave A, decisions D1–D8 and most cleanups are done. Open: B18 (Android check), and the small leftovers in S4, S6 and the Notes.
 
 Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs the owner's decision · `[-]` decided against (reason given)
 
@@ -58,7 +58,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 ## Bugs and robustness
 
 - [ ] **B18 The app panel can't be dragged closed with a finger in Chromium/Android**: its header has no `touch-action: none` (the sheets' grip does), so Chromium fires `pointercancel` at once (`src/spotify-browser-app.js` ~782). **iOS checked by the owner (2026-11-27): dragging the header closes the panel.** Android still untested before changing.
-- [ ] **B19 Device manager drag can get stuck**: its listeners sit on the grip, which gets nothing once removed mid-drag, and a failed `setPointerCapture` carries on (`device-manager-popup.js` ~433, ~446); the fix is the document-level guard `ListDragController` now has. Drag-to-close also has no `pointerId` filter (a second finger moves the panel).
+- [x] **B19 Device manager drag can get stuck**: its listeners sit on the grip, which gets nothing once removed mid-drag, and a failed `setPointerCapture` carries on (`device-manager-popup.js` ~433, ~446); the fix is the document-level guard `ListDragController` now has. Drag-to-close also has no `pointerId` filter (a second finger moves the panel). — **Done:** the grip drag hears move / release on the document (filtered to its pointer), so a re-rendered grip no longer leaves it stuck (reproduced in Chromium before, fixed after); a failed `setPointerCapture` starts no drag; `DragDismissController` (app panel and every sheet) ignores a second finger.
 - [x] **B15 Stale follow answers** (search top result guarded in 4d42886): the artist view's `_checkFollowStatus` (~134), the search top-result check (`spotify-search.js` ~211) and the playlist view's network path (~454) have no stale-response guard — moving quickly from artist A to B can let A's answer set B's button. — **Done (2f1fe1d):** artist and playlist views ignore follow answers for a page no longer shown or superseded by a newer check or a tap.
 - [x] **B16 Artist follow re-check after leaving** reads `this.data.id` when it fires 3 s later; if another artist is open by then, it re-checks the wrong one. Capture the id at toggle time. — **Done (2f1fe1d):** the re-check uses the id captured at toggle time and skips if another artist is shown.
 - [x] **B17 Shared drag controller robustness** (`list-drag-controller.js` ~38, ~55–79): `setPointerCapture` is not guarded and there is no `lostpointercapture` handling; releasing outside the rows does nothing (the device manager clamps to the ends). The device manager's own drag starts on any mouse button (~428). — **Done (2db3392):** `ListDragController` guards `setPointerCapture` and ends a drag whose handle vanished (document-level listeners — Chromium fires no `lostpointercapture` then); the device manager only starts drags on the primary mouse button.

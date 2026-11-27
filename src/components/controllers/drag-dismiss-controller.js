@@ -6,7 +6,8 @@
  *   - pointerdown on the handle starts a drag (unless `canStart()` says no);
  *     pointermove / pointerup / pointercancel listeners go on the window only
  *     for the length of the drag and are removed on release and on
- *     hostDisconnected (removed mid-drag).
+ *     hostDisconnected (removed mid-drag). Only the pointer that started the
+ *     drag moves or releases it; a second finger is ignored.
  *   - The panel follows the finger downwards (translateY, never above its
  *     rest position, transition off) and the backdrop fades with distance:
  *     opacity = max(0, 1 - delta / fadeDistance).
@@ -90,6 +91,8 @@ export class DragDismissController {
         /** @type {HTMLElement|null} */
         this._backdrop = null;
         this._startY = 0;
+        /** pointerId of the drag's pointer (undefined when the event had none). */
+        this._pointerId = undefined;
         /** How far down the current (or last) drag went, px. */
         this.delta = 0;
         this.dragging = false;
@@ -105,12 +108,13 @@ export class DragDismissController {
      * @param {Pick<PointerEvent, 'clientY'>} e
      */
     start(e) {
-        if (!this._canStart()) return;
+        if (this.dragging || !this._canStart()) return; // a second finger does not restart it
         const panel = this._getPanel() || null;
         if (!panel) return;
         this._panel = panel;
         this._backdrop = this._getBackdrop() || null;
         this._startY = e.clientY;
+        this._pointerId = e.pointerId;
         this.delta = 0;
         this.dragging = true;
         panel.style.transition = 'none';
@@ -134,7 +138,7 @@ export class DragDismissController {
 
     /** @param {PointerEvent} e */
     _move(e) {
-        if (!this.dragging || !this._panel) return;
+        if (!this.dragging || !this._panel || this._otherPointer(e)) return;
         if (this.preventDefault) e.preventDefault();
         this.delta = Math.max(0, e.clientY - this._startY);
         this._panel.style.transform = `translateY(${this.delta}px)`;
@@ -144,8 +148,14 @@ export class DragDismissController {
         }
     }
 
-    _end() {
-        if (!this.dragging) return;
+    /** True for an event from another pointer than the one dragging (a second finger). */
+    _otherPointer(e) {
+        return e?.pointerId !== undefined && this._pointerId !== undefined && e.pointerId !== this._pointerId;
+    }
+
+    /** @param {PointerEvent} [e] */
+    _end(e) {
+        if (!this.dragging || this._otherPointer(e)) return;
         this.dragging = false;
         this._removeListeners();
 

@@ -274,3 +274,21 @@ test('slideOut ignores transitionend bubbling up from a child; the panel\'s own 
     listeners.slice().forEach(fn => fn({ target: panel }));
     assert.equal(settled, 1, 'the panel\'s own transition does');
 });
+
+test('second finger (B19): its pointerdown does not restart the drag; its moves and release are ignored', (t) => {
+    const { drag, win, panel, host } = appPanel(t);
+    drag.start({ clientY: 100, pointerId: 1 });
+    drag.start({ clientY: 500, pointerId: 2 }); // second finger lands on the header
+    win.fire('pointermove', { clientY: 700, pointerId: 2, preventDefault() {} });
+    assert.equal(panel.style.transform, '', 'the second finger does not move the panel');
+    win.fire('pointermove', { clientY: 160, pointerId: 1, preventDefault() {} });
+    assert.equal(panel.style.transform, 'translateY(60px)', 'the first finger still drags from where it started');
+    win.fire('pointerup', { pointerId: 2 });
+    assert.equal(drag.dragging, true, 'the second finger lifting does not end it');
+    win.fire('pointermove', { clientY: 400, pointerId: 1, preventDefault() {} });
+    win.fire('pointerup', { pointerId: 1 });
+    assert.equal(drag.dragging, false);
+    assert.equal(win.count(), 0);
+    t.mock.timers.tick(400);
+    assert.equal(host.isOpen, false, '300px with the first finger closes it');
+});

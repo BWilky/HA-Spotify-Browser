@@ -430,21 +430,35 @@ export class SpotifyDeviceManagerPopup extends LitElement {
         if (this._editingId || this._dragIndex != null) return;
         e.preventDefault();
         const grip = e.currentTarget;
-        try { grip.setPointerCapture(e.pointerId); } catch (_) { /* unsupported */ }
+        try {
+            grip.setPointerCapture(e.pointerId);
+        } catch (_) {
+            return; // the pointer is already gone: no release would ever end this drag
+        }
         this._dragGrip = grip;
+        // Move / release are heard on the document (pointer events are
+        // composed, so they reach it from the shadow root, captured or not):
+        // if the grip is removed mid-drag (a storage refresh re-rendered the
+        // list) it hears nothing more, but the document still does.
+        this._dragDoc = grip.ownerDocument || grip;
         this._dragPointerId = e.pointerId;
         this._dragStartY = e.clientY;
         this._dragIndex = index;
         this._dragOriginalOrder = this._savedDevices.map(d => d.id);
         this._dragStarted = false;
         this._recordMids();
-        grip.addEventListener('pointermove', this._onGripMove);
-        grip.addEventListener('pointerup', this._onGripUp);
-        grip.addEventListener('pointercancel', this._onGripUp);
-        // If the grip is removed mid-drag (a storage refresh re-rendered the
-        // list), pointerup never arrives; this still does.
+        this._dragDoc.addEventListener('pointermove', this._onGripMove);
+        this._dragDoc.addEventListener('pointerup', this._onGripUp);
+        this._dragDoc.addEventListener('pointercancel', this._onGripUp);
+        // Fired where supported when capture is lost (grip removed, or a
+        // release elsewhere); ends the drag the same way.
         grip.addEventListener('lostpointercapture', this._onGripUp);
         fireHaptic('light');
+    }
+
+    /** True for an event from another pointer than the drag's (a second finger). */
+    _otherPointer(e) {
+        return e?.pointerId !== undefined && this._dragPointerId !== undefined && e.pointerId !== this._dragPointerId;
     }
 
     /** Drop any in-progress drag without saving (sheet hidden / element removed). */
@@ -455,7 +469,7 @@ export class SpotifyDeviceManagerPopup extends LitElement {
     }
 
     _onGripMove = async (e) => {
-        if (this._dragIndex == null) return;
+        if (this._dragIndex == null || this._otherPointer(e)) return;
         e.preventDefault();
         const delta = e.clientY - this._dragStartY;
         if (!this._dragStarted) {
@@ -476,15 +490,20 @@ export class SpotifyDeviceManagerPopup extends LitElement {
         }
     };
 
-    _onGripUp = async () => {
+    _onGripUp = async (e) => {
+        if (this._otherPointer(e)) return;
         const grip = this._dragGrip;
+        const doc = this._dragDoc;
+        if (doc) {
+            doc.removeEventListener('pointermove', this._onGripMove);
+            doc.removeEventListener('pointerup', this._onGripUp);
+            doc.removeEventListener('pointercancel', this._onGripUp);
+        }
         if (grip) {
-            grip.removeEventListener('pointermove', this._onGripMove);
-            grip.removeEventListener('pointerup', this._onGripUp);
-            grip.removeEventListener('pointercancel', this._onGripUp);
             grip.removeEventListener('lostpointercapture', this._onGripUp);
             try { grip.releasePointerCapture(this._dragPointerId); } catch (_) { /* already released */ }
         }
+        this._dragDoc = null;
         const row = this._draggedRowEl();
         if (row) row.style.transform = '';
         const before = this._dragOriginalOrder;

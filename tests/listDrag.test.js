@@ -151,3 +151,62 @@ test('device manager: only the primary button starts a grip drag', () => {
     finger._onGripDown(ev({ pointerType: 'touch', button: 0 }), 0);
     assert.equal(finger._dragIndex, 0, 'touch');
 });
+
+// B19: the device manager grip drag listens on the document, so it ends even
+// when the grip is re-rendered away; a failed capture starts nothing; a
+// second finger is ignored.
+function gripPopup() {
+    globalThis.window.dispatchEvent ??= () => true; // fireHaptic
+    const Popup = definedElement('spotify-popup-devicemanager');
+    const el = new Popup(); // constructed: the move / release handlers are instance fields
+    el._editingId = null;
+    el._dragIndex = null;
+    el._savedDevices = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+    el._recordMids = () => { el._dragMids = [25, 75, 125]; };
+    el._draggedRowEl = () => null;
+    Object.defineProperty(el, 'updateComplete', { value: Promise.resolve() });
+    el.saved = [];
+    Object.defineProperty(el, 'deviceManager', { value: { saveDevices: async (list) => { el.saved.push(list.map(d => d.id)); } } });
+    const doc = fakeTarget();
+    const grip = fakeTarget({ ownerDocument: doc, captured: [], setPointerCapture(id) { this.captured.push(id); }, releasePointerCapture() {} });
+    return { el, doc, grip };
+}
+const down = (grip, extra = {}) => ({ pointerId: 1, pointerType: 'touch', button: 0, clientY: 25, preventDefault() {}, currentTarget: grip, ...extra });
+const pm = (clientY, pointerId = 1) => ({ clientY, pointerId, preventDefault() {} });
+
+test('device manager grip: move / release heard on the document, so a re-rendered grip cannot leave it stuck', async () => {
+    const { el, doc, grip } = gripPopup();
+    el._onGripDown(down(grip), 0);
+    assert.equal(grip.listeners.get('pointermove')?.size || 0, 0, 'no move listener on the grip');
+    // The grip is gone from the DOM now: only the document hears the pointer.
+    await doc.fire('pointermove', pm(140));
+    await el.updateComplete;
+    assert.deepEqual(el._savedDevices.map(d => d.id), ['b', 'c', 'a']);
+    await doc.fire('pointerup', { pointerId: 1 });
+    await new Promise(r => setImmediate(r));
+    assert.equal(el._dragIndex, null);
+    assert.deepEqual(el.saved, [['b', 'c', 'a']]);
+    assert.equal(doc.count(), 0, 'document listeners removed');
+    assert.equal(grip.count(), 0, 'grip listeners removed');
+});
+
+test('device manager grip: a failed setPointerCapture starts no drag', () => {
+    const { el, doc, grip } = gripPopup();
+    grip.setPointerCapture = () => { throw new Error('InvalidPointerId'); };
+    el._onGripDown(down(grip), 0);
+    assert.equal(el._dragIndex, null);
+    assert.equal(doc.count() + grip.count(), 0);
+});
+
+test('device manager grip: a second finger neither moves nor ends the drag', async () => {
+    const { el, doc, grip } = gripPopup();
+    el._onGripDown(down(grip), 0);
+    await doc.fire('pointermove', pm(140, 2));
+    assert.deepEqual(el._savedDevices.map(d => d.id), ['a', 'b', 'c']);
+    await doc.fire('pointerup', { pointerId: 2 });
+    assert.equal(el._dragIndex, 0, 'still dragging');
+    await doc.fire('pointercancel', { pointerId: 1 });
+    await new Promise(r => setImmediate(r));
+    assert.equal(el._dragIndex, null);
+    assert.deepEqual(el.saved, [], 'nothing moved, nothing saved');
+});
