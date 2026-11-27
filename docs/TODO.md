@@ -4,7 +4,7 @@ A running list of improvements for this codebase: duplicated code that can share
 
 Paths are relative to the repo root (source lives under `src/`). Background: `docs/plans/architecture-review.md`, `docs/plans/phase3-dead-code-and-final-verification.md`, `docs/plans/HANDOFF.md`.
 
-**Now:** wave A and decisions D1–D6 are done. Next: S7, S8, S9, S10, S12, S15/S17, P2, P4.
+**Now:** wave A, decisions D1–D7 and most cleanups are done. Open: B18 (needs a phone check), B19, and the small leftovers in S4, S6, S7, X2, X3 and the Notes.
 
 Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs the owner's decision · `[-]` decided against (reason given)
 
@@ -16,6 +16,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - [x] **D4 One playlist "…" menu**: the Library row offers the same actions as the playlist page (Edit, Make Private/Public, Collaborative, Pin, Delete for the owner; Remove from Your Library and Pin otherwise), and "Playlist deleted" is shown from both places. — **Done (c3d6c87):** Library row menu matches the playlist page (owner: edit, privacy, collaborative, pin, delete; follower: remove from library, pin); "Playlist deleted" from both.
 - [x] **D5 Collaborators get "Edit Playlist"** where they are allowed to edit (collaborative playlist they follow). — **Done (c3d6c87):** "Edit Playlist" shown wherever the user may edit tracks (collaborative playlists they follow).
 - [x] **D6 Discography page uses the app header** like every other page (drop its own sticky header and back arrow). — **Done (e9f894d):** the discography page uses the app header (one back button, title in the header, opaque from the start) and the shared list-page scroll handling.
+- [x] **D7 Mobile text mirrors the iOS app** (owner, 2026-11-27): the mobile type scale that never applied now does. — **Done:** the phone `.media-title` / `.media-subtitle` rules sit after the base rules in `shared-styles.js`, so card subtitles are 11px on phones (titles stay 13.5px, desktop unchanged; computed sizes checked in the harness).
 
 ## Shared helpers / duplicated code
 
@@ -78,7 +79,6 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 ## Notes
 
-- Mobile type scale never applies: in `src/styles/shared-styles.js` the mobile `.media-title` / `.media-subtitle` sizes are beaten by later base rules (a NOTE comment marks it). Making them apply would be a visible change — owner's call.
 - `renderTrackRowTemplate`'s non-playlist branch (`media-templates.js`, `with-art` / `track-art-small`) has no caller and no CSS left; the `layout` option can go. `.track-art-small` in `sharedStyles` is used only by one skeleton.
 - `FollowStateController` could pass the toggle's context to `verify` instead of the artist view queueing ids.
 

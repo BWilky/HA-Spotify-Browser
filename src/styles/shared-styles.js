@@ -137,16 +137,6 @@ export const sharedStyles = css`
         .scroll-content { padding-left: 16px; padding-right: 16px; }
         /* Keep horizontal carousels bleeding exactly to the screen edge. */
         .carousel-layout { margin-left: -16px; margin-right: -16px; padding-left: 16px; padding-right: 16px; }
-
-        /* --- Mobile type scale ---
-           Our text ran a touch larger than the native app. shared-styles is
-           imported into every component's shadow root, so reducing these shared
-           text primitives here scales them app-wide. This is the single place to
-           tune mobile text sizing.
-           NOTE: the base .media-title / .media-subtitle rules further down
-           come later in this sheet and win, so these two have no effect. */
-        .media-title { font-size: var(--spf-text-base, 13.5px); }
-        .media-subtitle { font-size: var(--spf-text-xs, 11px); }
     }
 
     /* --- Content Components --- */
@@ -226,6 +216,16 @@ export const sharedStyles = css`
     
     .media-title { font-weight: 700; font-size: var(--spf-text-base, 13.5px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
     .media-subtitle { font-size: var(--spf-text-sm, 12px); color: var(--spf-text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    /* --- Mobile type scale ---
+       Matches the native iOS app, whose text runs a touch smaller. shared-styles
+       is imported into every component's shadow root, so this is the single
+       place to tune mobile text sizing. It must stay after the base rules above
+       so it wins the cascade. */
+    @media (max-width: 768px) {
+        .media-title { font-size: var(--spf-text-base, 13.5px); }
+        .media-subtitle { font-size: var(--spf-text-xs, 11px); }
+    }
 
     /* Hero & artist-pill styles live in spotify-context-view.styles.js
        (playlist/artist views are the only consumers and import it).
