@@ -1,4 +1,5 @@
 import { dedupeRecentAlbums } from './home-content.js';
+import { SpotifyApi } from '../../api.js';
 import { playlistSortParams } from '../../utils.js';
 import { isPlaylistOwner } from '../playlist-actions.js';
 
@@ -402,9 +403,9 @@ export async function loadSection(ctx, sectionId, offset, cursor = null) {
         if (sectionId === 'recent') {
             title = 'Recently Played';
             // The recent-tracks endpoint is cursor-based and capped (~50 items),
-            // so this section loads a single page only: a read of its own (a
-            // limit other than the 30 home and the player share).
-            const page = await ctx.api.getRecentTracks({ limit });
+            // so this section loads a single page only. A read of as many made
+            // in the last few seconds (Library Recents) is taken instead.
+            const page = await ctx.api.getRecentTracks({ limit, since: Date.now() - SpotifyApi.RECENT_SHARE_MS });
             if (page) {
                 read = true;
                 // A later offset (never asked for: the first page is all

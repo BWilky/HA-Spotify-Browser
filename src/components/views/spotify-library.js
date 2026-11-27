@@ -1,5 +1,6 @@
 import { LitElement, html } from "../../lit.js";
 import { sharedStyles } from '../../styles/shared-styles.js';
+import { SpotifyApi } from '../../api.js';
 import { listRowStyles, filterPillStyles } from '../../styles/list-row.styles.js';
 import { libraryStyles } from './spotify-library.styles.js';
 import { getItemImage, isContextPlaying, getPlayerStateObj, getLibrarySort, setLibrarySort, IMG_THUMB } from '../../utils.js';
@@ -129,7 +130,8 @@ class SpotifyLibrary extends LitElement {
             // (newest first) fill the tail. Only the history call is fatal.
             const quiet = (p) => p.catch(() => null);
             const [history, albumsPage, playlistsPage, followedPage] = await Promise.all([
-                this.api.getRecentTracks({ limit: 50 }),
+                // A read of 50 from the last few seconds ("See all") is taken instead.
+                this.api.getRecentTracks({ limit: 50, since: Date.now() - SpotifyApi.RECENT_SHARE_MS }),
                 quiet(this.api.getSavedAlbums({ limit: 12, sort_result: false })),
                 quiet(this.api.getSavedPlaylists({ limit: 12, sort_result: false })),
                 quiet(this.api.getFollowedArtists({ limit: 12, sort_result: false })),

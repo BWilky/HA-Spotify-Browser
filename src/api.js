@@ -127,6 +127,11 @@ export class SpotifyApi {
     // player keeps 30; home's row shows the first 20 of them.
     static RECENT_TRACKS_LIMIT = 30;
 
+    // How old a recently-played read the 50-track lists (Library Recents,
+    // the "See all" section) take instead of reading again: the same window
+    // as the live device list.
+    static RECENT_SHARE_MS = 10000;
+
     // Cap for the genre / track-art memos (a few short strings per entry).
     static DERIVED_MEMO_MAX_ENTRIES = 500;
 
@@ -354,34 +359,34 @@ export class SpotifyApi {
     /**
      * The account's recently played tracks (get_player_recent_tracks), newest
      * first, as a ListPage of play-history items ({ track, context,
-     * played_at }); null when the read failed or held no list.
+     * played_at }); null when the read failed or held no list. `limit`
+     * defaults to RECENT_TRACKS_LIMIT (30).
      *
-     * Asked for RECENT_TRACKS_LIMIT of them (the default `limit`), the read
-     * is shared: home's "Recently Played" row and the player (the previous
-     * track, the queue sheet's history) both re-read them on every open,
-     * moments apart. `since` (a Date.now() stamp) lets a caller take the
-     * latest read that started at or after it, landed or still in flight,
-     * instead of asking again; without it the call always reads afresh (a
-     * track change must not be answered from before it), and that read is
-     * the one later callers share. A failed read is not shared. Each caller
-     * gets its own copy of the page.
-     *
-     * Any other `limit` is a plain read of its own: never shared, `since`
-     * ignored.
+     * The latest read is shared: home's "Recently Played" row and the player
+     * (the previous track, the queue sheet's history) re-read 30 on every
+     * open, moments apart, and Library Recents and the "See all" section read
+     * 50. `since` (a Date.now() stamp) lets a caller take the latest read
+     * that started at or after it, landed or still in flight, when that read
+     * asked for at least as many tracks (a read of 50 serves a caller of 30,
+     * cut to 30); without it the call always reads afresh (a track change
+     * must not be answered from before it), and every read becomes the one
+     * later callers share. A failed read is not shared. Each caller gets its
+     * own copy of the page.
      * @param {{since?: number|null, limit?: number}} [options]
      * @returns {Promise<ListPage|null>}
      */
     getRecentTracks({ since = null, limit = SpotifyApi.RECENT_TRACKS_LIMIT } = {}) {
-        if (limit !== SpotifyApi.RECENT_TRACKS_LIMIT) {
-            return this.fetchSpotifyPlus('get_player_recent_tracks', { limit }).then(listPage);
-        }
-        const copy = (json) => listPage(typeof json === 'string' ? JSON.parse(json) : null);
+        const copy = (json) => {
+            const page = listPage(typeof json === 'string' ? JSON.parse(json) : null);
+            if (page && page.items.length > limit) page.items = page.items.slice(0, limit);
+            return page;
+        };
         const last = this._recentRead;
-        if (since !== null && last && last.startedAt >= since) return last.promise.then(copy);
+        if (since !== null && last && last.startedAt >= since && last.limit >= limit) return last.promise.then(copy);
 
-        const entry = { startedAt: Date.now(), promise: null };
+        const entry = { startedAt: Date.now(), limit, promise: null };
         const drop = () => { if (this._recentRead === entry) this._recentRead = null; };
-        entry.promise = this.fetchSpotifyPlus('get_player_recent_tracks', { limit: SpotifyApi.RECENT_TRACKS_LIMIT })
+        entry.promise = this.fetchSpotifyPlus('get_player_recent_tracks', { limit })
             .then((res) => {
                 if (res == null) { drop(); return null; }
                 return JSON.stringify(res);

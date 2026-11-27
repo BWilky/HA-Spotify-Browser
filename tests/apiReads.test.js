@@ -160,18 +160,22 @@ test('getRecentTracks: a ListPage, shared or not; null when failed or no list', 
     }
 });
 
-test('getRecentTracks with another limit is never shared, and ignores `since`', async () => {
-    const { api, calls } = answering({ result: { items: [] } });
+test('getRecentTracks: a read of 50 serves later `since` callers of 30 or 50; a read of 30 does not serve 50', async () => {
+    const items = Array.from({ length: 50 }, (_, i) => ({ track: { id: `t${i}` } }));
+    const { api, calls } = answering({ result: { items } });
     const since = Date.now();
-    await api.getRecentTracks();
-    await api.getRecentTracks({ since, limit: 50 });
-    await api.getRecentTracks({ since });
-    await api.getRecentTracks({ limit: 50 });
+    const thirty = await api.getRecentTracks();
+    assert.equal(thirty.items.length, 30, 'cut to the limit asked for');
+    await api.getRecentTracks({ since, limit: 50 });   // 30 cannot serve 50: reads
+    const shared = await api.getRecentTracks({ since }); // the 50 serves 30, cut
+    await api.getRecentTracks({ since, limit: 50 });   // the 50 serves 50
+    await api.getRecentTracks({ limit: 50 });          // no since: always reads
     assert.deepEqual(calls, [
         ['get_player_recent_tracks', { limit: 30 }],
         ['get_player_recent_tracks', { limit: 50 }],
         ['get_player_recent_tracks', { limit: 50 }],
-    ], 'the `since` read of 30 joined the first; the reads of 50 joined nothing');
+    ]);
+    assert.deepEqual(shared.items, items.slice(0, 30));
 });
 
 // ------------------------------------------- characterization of the sites --

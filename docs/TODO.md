@@ -87,7 +87,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - [x] `FollowStateController.toggle(setFollowed, context)` hands `context` to that toggle's `verify`; the artist page passes its id there and its id queue is gone.
 
 - [x] `searchPlaylists` returns `{ items, total }`; `getArtistGenres` / `getTrackArt` read through `getArtist` / `getTrack` (same calls; a response without a `result` now counts as no answer, as for the getters).
-- Library Recents and the "See all" recent section each read 50 recent tracks unshared with the 30-track read home and the player share.
+- [x] The shared recents read is limit-aware: a read of 50 serves later `since` callers of 30 or 50 (cut to their limit), and Library Recents and the "See all" section take a read of 50 from the last 10 s (`RECENT_SHARE_MS`) instead of reading again. Home still reads 30 (the 50-track read is the one that timed out alongside the other home sections).
 
 - [x] When playing with no device, the picker's first render now includes the live list of the last 10 s (`DeviceManager.recentLiveDevices`), not saved devices only; the fresh scan still follows.
 - Near-duplicate icons left alone because they render differently: header close X vs search clear X, header queue lines vs `queueIcon`, search row chevron vs `rowChevronIcon`.
