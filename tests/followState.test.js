@@ -110,3 +110,14 @@ test('every toggle re-checks on its own; host disconnect cancels the pending one
     assert.equal(verifies, 2);
     assert.equal(follow._verifyTimers.size, 0);
 });
+
+test('verify gets the context its toggle was given', async (t) => {
+    const seen = [];
+    const { follow, tick } = setup(t, { verify: async (ctx) => { seen.push(ctx); return null; } });
+    await follow.toggle(async () => true, 'A');
+    await follow.toggle(async () => true, 'B');
+    await follow.toggle(async () => false, 'C'); // failed: no re-check
+    tick(VERIFY_MS);
+    await new Promise(r => setImmediate(r));
+    assert.deepEqual(seen, ['A', 'B']);
+});

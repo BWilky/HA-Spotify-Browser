@@ -127,7 +127,6 @@ test('artist, B16: a re-check is for the artist toggled; skipped while another a
     await api.answer('checkArtistsFollowing', 'B', false);
     assert.equal(view._follow.following, false, 'B\'s own re-check still corrects B');
     assert.equal(console.warn.mock.callCount(), 1);
-    assert.deepEqual(view._followVerifyIds, []);
 });
 
 test('artist, B16: a re-check answer that lands after the page changed corrects nothing; same page still corrects', async (t) => {
@@ -156,7 +155,7 @@ test('artist, B16: a re-check answer that lands after the page changed corrects 
     assert.equal(console.warn.mock.callCount(), 1);
 });
 
-test('artist, B16: a failed toggle queues no re-check; disconnect drops the queued ids with their timers', async (t) => {
+test('artist, B16: a failed toggle schedules no re-check; disconnect drops a pending one', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout'] });
     const { view, api } = artistView();
     api.followArtist = async (id) => { api.calls.push(['followArtist', id]); return { success: false }; };
@@ -164,13 +163,13 @@ test('artist, B16: a failed toggle queues no re-check; disconnect drops the queu
     view.data = { id: 'A' };
     await view._toggleFollow();
     assert.equal(view._follow.following, false, 'reverted');
-    assert.deepEqual(view._followVerifyIds, []);
+    assert.equal(view._follow._verifyTimers.size, 0);
 
     api.followArtist = async (id) => { api.calls.push(['followArtist', id]); return { success: true }; };
     await view._toggleFollow();
-    assert.deepEqual(view._followVerifyIds, ['A']);
+    assert.equal(view._follow._verifyTimers.size, 1);
     view.disconnectedCallback();
-    assert.deepEqual(view._followVerifyIds, []);
+    assert.equal(view._follow._verifyTimers.size, 0);
 
     // Shown again for B: B's toggle gets B's re-check (not A's leftover id).
     view.data = { id: 'B' };

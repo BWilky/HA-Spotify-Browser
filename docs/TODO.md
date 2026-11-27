@@ -84,7 +84,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 ## Notes
 
 - [x] `renderTrackRowTemplate`'s unused non-playlist branch and its `layout` option removed; the `.track-art-small` rule went too (its one skeleton sets every property inline).
-- `FollowStateController` could pass the toggle's context to `verify` instead of the artist view queueing ids.
+- [x] `FollowStateController.toggle(setFollowed, context)` hands `context` to that toggle's `verify`; the artist page passes its id there and its id queue is gone.
 
 - [x] `searchPlaylists` returns `{ items, total }`; `getArtistGenres` / `getTrackArt` read through `getArtist` / `getTrack` (same calls; a response without a `result` now counts as no answer, as for the getters).
 - Library Recents and the "See all" recent section each read 50 recent tracks unshared with the 30-track read home and the player share.

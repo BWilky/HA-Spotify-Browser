@@ -99,12 +99,10 @@ export class SpotifyArtistView extends LitElement {
         });
         // Each follow / unfollow is re-checked 3 s later (pending re-checks
         // are cancelled on disconnect), for the artist it was made on (B16):
-        // every successful toggle queues its artist id and gets exactly one
-        // re-check, and the re-checks fire in toggle order.
-        this._followVerifyIds = [];
+        // the toggle hands its artist id to its own re-check.
         this._followCheck = 0; // bumped per follow check and per toggle (B15)
         this._follow = new FollowStateController(this, {
-            verify: () => this._verifyFollow(this._followVerifyIds.shift()),
+            verify: (artistId) => this._verifyFollow(artistId),
             onCorrected: () => console.warn("[SpotifyArtistView] Follow state mismatch detected after verification. Correcting."),
         });
     }
@@ -116,7 +114,6 @@ export class SpotifyArtistView extends LitElement {
 
     disconnectedCallback() {
         super.disconnectedCallback(); // FollowStateController drops its pending re-checks
-        this._followVerifyIds = [];
     }
 
     updated(changedProperties) {
@@ -173,10 +170,8 @@ export class SpotifyArtistView extends LitElement {
             const result = follow
                 ? await this.api.followArtist(artistId)
                 : await this.api.unfollowArtist(artistId);
-            // A success gets one re-check (verify above), which reads this id.
-            if (result.success) this._followVerifyIds.push(artistId);
             return result.success;
-        });
+        }, artistId); // a success gets one re-check (verify above) for this id
         if (ok) return;
         this.dispatchEvent(new CustomEvent('show-alert', {
             detail: {
