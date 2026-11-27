@@ -1,4 +1,5 @@
 import { css } from "../lit.js";
+import { hiddenScrollbarStyles } from "./shared-styles.js";
 
 /*
  * Chrome shared by the components that render a <spotify-bottom-sheet>
@@ -18,6 +19,7 @@ import { css } from "../lit.js";
  * mobile Connect sheet.
  */
 export const sheetStyles = css`
+    ${hiddenScrollbarStyles}
     :host { display: contents; }
 
     .title { font-size: var(--spf-text-2xl, 26px); font-weight: 900; margin: 0 0 18px; flex-shrink: 0; }
@@ -31,6 +33,7 @@ export const sheetStyles = css`
  * own :host rule repeats display: contents next to its sheet variables).
  */
 export const dialogSheetStyles = css`
+    ${hiddenScrollbarStyles}
     :host { display: contents; }
 
     .title {

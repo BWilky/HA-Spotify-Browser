@@ -33,25 +33,6 @@ export class SpotifySidebarTrackList extends LitElement {
                 .queue-list { background: var(--spf-bg); }
             }
 
-            /* The list's share of sharedStyles' scrollbar treatment (hidden
-               on mobile; on desktop thin, shown while hovered). */
-            @media (max-width: 768px) {
-                .queue-list {
-                    scrollbar-width: none;
-                    -ms-overflow-style: none;
-                }
-            }
-            @media (min-width: 769px) {
-                .queue-list {
-                    overflow-y: overlay !important;
-                    scrollbar-width: thin;
-                    scrollbar-color: transparent transparent;
-                    transition: scrollbar-color 0.3s;
-                }
-                .queue-list:hover { scrollbar-color: rgba(255,255,255,0.2) transparent; }
-                .queue-list:hover::-webkit-scrollbar-thumb { background-color: rgba(255, 255, 255, 0.25); }
-            }
-
             /* Re-add device refresh btn styling compatible with new popup */
             .device-refresh-btn {
                 margin-top: 16px; background: transparent;

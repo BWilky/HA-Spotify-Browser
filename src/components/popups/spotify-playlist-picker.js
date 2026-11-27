@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic, getPlaylistSort, setPlaylistSort, pickImage, IMG_THUMB } from "../../utils.js";
-import { artFallbackStyles } from '../../styles/shared-styles.js';
+import { artFallbackStyles, hiddenScrollbarStyles } from '../../styles/shared-styles.js';
 import { checkIcon, heartIcon, sortIcon, searchIcon } from '../common/icons.js';
 import '../bottom-sheet.js';
 
@@ -42,7 +42,7 @@ export class SpotifyPlaylistPicker extends LitElement {
     }
 
     static get styles() {
-        return [artFallbackStyles, css`
+        return [artFallbackStyles, hiddenScrollbarStyles, css`
             :host {
                 display: contents;
                 --spf-sheet-max-h: 96%;

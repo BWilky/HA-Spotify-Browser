@@ -1,5 +1,6 @@
 import { LitElement, html, css } from "../../lit.js";
 import { listIcon } from '../common/icons.js';
+import { hiddenScrollbarStyles } from '../../styles/shared-styles.js';
 
 export class SpotifyDevicePickerSmall extends LitElement {
     static get properties() {
@@ -11,7 +12,7 @@ export class SpotifyDevicePickerSmall extends LitElement {
     }
 
     static get styles() {
-        return css`
+        return [hiddenScrollbarStyles, css`
              /* --- FLOATING DEVICE LIST --- */
             .floating-volume-container {
                 position: absolute;
@@ -101,7 +102,7 @@ export class SpotifyDevicePickerSmall extends LitElement {
                 font-size: var(--spf-text-base, 13.5px);
             }
             .more-devices-row svg { fill: currentColor; }
-        `;
+        `];
     }
 
     render() {

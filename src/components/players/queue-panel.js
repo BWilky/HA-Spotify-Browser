@@ -1,6 +1,6 @@
 import { LitElement, html, css } from "../../lit.js";
 import { fireHaptic } from "../../utils.js";
-import { artFallbackStyles } from '../../styles/shared-styles.js';
+import { artFallbackStyles, hiddenScrollbarStyles } from '../../styles/shared-styles.js';
 import { playingBarsIcon, staticBarsIcon, menuIcon, playPauseIcon } from '../common/icons.js';
 import { renderQueueRow } from './queue-row.js';
 import { openTrackMenu } from '../track-menu.js';
@@ -31,7 +31,7 @@ export class SpotifyQueuePanel extends LitElement {
     }
 
     static get styles() {
-        return [artFallbackStyles, css`
+        return [artFallbackStyles, hiddenScrollbarStyles, css`
             :host { display: contents; }
 
             .q-head { flex-shrink: 0; margin-bottom: 8px; }

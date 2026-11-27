@@ -34,6 +34,21 @@ export const artFallbackStyles = css`
     }
 `;
 
+/**
+ * No visible scrollbars anywhere: every scroll container still scrolls (wheel,
+ * trackpad, touch, keyboard) but draws no bar and reserves no gutter for one,
+ * so content runs to the edge of the pane on desktop and tablet as it does on
+ * phones. scrollbar-width covers Firefox, Chrome 121+ and Safari 18.2+ (and,
+ * when set, makes Chrome ignore ::-webkit-scrollbar); ::-webkit-scrollbar
+ * covers older WebKit/Blink. Baked into sharedStyles; also adopted by the
+ * components that don't include the full sharedStyles (bottom sheets,
+ * pickers, the queue panel).
+ */
+export const hiddenScrollbarStyles = css`
+    * { scrollbar-width: none; -ms-overflow-style: none; }
+    ::-webkit-scrollbar { display: none; }
+`;
+
 export const sharedStyles = css`
     ${artFallbackStyles}
 
@@ -90,7 +105,6 @@ export const sharedStyles = css`
         --spf-btn-bg: rgba(0, 0, 0, 0.3);
         --spf-border: rgba(255, 255, 255, 0.1);
         --spf-border-subtle: rgba(255, 255, 255, 0.05);
-        --spf-scroll-thumb: rgba(255, 255, 255, 0.2);
     }
 
     /* Form controls don't inherit font-family by default — keep them on the
@@ -153,8 +167,6 @@ export const sharedStyles = css`
         padding-bottom: 10px; 
         scroll-behavior: smooth; scrollbar-width: none; -webkit-overflow-scrolling: touch; 
     }
-    .carousel-layout::-webkit-scrollbar { height: 6px; background: transparent; }
-    .carousel-layout:hover::-webkit-scrollbar-thumb { background: var(--spf-scroll-thumb); border-radius: 4px; }
     .carousel-layout .media-card { min-width: 125px; width: 125px; flex-shrink: 0; }
 
     /* Media Card */
@@ -230,7 +242,7 @@ export const sharedStyles = css`
     /* Hero & artist-pill styles live in spotify-context-view.styles.js
        (playlist/artist views are the only consumers and import it).
        .recent-grid-layout lives in components/spotify-home.styles.js (home is
-       the only consumer), its share of the scrollbar rules below too. */
+       the only consumer). */
 
     /* Track Rows (also consumed by spotify-context-list, which imports only
        sharedStyles — keep these here). The playlist layout's own text and
@@ -276,73 +288,15 @@ export const sharedStyles = css`
     @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
 
     /* ================================================= */
-    /* SCROLLBAR STYLING (Floating & Hover Only)        */
+    /* SCROLLBARS: hidden at every width                 */
     /* ================================================= */
-    /* The other entries of these selector lists moved beside their only
-       consumer: .page (the router's page elements, root shadow root only) to
-       spotify-browser-app.styles.js, .queue-list to
-       components/players/sidebar/queue.js, .recent-grid-layout to
-       components/spotify-home.styles.js. */
+    ${hiddenScrollbarStyles}
 
-    /* 1. Mobile/Touch: Native Overlay (Fade on scroll) */
-    @media (max-width: 768px) {
-        .carousel-layout, .scroll-content {
-            scrollbar-width: none; /* Hide standard bars */
-            -ms-overflow-style: none;
-        }
-        ::-webkit-scrollbar { display: none; } 
-    }
-
-    /* 2. Desktop: Invisible Track + Floating Thumb */
+    /* Desktop: .scroll-content has always been a scroll container here (it
+       used to ask for overflow: overlay so its bar floated). It never scrolls
+       (it is as tall as its content), but being one stops its first child's
+       top margin collapsing through it; kept so the home layout doesn't move. */
     @media (min-width: 769px) {
-        .carousel-layout, .scroll-content {
-            /* Try to force overlay (Chrome/Edge feature) */
-            overflow-y: overlay !important;
-            
-            /* Firefox: Thin and invisible until hover */
-            scrollbar-width: thin;
-            scrollbar-color: transparent transparent;
-            transition: scrollbar-color 0.3s;
-        }
-
-        /* Firefox Hover */
-        .scroll-content:hover {
-            scrollbar-color: rgba(255,255,255,0.2) transparent;
-        }
-
-        /* --- Webkit (Chrome/Edge/Safari) --- */
-
-        /* The Container */
-        ::-webkit-scrollbar {
-            width: 8px !important; /* Width of the interactive zone */
-            background: transparent !important;
-        }
-
-        /* The Highway (Track) - Must be invisible */
-        ::-webkit-scrollbar-track {
-            background: transparent !important;
-            margin: 4px 0;
-        }
-
-        /* The Moving Part (Thumb) */
-        ::-webkit-scrollbar-thumb {
-            background-color: transparent; /* Invisible by default */
-            
-            /* MAGIC TRICK: Simulates a "floating" pill */
-            border-radius: 8px;
-            border: 2px solid transparent; 
-            background-clip: content-box; 
-        }
-
-        /* Show Thumb on Container Hover */
-        .scroll-content:hover::-webkit-scrollbar-thumb {
-            background-color: rgba(255, 255, 255, 0.25); /* Visible Grey */
-        }
-
-        /* Brighten on Grab */
-        ::-webkit-scrollbar-thumb:hover {
-            background-color: rgba(255, 255, 255, 0.5) !important;
-        }
+        .scroll-content { overflow-y: auto !important; }
     }
-    
 `;

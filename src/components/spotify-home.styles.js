@@ -21,18 +21,6 @@ export const homeStyles = css`
     }
     .carousel-wrapper:hover .scroll-btn { opacity: 1; }
 
-    /* The pills grid's share of sharedStyles' desktop scrollbar treatment.
-       Its scrollbar-width (thin) and mobile entry (scrollbar-width: none)
-       are left out: .recent-grid-layout below sets scrollbar-width: none and
-       comes later. */
-    @media (min-width: 769px) {
-        .recent-grid-layout {
-            overflow-y: overlay !important;
-            scrollbar-color: transparent transparent;
-            transition: scrollbar-color 0.3s;
-        }
-    }
-
     /* Tighten the gap above the first home section (Pinned) on mobile + desktop.
        The page already pads down past the header; the extra scroll-content top
        padding + first section margin pushed content too far down. */

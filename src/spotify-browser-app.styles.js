@@ -10,8 +10,8 @@ import { css } from "./lit.js";
  * transition classes and their @keyframes) and the mobile bottom nav.
  *
  * Adopted by the root only, AFTER sharedStyles. The only sharedStyles rules
- * that match anything in the root's shadow root are :host and the global
- * ::-webkit-scrollbar* rules (the root renders no button/input and none of
+ * that match anything in the root's shadow root are :host and the
+ * hidden-scrollbar rules (the root renders no button/input and none of
  * the shared classes), and those never set the same property at the same
  * specificity and importance as a rule here on the same element, so the
  * cascade is the same as when these rules sat in between them in one sheet.
@@ -255,38 +255,5 @@ export const shellStyles = css`
     .browser-wrapper.is-dragging .page-container,
     .browser-wrapper.is-dragging .queue-panel {
         transition: none !important;
-    }
-
-    /* Scrollbars of the router's pages (the .page part of the scrollbar
-       treatment in sharedStyles, same declarations, same order). */
-    /* 1. Mobile/Touch: Native Overlay (Fade on scroll) */
-    @media (max-width: 768px) {
-        .page {
-            scrollbar-width: none; /* Hide standard bars */
-            -ms-overflow-style: none;
-        }
-    }
-
-    /* 2. Desktop: Invisible Track + Floating Thumb */
-    @media (min-width: 769px) {
-        .page {
-            /* Try to force overlay (Chrome/Edge feature) */
-            overflow-y: overlay !important;
-            
-            /* Firefox: Thin and invisible until hover */
-            scrollbar-width: thin;
-            scrollbar-color: transparent transparent;
-            transition: scrollbar-color 0.3s;
-        }
-
-        /* Firefox Hover */
-        .page:hover {
-            scrollbar-color: rgba(255,255,255,0.2) transparent;
-        }
-
-        /* Show Thumb on Container Hover */
-        .page:hover::-webkit-scrollbar-thumb {
-            background-color: rgba(255, 255, 255, 0.25); /* Visible Grey */
-        }
     }
 `;
