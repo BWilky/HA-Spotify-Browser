@@ -312,11 +312,7 @@ export async function hydrateSimilarArtists(api, artists) {
     const results = await Promise.all(targetArtists.map(async (artist) => {
         try {
             // Search matching artist in Spotify to get Image & ID
-            const res = await api.fetchSpotifyPlus('search_artists', {
-                criteria: artist.name,
-                limit: 1
-            });
-            return res?.result?.items?.[0] || null;
+            return await api.findArtist(artist.name);
         } catch (e) {
             return null; // Skip if search fails
         }

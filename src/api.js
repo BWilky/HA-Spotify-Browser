@@ -1485,6 +1485,16 @@ export class SpotifyApi {
         return resultObject(await this.fetchSpotifyPlus('get_artist', { artist_id: artistId }));
     }
 
+    /**
+     * The best Spotify match for an artist name (search_artists, first hit),
+     * or null when nothing matches or the call fails.
+     * @param {string} name
+     */
+    async findArtist(name) {
+        const res = await this.fetchSpotifyPlus('search_artists', { criteria: name, limit: 1 });
+        return res?.result?.items?.[0] || null;
+    }
+
     /** The album object (get_album, read-cached), or null. @param {string} albumId */
     async getAlbum(albumId) {
         return resultObject(await this.fetchSpotifyPlus('get_album', { album_id: albumId }));

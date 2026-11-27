@@ -30,7 +30,7 @@ const clone = (v) => (v === undefined ? v : JSON.parse(JSON.stringify(v)));
  * fetchSpotifyPlus, where they are recorded and answered per service.
  */
 const READ_METHODS = ['getArtist', 'getAlbum', 'getTrack', 'getPlaylist', 'getSavedPlaylists',
-    'getSavedAlbums', 'getSavedTracks', 'getFollowedArtists', 'getRecentTracks'];
+    'getSavedAlbums', 'getSavedTracks', 'getFollowedArtists', 'getRecentTracks', 'findArtist'];
 
 /**
  * An api whose every method records `[method, ...args]` in `api.calls` and

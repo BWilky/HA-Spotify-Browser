@@ -52,6 +52,7 @@ const READS = [
     ['getPlaylist', ['p1'], 'get_playlist', { playlist_id: 'p1' }],
     ['getRecentTracks', [], 'get_player_recent_tracks', { limit: 30 }],
     ['getRecentTracks', [{ limit: 50 }], 'get_player_recent_tracks', { limit: 50 }],
+    ['findArtist', ['Kygo'], 'search_artists', { criteria: 'Kygo', limit: 1 }],
 ];
 
 for (const [method, args, service, params] of READS) {
@@ -381,3 +382,13 @@ for (const { site, shapes, old, now, differs = {} } of SITES) {
         }
     });
 }
+
+test('findArtist: the first search hit, else null (no match or a failed call)', async (t) => {
+    assert.deepEqual(await answering({ result: { items: [artist(1), artist(2)] } }).api.findArtist('Artist'), artist(1));
+    assert.equal(await answering({ result: { items: [] } }).api.findArtist('Nobody'), null);
+    assert.equal(await answering(null).api.findArtist('Down'), null);
+    t.mock.method(console, 'error', () => {});
+    quiet(t);
+    const { api } = makeApi(() => { throw new Error('down'); });
+    assert.equal(await api.findArtist('Down'), null);
+});

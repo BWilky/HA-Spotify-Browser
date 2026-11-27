@@ -1052,8 +1052,7 @@ export class SpotifyPlaylistView extends LitElement {
         this._artistInfo = { id: artist.id, name: artist.name, image: '' };
         if (!this.api) return;
         try {
-            const res = await this.api.fetchSpotifyPlus('get_artist', { artist_id: artist.id });
-            const img = pickImage(res?.result?.images, IMG_THUMB);
+            const img = pickImage((await this.api.getArtist(artist.id))?.images, IMG_THUMB);
             if (img && this._artistInfo?.id === artist.id) {
                 this._artistInfo = { ...this._artistInfo, image: img };
             }
