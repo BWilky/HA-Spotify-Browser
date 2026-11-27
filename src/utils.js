@@ -500,3 +500,43 @@ export function formatTime(seconds) {
     const s = Math.floor(seconds % 60);
     return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
+
+/* ---- Scroll containment ---- */
+
+/**
+ * Whether `el` can scroll further along a wheel's delta: it is a scroll
+ * area on that axis (overflow auto / scroll), has more content than room,
+ * and is not already at the end the wheel moves towards.
+ * @param {{scrollTop:number, scrollLeft:number, scrollHeight:number, scrollWidth:number, clientHeight:number, clientWidth:number}} el
+ * @param {number} dx  wheel deltaX
+ * @param {number} dy  wheel deltaY
+ * @param {{overflowX:string, overflowY:string}} style  el's computed style
+ */
+export function canScrollAlong(el, dx, dy, style) {
+    const scrolls = (overflow) => overflow === 'auto' || overflow === 'scroll';
+    if (dy && scrolls(style.overflowY) && el.scrollHeight > el.clientHeight + 1) {
+        if (dy > 0 ? el.scrollTop + el.clientHeight < el.scrollHeight - 1 : el.scrollTop > 0) return true;
+    }
+    if (dx && scrolls(style.overflowX) && el.scrollWidth > el.clientWidth + 1) {
+        if (dx > 0 ? el.scrollLeft + el.clientWidth < el.scrollWidth - 1 : el.scrollLeft > 0) return true;
+    }
+    return false;
+}
+
+/**
+ * Whether a wheel event inside `host` will scroll something inside it:
+ * any element on its composed path, below `host`, that can scroll along
+ * the delta. When nothing can, the browser would scroll the page behind
+ * the modal instead (scroll chaining), so the caller cancels the wheel.
+ * @param {WheelEvent} e
+ * @param {Element} host
+ * @param {(el: Element) => {overflowX:string, overflowY:string}} [getStyle]
+ */
+export function wheelScrollsInside(e, host, getStyle = (el) => getComputedStyle(el)) {
+    for (const el of e.composedPath()) {
+        if (el === host) break;
+        if (!el || el.nodeType !== 1) continue; // shadow roots, text
+        if (canScrollAlong(el, e.deltaX, e.deltaY, getStyle(el))) return true;
+    }
+    return false;
+}

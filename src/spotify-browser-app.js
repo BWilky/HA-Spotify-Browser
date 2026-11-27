@@ -1,7 +1,7 @@
 import { LitElement, html } from "./lit.js";
 
 import { SpotifyApi, classifyPlaybackError } from './api.js';
-import { parseDeviceItems, normalizeDevice, fireHaptic, setDebug, debugLog, pickImage, IMG_THUMB } from './utils.js';
+import { parseDeviceItems, normalizeDevice, fireHaptic, setDebug, debugLog, pickImage, IMG_THUMB, wheelScrollsInside } from './utils.js';
 import { sharedStyles } from './styles/shared-styles.js';
 import { shellStyles } from './spotify-browser-app.styles.js';
 import { Router } from './router.js';
@@ -345,6 +345,16 @@ class SpotifyBrowserApp extends LitElement {
             this.addEventListener(type, this._onUserActivity, { capture: true, passive: true });
         }
 
+        // Keep the wheel inside the open modal: once nothing in it can scroll
+        // further (the end of a page, or over the header, player or
+        // backdrop), the browser would scroll the dashboard behind it.
+        // Ctrl+wheel is the browser's zoom, left alone.
+        this._onWheelGuard = (e) => {
+            if (!this._isOpen || e.ctrlKey || e.defaultPrevented) return;
+            if (!wheelScrollsInside(e, this)) e.preventDefault();
+        };
+        this.addEventListener('wheel', this._onWheelGuard, { passive: false });
+
         this.router.addEventListener('route-changed', (e) => {
             const { pageId, data, isHeroPage, direction } = e.detail;
 
@@ -418,6 +428,7 @@ class SpotifyBrowserApp extends LitElement {
                 this.removeEventListener(type, this._onUserActivity, { capture: true });
             }
         }
+        if (this._onWheelGuard) this.removeEventListener('wheel', this._onWheelGuard);
         this._stopIdleWatch();
         this._restoreViewport();
     }
