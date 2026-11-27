@@ -4,7 +4,7 @@ A running list of improvements for this codebase: duplicated code that can share
 
 Paths are relative to the repo root (source lives under `src/`). Background: `docs/plans/architecture-review.md`, `docs/plans/phase3-dead-code-and-final-verification.md`, `docs/plans/HANDOFF.md`.
 
-**Now:** wave A, decisions D1–D7 and most cleanups are done. Open: B18 (needs a phone check), B19, and the small leftovers in S4, S6, S7, X2, X3 and the Notes.
+**Now:** wave A, decisions D1–D8 and most cleanups are done. Open: B18 (needs a phone check), B19, and the small leftovers in S4, S6, S7, X2, X3 and the Notes.
 
 Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs the owner's decision · `[-]` decided against (reason given)
 
@@ -17,6 +17,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - [x] **D5 Collaborators get "Edit Playlist"** where they are allowed to edit (collaborative playlist they follow). — **Done (c3d6c87):** "Edit Playlist" shown wherever the user may edit tracks (collaborative playlists they follow).
 - [x] **D6 Discography page uses the app header** like every other page (drop its own sticky header and back arrow). — **Done (e9f894d):** the discography page uses the app header (one back button, title in the header, opaque from the start) and the shared list-page scroll handling.
 - [x] **D7 Mobile text mirrors the iOS app** (owner, 2026-11-27): the mobile type scale that never applied now does. — **Done:** the phone `.media-title` / `.media-subtitle` rules sit after the base rules in `shared-styles.js`, so card subtitles are 11px on phones (titles stay 13.5px, desktop unchanged; computed sizes checked in the harness).
+- [x] **D8 No handle bar on the phone panel** (owner, 2026-11-27): the bar sat under the Dynamic Island, where it can't be grabbed. Removed; dragging the header down still closes the panel.
 
 ## Shared helpers / duplicated code
 
@@ -55,7 +56,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 ## Bugs and robustness
 
-- [ ] **B18 The app panel can't be dragged closed with a finger in Chromium/Android**: its header has no `touch-action: none` (the sheets' grip does), so Chromium fires `pointercancel` at once (`src/spotify-browser-app.js` ~782). Needs a check on a real phone (iOS untested) before changing.
+- [ ] **B18 The app panel can't be dragged closed with a finger in Chromium/Android**: its header has no `touch-action: none` (the sheets' grip does), so Chromium fires `pointercancel` at once (`src/spotify-browser-app.js` ~782). **iOS checked by the owner (2026-11-27): dragging the header closes the panel.** Android still untested before changing.
 - [ ] **B19 Device manager drag can get stuck**: its listeners sit on the grip, which gets nothing once removed mid-drag, and a failed `setPointerCapture` carries on (`device-manager-popup.js` ~433, ~446); the fix is the document-level guard `ListDragController` now has. Drag-to-close also has no `pointerId` filter (a second finger moves the panel).
 - [x] **B15 Stale follow answers** (search top result guarded in 4d42886): the artist view's `_checkFollowStatus` (~134), the search top-result check (`spotify-search.js` ~211) and the playlist view's network path (~454) have no stale-response guard — moving quickly from artist A to B can let A's answer set B's button. — **Done (2f1fe1d):** artist and playlist views ignore follow answers for a page no longer shown or superseded by a newer check or a tap.
 - [x] **B16 Artist follow re-check after leaving** reads `this.data.id` when it fires 3 s later; if another artist is open by then, it re-checks the wrong one. Capture the id at toggle time. — **Done (2f1fe1d):** the re-check uses the id captured at toggle time and skips if another artist is shown.

@@ -77,14 +77,6 @@ export const headerStyles = css`
         max-width: 40%; pointer-events: none; z-index: 120; 
     }
 
-    /* Mobile minimal header: grab handle for drag-to-close */
-    .header-drag-pill {
-        position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
-        width: 40px; height: 4px; border-radius: 2px;
-        background: rgba(255,255,255,0.4);
-        pointer-events: none;
-    }
-
     .header-left, .header-right { display: flex; align-items: center; gap: 16px; }
     .spotify-logo { width: 32px; height: 32px; fill: var(--spf-text-main); }
 

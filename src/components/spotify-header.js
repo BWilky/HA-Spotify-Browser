@@ -15,7 +15,7 @@ class SpotifyHeader extends LitElement {
             transparent: { type: Boolean },
             scrollAlpha: { type: Number },
             searchQuery: { type: String },
-            minimal: { type: Boolean }, // Mobile: strip chrome to back + title + drag handle
+            minimal: { type: Boolean }, // Mobile: strip chrome to back + title (the whole header drags the panel closed)
             avatarVisible: { type: Boolean, reflect: true }, // Account avatar (home only)
             avatarUrl: { type: String },
             avatarSwitchable: { type: Boolean }, // >1 account -> tap opens switcher
@@ -138,8 +138,6 @@ class SpotifyHeader extends LitElement {
                     </button>
                     ` : ''}
                 </div>
-
-                ${this.minimal ? html`<div class="header-drag-pill"></div>` : ''}
 
                 <div class="header-center-title" style="opacity: ${this.titleOpacity || 0}">
                     ${this.centerTitle}
