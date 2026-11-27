@@ -93,7 +93,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - Near-duplicate icons left alone because they render differently: header close X vs search clear X, header queue lines vs `queueIcon`, search row chevron vs `rowChevronIcon`.
 - The smoke harness takes no screenshot of the album page, Liked Songs, search results, the playlist picker or a filtered library.
 
-- `checkUserFollowsPlaylist` logs with `console.warn` while the other checks use `console.error` (`src/api.js` ~1210); left as is.
+- [x] `checkUserFollowsPlaylist` now logs a failure with `console.error`, like the other checks.
 - The harness never sets `queue.open_on_desktop`; a probe for the desktop open path exists in an agent's temp folder and could be folded into `tools/smoke`.
 
 - The smoke harness runs in lite mode (`detectLite()` is true in headless Chromium), so parallax is never exercised there.

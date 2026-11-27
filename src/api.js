@@ -1239,7 +1239,7 @@ export class SpotifyApi {
             }
             return null;
         } catch (e) {
-            console.warn("Check Playlist Followers failed:", e);
+            console.error("Check Playlist Followers failed:", e);
             return null;
         }
     }
