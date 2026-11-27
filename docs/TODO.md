@@ -10,7 +10,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 ## Decisions (owner, 2026-11-26) — to implement
 
-- [x] **D1 Subtitle wording, one style**: lists (Library, Search, "See All") read "Playlist • Owner", "Album • Artists", "Song • Artists", "Artist"; Home cards read just the owner / artists; the artist discography reads "2015 • Album" (or "• Single", etc.). Replaces `SUBTITLE_STYLE`'s per-screen variants. — **Done (e9f894d):** one rule with three styles (`list`, `card`, `discography`); `library` / `search` / `section` remain as aliases of `list` until the library call site is updated.
+- [x] **D1 Subtitle wording, one style**: lists (Library, Search, "See All") read "Playlist • Owner", "Album • Artists", "Song • Artists", "Artist"; Home cards read just the owner / artists; the artist discography reads "2015 • Album" (or "• Single", etc.). Replaces `SUBTITLE_STYLE`'s per-screen variants. — **Done (e9f894d):** one rule with three styles (`list`, `card`, `discography`); the `library` / `search` / `section` aliases were later removed.
 - [x] **D2 Toast when a pin is pushed off** the full list: "Removed X to make room". — **Done (c3d6c87):** `evictedPinMessage` toast from the playlist page, artist page, Library rows and add-by-URI.
 - [x] **D3 Alerts always on top**, including over the desktop device picker. — **Done (c438377):** alert backdrop at 240000 and toasts at 241000, above every sheet, the device picker and the create sheet.
 - [x] **D4 One playlist "…" menu**: the Library row offers the same actions as the playlist page (Edit, Make Private/Public, Collaborative, Pin, Delete for the owner; Remove from Your Library and Pin otherwise), and "Playlist deleted" is shown from both places. — **Done (c3d6c87):** Library row menu matches the playlist page (owner: edit, privacy, collaborative, pin, delete; follower: remove from library, pin); "Playlist deleted" from both.
@@ -97,7 +97,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - The harness never sets `queue.open_on_desktop`; a probe for the desktop open path exists in an agent's temp folder and could be folded into `tools/smoke`.
 
 - The smoke harness runs in lite mode (`detectLite()` is true in headless Chromium), so parallax is never exercised there.
-- `SUBTITLE_STYLE.mediaRow` now only serves the discography list; rename to `discography` when D1 is decided.
+- [x] `SUBTITLE_STYLE` is `list` / `card` / `discography` only: the `library` / `search` / `section` aliases are gone (Library passes `list`).
 
 ## Deferred (needs a real device)
 

@@ -13,11 +13,6 @@ export const SUBTITLE_STYLE = Object.freeze({
     list: 'list',
     card: 'card',
     discography: 'discography',
-    // Aliases of `list`, so spotify-library.js (SUBTITLE_STYLE.library) keeps
-    // working unchanged; to be dropped once every call site says `list`.
-    library: 'list',
-    search: 'list',
-    section: 'list',
 });
 
 /** The type word that leads a list subtitle. */

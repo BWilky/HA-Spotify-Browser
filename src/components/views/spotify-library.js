@@ -494,7 +494,7 @@ class SpotifyLibrary extends LitElement {
     /** A playlist / album / artist row; playlists and albums get a menu button. */
     _renderRow(item, type) {
         return renderListRow(item, type, {
-            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.library),
+            subtitle: itemSubtitle(item, type, SUBTITLE_STYLE.list),
             playing: this._isPlaying(item.uri),
             onClick: () => this._navigate(type, item),
             trailing: type === 'artist' ? '' : html`

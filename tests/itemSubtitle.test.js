@@ -96,16 +96,9 @@ test('every type in every style, with the edge cases', () => {
     }
 });
 
-test('library, search and section are aliases of list (spotify-library.js still passes SUBTITLE_STYLE.library)', () => {
-    for (const alias of ['library', 'search', 'section']) {
-        assert.equal(SUBTITLE_STYLE[alias], SUBTITLE_STYLE.list, alias);
-        for (const [key, list] of TABLE) assert.equal(itemSubtitle(I[key], I[key].type, SUBTITLE_STYLE[alias]), list, `${alias} / ${key}`);
-    }
-});
-
-test('at most three wordings; the styles are frozen', () => {
+test('three wordings, no aliases; the styles are frozen', () => {
     assert.ok(Object.isFrozen(SUBTITLE_STYLE));
-    assert.deepEqual([...new Set(Object.values(SUBTITLE_STYLE))].sort(), ['card', 'discography', 'list']);
+    assert.deepEqual(Object.keys(SUBTITLE_STYLE).sort(), ['card', 'discography', 'list']);
 });
 
 test('defaults: the list wording, type from item.type; no item, no subtitle', () => {
