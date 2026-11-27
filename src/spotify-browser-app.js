@@ -819,10 +819,11 @@ class SpotifyBrowserApp extends LitElement {
                     @navigate=${this._handleNavigate}
                     @device-selected=${(e) => this._transferTo(e.detail)}
                     @open-manager=${() => {
-                this._queueVisible = false; // Close queue when opening manager? Maybe.
-                this._devicePopupVisible = false;
-                this._deviceManagerVisible = true;
-            }}
+                        // The manager replaces the sidebar queue and the picker.
+                        this._queueVisible = false;
+                        this._devicePopupVisible = false;
+                        this._deviceManagerVisible = true;
+                    }}
                 ></spotify-sidebar-player>
 
                 <spotify-reorder-dialog

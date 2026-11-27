@@ -45,7 +45,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 - [x] **X1 Dead CSS** (no element renders them): `.mobile-drag-handle`, `spotify-queue`, `.grid-layout` (×2), `.list-item-title/-subtitle`, `.track-duration`, `.device-list`, `.media-card.playing .media-title`, `.popup-scroll-content`, `.popup-close-btn`, `.page.has-hero-header`. — **Done (6e333c8):** all listed rules removed after re-checking adopters.
 - [x] **X2 Unused helpers**: ~~`renderMediaRowTemplate`~~ (removed b89c6b5), `heldVolume` (utils, replaced by `VolumeController`). — **Done:** `heldVolume` and its test removed.
-- [~] **X3 Small leftovers** (router `host` parameter, same-value `pageId` write and `_currentUserId` done in 05b0ac7): `Router` constructor's unused `host` parameter; `router.js` same-value `newPage.pageId = pageId` write; `spotify-context-view`'s reactive `_currentUserId` used only as a cache; ~~stale doc comment in `device-picker-large.js`~~ (6e333c8); the "Maybe." comment on the app's `@open-manager` handler.
+- [x] **X3 Small leftovers**: router `host` parameter, same-value `pageId` write and `_currentUserId` (05b0ac7); stale doc comment in `device-picker-large.js` (6e333c8); the "Maybe." comment on the app's `@open-manager` handler. — **Done:** comment replaced with what the handler does.
 
 ## Speed and efficiency
 
