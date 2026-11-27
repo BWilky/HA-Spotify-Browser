@@ -4,7 +4,7 @@ A running list of improvements for this codebase: duplicated code that can share
 
 Paths are relative to the repo root (source lives under `src/`). Background: `docs/plans/architecture-review.md`, `docs/plans/phase3-dead-code-and-final-verification.md`, `docs/plans/HANDOFF.md`.
 
-**Now:** wave A, decisions D1–D8 and most cleanups are done. Open: B18 (Android check), and the small leftovers in S4, S6 and the Notes.
+**Now:** wave A, decisions D1–D10 and most cleanups are done. Open: B18 (Android check), and the small leftovers in S4, S6 and the Notes.
 
 Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs the owner's decision · `[-]` decided against (reason given)
 
@@ -19,6 +19,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - [x] **D7 Mobile text mirrors the iOS app** (owner, 2026-11-27): the mobile type scale that never applied now does. — **Done:** the phone `.media-title` / `.media-subtitle` rules sit after the base rules in `shared-styles.js`, so card subtitles are 11px on phones (titles stay 13.5px, desktop unchanged; computed sizes checked in the harness).
 - [x] **D8 No handle bar on the phone panel** (owner, 2026-11-27): the bar sat under the Dynamic Island, where it can't be grabbed. Removed; dragging the header down still closes the panel.
 - [-] **D9 No drag-to-close on the phone Search and Library pages** (owner, 2026-11-27): they draw their own top bar instead of the app header, so the panel can't be dragged closed from them. Left that way on purpose.
+- [-] **D10 Device picker after a playback error keeps the recent list** (owner, 2026-11-27): it may show a live list up to 10 s old instead of forcing a fresh scan; no `{ refresh: true }` there.
 
 ## Shared helpers / duplicated code
 
@@ -88,7 +89,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - `searchPlaylists` (`src/api.js` ~1554) still returns a raw-looking `{result:{items,total}}`; `getArtistGenres` / `getTrackArt` still accept a bare object. Both could sit on the new getters.
 - Library Recents and the "See all" recent section each read 50 recent tracks unshared with the 30-track read home and the player share.
 
-- Device picker opened by a playback error may now show a list up to 10 s old (`spotify-browser-app.js` ~1079); pass `{ refresh: true }` there if a fresh scan is wanted. When playing with no device, the picker first shows saved devices only even if a recent live list exists (~1202).
+- When playing with no device, the picker first shows saved devices only even if a recent live list exists (`spotify-browser-app.js` ~1202).
 - Near-duplicate icons left alone because they render differently: header close X vs search clear X, header queue lines vs `queueIcon`, search row chevron vs `rowChevronIcon`.
 - The smoke harness takes no screenshot of the album page, Liked Songs, search results, the playlist picker or a filtered library.
 
