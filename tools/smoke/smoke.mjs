@@ -3,6 +3,10 @@
 // per-component render counts, image sizes requested, router history and
 // header state for a fixed walk through the app, on desktop and mobile.
 //
+// Then extra screens (album, Liked Songs, search results, the playlist
+// picker, a filtered library) and two desktop config variants
+// (queue.open_on_desktop; performance: high, where parallax runs).
+//
 // Usage: node tools/smoke/smoke.mjs <bundle.js> <outDir> [label]
 //        node tools/smoke/summ.cjs <outDir>/<label>.json
 // Needs `playwright` resolvable (e.g. via NODE_PATH) and a Chromium it can launch.
@@ -265,9 +269,69 @@ for (const vp of [{ name: 'desktop', width: 1400, height: 900 }, { name: 'mobile
   await page.evaluate(() => window.__setHass(window.__makeHass(10))); await sleep(2000);
   P.track_change_after_close = await since(m);
 
+  // 8. Screens the walk above never shows, after reopening (new phase keys
+  // only, so the ones above stay comparable with older runs).
+  await page.evaluate(() => window.dispatchEvent(new Event('spotify-browser-open'))); await sleep(1500);
+  const shot2 = (name) => page.screenshot({ path: path.join(outDir, `${label}-${vp.name}-x-${name}.png`) });
+  m = await mark();
+  await nav('album:al1'); await sleep(1800); await shot2('album');
+  await nav('likedsongs'); await sleep(2000); await shot2('liked-songs');
+  await nav('search', { query: 'abc' }); await sleep(1800); await shot2('search-results');
+  await page.evaluate(() => { const a = document.querySelector('spotify-browser-app'); a._playlistPickerTrack = { id: 't1', uri: 'spotify:track:t1', name: 'Track 1' }; a._playlistPickerVisible = true; });
+  await sleep(1500); await shot2('playlist-picker');
+  await page.evaluate(() => { document.querySelector('spotify-browser-app')._closeAllPopups(); }); await sleep(400);
+  await nav('library'); await sleep(1500);
+  await page.evaluate(() => { const lib = document.querySelector('spotify-browser-app').router.pageCache.get('library'); const v = lib?.shadowRoot?.querySelector('spotify-library') || lib; v?._setFilter?.('playlist'); });
+  await sleep(1500); await shot2('library-filtered');
+  P.extra_screens = await since(m);
+
   out.images[vp.name] = imgs;
   await ctx.close();
 }
+
+// 9. Config variants, desktop only: the queue sidebar opening with the
+// overlay (queue.open_on_desktop), and the full-power profile (parallax runs;
+// headless Chromium otherwise reads as low-power, see detectLite).
+async function variant(name, cardConfig, walk) {
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1 });
+  const page = await ctx.newPage();
+  await page.route('https://img.test/**', (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG }));
+  await page.route(/^https?:\/\/(?!img\.test)/, (route) => route.abort());
+  page.on('pageerror', (e) => out.errors.push(`[${name}] pageerror: ${String(e.stack || e).slice(0, 500)}`));
+  await page.addInitScript((c) => { window.__cardConfig = c; }, cardConfig);
+  await page.goto('file://' + path.join(here, 'harness.html'));
+  await page.addScriptTag({ path: bundle });
+  await page.waitForFunction(() => !!document.querySelector('spotify-browser-app'), null, { timeout: 15000 });
+  await sleep(1500);
+  const count = () => page.evaluate(() => { const by = {}; for (const c of window.__calls) by[c.service] = (by[c.service] || 0) + 1; return by; });
+  const before = await count();
+  await page.evaluate(() => window.dispatchEvent(new Event('spotify-browser-open')));
+  await sleep(2500);
+  const after = await count();
+  const opened = Object.fromEntries(Object.entries(after).map(([k, v]) => [k, v - (before[k] || 0)]).filter(([, v]) => v > 0).sort());
+  out.phases[name] = { open: opened, ...(await walk(page)) };
+  await page.screenshot({ path: path.join(outDir, `${label}-${name}.png`) });
+  await ctx.close();
+}
+await variant('desktop_queue_open', { entity: 'media_player.spotify_test', queue: { open_on_desktop: true } }, async (page) => ({
+  queueVisible: await page.evaluate(() => !!document.querySelector('spotify-browser-app')._queueVisible),
+}));
+await variant('desktop_full_power', { entity: 'media_player.spotify_test', appearance: { performance: 'high' } }, async (page) => {
+  await page.evaluate(() => document.querySelector('spotify-browser-app').router.navigateTo('playlist:p3'));
+  await sleep(2000);
+  return page.evaluate(async () => {
+    const app = document.querySelector('spotify-browser-app');
+    const view = app.router.pageCache.get('playlist:p3')?.shadowRoot;
+    if (!view) return { lite: app.config.appearance.performance.lite, page: false };
+    const find = (root, test) => { for (const el of root.querySelectorAll('*')) { if (test(el)) return el; if (el.shadowRoot) { const r = find(el.shadowRoot, test); if (r) return r; } } return null; };
+    const scroller = find(view, (el) => el.classList?.contains('main-scroll-container'));
+    if (!scroller) return { lite: app.config.appearance.performance.lite, scroller: false };
+    scroller.scrollTop = 100; scroller.dispatchEvent(new Event('scroll'));
+    await new Promise(r => setTimeout(r, 300));
+    const faded = find(view, (el) => el.style && el.style.transform.startsWith('scale(') && el.style.opacity !== '');
+    return { lite: app.config.appearance.performance.lite, scroller: true, heroContent: faded ? { opacity: faded.style.opacity, transform: faded.style.transform } : null };
+  });
+});
 await browser.close();
 fs.writeFileSync(path.join(outDir, `${label}.json`), JSON.stringify(out, null, 2));
 console.log(JSON.stringify(out, null, 1));

@@ -17,6 +17,7 @@ function respond(service, d) {
   switch (service) {
     case 'get_playlist_favorites': return { result: page(i => playlist(i), 40), user_profile: { id: 'me', display_name: 'Me', images: img('me') } };
     case 'get_album_favorites': return { result: page(i => ({ album: album(i) }), 40) };
+    case 'get_track_favorites': return { result: page(i => ({ track: track(i), added_at: '2024-01-01T00:00:00Z' }), 60) };
     case 'get_artists_followed': return { result: page(i => artist(i), 20) };
     case 'get_player_recent_tracks': return { result: page(i => ({ track: track(i), played_at: new Date(Date.now() - i * 6e5).toISOString(), context: { uri: `spotify:album:al${i % 13}`, type: 'album' } }), 30) };
     case 'get_player_queue_info': return { result: { currently_playing: track(1), queue: Array.from({ length: 20 }, (_, k) => track(k + 2)) } };

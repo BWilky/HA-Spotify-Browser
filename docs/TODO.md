@@ -91,12 +91,12 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 - [x] When playing with no device, the picker's first render now includes the live list of the last 10 s (`DeviceManager.recentLiveDevices`), not saved devices only; the fresh scan still follows.
 - Near-duplicate icons left alone because they render differently: header close X vs search clear X, header queue lines vs `queueIcon`, search row chevron vs `rowChevronIcon`.
-- The smoke harness takes no screenshot of the album page, Liked Songs, search results, the playlist picker or a filtered library.
+- [x] The smoke harness now also screenshots the album page, Liked Songs, search results, the playlist picker and a filtered library (`-x-` files, phase `extra_screens`, run after the old walk so its phases stay comparable; image counts include them).
 
 - [x] `checkUserFollowsPlaylist` now logs a failure with `console.error`, like the other checks.
-- The harness never sets `queue.open_on_desktop`; a probe for the desktop open path exists in an agent's temp folder and could be folded into `tools/smoke`.
+- [x] The harness has a desktop `queue.open_on_desktop` run (phase `desktop_queue_open`: the sidebar opens, one queue read on open).
 
-- The smoke harness runs in lite mode (`detectLite()` is true in headless Chromium), so parallax is never exercised there.
+- [x] The harness has a full-power desktop run (`performance: high`, phase `desktop_full_power`) where parallax runs: the playlist hero fades to 0.5 and scales to 0.9 at 100px of scroll. The main walk stays in lite mode.
 - [x] `SUBTITLE_STYLE` is `list` / `card` / `discography` only: the `library` / `search` / `section` aliases are gone (Library passes `list`).
 
 ## Deferred (needs a real device)
