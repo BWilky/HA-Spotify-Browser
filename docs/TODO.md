@@ -89,7 +89,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - [x] `searchPlaylists` returns `{ items, total }`; `getArtistGenres` / `getTrackArt` read through `getArtist` / `getTrack` (same calls; a response without a `result` now counts as no answer, as for the getters).
 - Library Recents and the "See all" recent section each read 50 recent tracks unshared with the 30-track read home and the player share.
 
-- When playing with no device, the picker first shows saved devices only even if a recent live list exists (`spotify-browser-app.js` ~1202).
+- [x] When playing with no device, the picker's first render now includes the live list of the last 10 s (`DeviceManager.recentLiveDevices`), not saved devices only; the fresh scan still follows.
 - Near-duplicate icons left alone because they render differently: header close X vs search clear X, header queue lines vs `queueIcon`, search row chevron vs `rowChevronIcon`.
 - The smoke harness takes no screenshot of the album page, Liked Songs, search results, the playlist picker or a filtered library.
 

@@ -1231,9 +1231,11 @@ class SpotifyBrowserApp extends LitElement {
 
         // 2. Interactive Selection (Popup)
         return new Promise((resolve) => {
-            // Immediate render from existing saved state while the scan runs
+            // Immediate render while the scan runs: saved devices plus the
+            // live list of the last few seconds, if there is one.
             if (this.deviceManager) {
-                this.deviceManager.getMergedDevices([], this._playerAttributes()).then(devs => {
+                const recent = this.deviceManager.recentLiveDevices(this.api);
+                this.deviceManager.getMergedDevices(recent, this._playerAttributes()).then(devs => {
                     this._devices = devs;
                     this.requestUpdate();
                 });

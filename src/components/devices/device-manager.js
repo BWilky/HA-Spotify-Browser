@@ -175,6 +175,17 @@ export class DeviceManager {
     }
 
     /**
+     * The last live list for `api` when it is under LIVE_TTL_MS old, else
+     * [] — what a picker can show at once while a fresh scan runs. Never
+     * makes a request.
+     */
+    recentLiveDevices(api) {
+        const live = this._live;
+        if (!live || live.api !== api || this._now() - live.at >= DeviceManager.LIVE_TTL_MS) return [];
+        return [...live.devices];
+    }
+
+    /**
      * Refetch volume capabilities only when this live list holds a device the
      * last get_player_devices answer did not cover: an id with no capability
      * that was not live when it answered, or the playing device with no

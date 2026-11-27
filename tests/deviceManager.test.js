@@ -199,6 +199,21 @@ test('without refresh a recent list answers with no request; refresh always scan
     assert.deepEqual(api.calls.at(-1), [CONNECT_SCAN, { refresh: false }]);
 });
 
+test('recentLiveDevices: the last list while it is recent, else []; never a request; per api', async () => {
+    const { dm, tick } = scanManager();
+    const api = stubApi();
+    assert.deepEqual(dm.recentLiveDevices(api), [], 'nothing scanned yet');
+    await dm.scanLiveDevices(api, { refresh: true });
+    const before = api.calls.length;
+    assert.deepEqual(dm.recentLiveDevices(api).map(d => d.id), ['k', 's']);
+    dm.recentLiveDevices(api).length = 0; // a copy
+    assert.equal(dm.recentLiveDevices(api).length, 2);
+    assert.deepEqual(dm.recentLiveDevices(stubApi()), [], 'another account\'s list is never served');
+    tick(DeviceManager.LIVE_TTL_MS);
+    assert.deepEqual(dm.recentLiveDevices(api), [], 'too old');
+    assert.equal(api.calls.length, before, 'no request');
+});
+
 test('a served list is a copy: callers cannot change the shared list', async () => {
     const { dm } = scanManager();
     const api = stubApi();
