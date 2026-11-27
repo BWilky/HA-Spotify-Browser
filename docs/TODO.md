@@ -44,7 +44,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 - [x] **X4 Artist view leftovers**: class `circle-cards` on the "Fans Also Like" row has no CSS anywhere (`src/components/views/spotify-artist-view.js` ~328); an unused `index` parameter (~299) and an unused `e` in `_playPopularTrack`'s handler. — **Done (e9f894d):** removed.
 
 - [x] **X1 Dead CSS** (no element renders them): `.mobile-drag-handle`, `spotify-queue`, `.grid-layout` (×2), `.list-item-title/-subtitle`, `.track-duration`, `.device-list`, `.media-card.playing .media-title`, `.popup-scroll-content`, `.popup-close-btn`, `.page.has-hero-header`. — **Done (6e333c8):** all listed rules removed after re-checking adopters.
-- [~] **X2 Unused helpers**: ~~`renderMediaRowTemplate`~~ (removed b89c6b5), `heldVolume` (utils, replaced by `VolumeController`; its test stays only if the helper does).
+- [x] **X2 Unused helpers**: ~~`renderMediaRowTemplate`~~ (removed b89c6b5), `heldVolume` (utils, replaced by `VolumeController`). — **Done:** `heldVolume` and its test removed.
 - [~] **X3 Small leftovers** (router `host` parameter, same-value `pageId` write and `_currentUserId` done in 05b0ac7): `Router` constructor's unused `host` parameter; `router.js` same-value `newPage.pageId = pageId` write; `spotify-context-view`'s reactive `_currentUserId` used only as a cache; ~~stale doc comment in `device-picker-large.js`~~ (6e333c8); the "Maybe." comment on the app's `@open-manager` handler.
 
 ## Speed and efficiency

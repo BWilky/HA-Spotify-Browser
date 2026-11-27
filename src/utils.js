@@ -418,20 +418,6 @@ export function stepVolume(current, direction, step = 2) {
     return Math.max(0, Math.min(100, next));
 }
 
-/**
- * Optimistic volume for a slider the user just moved. `hold` is
- * `{ value, until }` (0..100 level the user set, and a ms deadline) or null.
- * While the hold is live the slider shows `hold.value`; it releases as soon
- * as the player state reports that value (rounded) or the deadline passes.
- * Returns `{ volume, hold }` — the level to display and the hold to keep.
- */
-export function heldVolume(stateVolume, hold, now = Date.now()) {
-    const state = Math.round(Number(stateVolume) || 0);
-    if (!hold) return { volume: state, hold: null };
-    if (now >= hold.until || state === hold.value) return { volume: state, hold: null };
-    return { volume: hold.value, hold };
-}
-
 /* ---- Device list helpers (Manage Devices sheet) ---- */
 
 /** New array with the item at `from` moved to `to`; a copy when the move is a no-op or out of range. */
