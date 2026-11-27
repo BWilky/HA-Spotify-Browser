@@ -105,7 +105,7 @@ function legacyRails(host, data) {
 /** The same rails as the artist view renders them now. */
 function newRails(host, data) {
     return html`
-                    ${data.albums === null || data.albums?.length ? renderCarouselSection({
+                    ${data.albums === null || data.albums?.length || data.albumsFailed ? renderCarouselSection({
                         ...ARTIST_CAROUSEL,
                         header: html`
                             <div class="section-header">
@@ -113,6 +113,7 @@ function newRails(host, data) {
                                 <button class="see-all-btn" @click=${() => host._navigate(`artist-discography:${data.id}`, { name: data.name, id: data.id })} style="color: var(--spf-text-sub);">SEE ALL</button>
                             </div>`,
                         items: data.albums,
+                        emptyText: "Couldn't load the discography.",
                         type: 'album',
                         onItem: (album, _type, _sub, e) => host._navigate(`album:${album.id}`, album, e),
                     }) : ''}
@@ -199,6 +200,16 @@ test('artist rails: same listeners, dispatching the same navigate events, stoppi
         run(la, a); run(lb, b);
         assert.deepEqual(b.log, a.log, name);
     }
+});
+
+test('artist rails, B13: a failed albums read keeps the Discography rail with a message and its See All', () => {
+    const failed = same(newRails(host(), { ...BASE, albums: [], albumsFailed: true, playlists: [], similarArtists: [] }));
+    assert.match(failed, /Discography/);
+    assert.match(failed, /Couldn't load the discography\./);
+    assert.match(failed, /SEE ALL/);
+    const empty = same(newRails(host(), { ...BASE, albums: [], playlists: [], similarArtists: [] }));
+    assert.doesNotMatch(empty, /Discography/, 'an artist with no albums still has no rail');
+    assert.match(same(renderCarouselSection({ title: 'T', items: [], type: 'album', onItem: () => {} })), /No content found\./, 'default empty line unchanged');
 });
 
 test('ARTIST_CAROUSEL: home defaults untouched when it is not passed', () => {

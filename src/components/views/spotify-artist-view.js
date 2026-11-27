@@ -251,7 +251,8 @@ export class SpotifyArtistView extends LitElement {
     renderArtistProfile(data) {
         // Each rail shows skeletons while it loads (topTracks, albums and
         // similarArtists null, playlists undefined) and is left out once it
-        // comes back empty.
+        // comes back empty. A failed albums read (albumsFailed) keeps the
+        // Discography rail with a message; its See All loads on its own.
         return html`
             <div class="main-scroll-container has-hero" @scroll=${this._hero.onScroll}>
                 <div class="artist-hero">
@@ -298,7 +299,7 @@ export class SpotifyArtistView extends LitElement {
                         </section>
                     ` : ''}
                     
-                    ${data.albums === null || data.albums?.length ? renderCarouselSection({
+                    ${data.albums === null || data.albums?.length || data.albumsFailed ? renderCarouselSection({
                         ...ARTIST_CAROUSEL,
                         header: html`
                             <div class="section-header">
@@ -306,6 +307,7 @@ export class SpotifyArtistView extends LitElement {
                                 <button class="see-all-btn" @click=${() => this._navigate(`artist-discography:${data.id}`, { name: data.name, id: data.id })} style="color: var(--spf-text-sub);">SEE ALL</button>
                             </div>`,
                         items: data.albums,
+                        emptyText: "Couldn't load the discography.",
                         type: 'album',
                         onItem: (album, _type, _sub, e) => this._navigate(`album:${album.id}`, album, e),
                     }) : ''}

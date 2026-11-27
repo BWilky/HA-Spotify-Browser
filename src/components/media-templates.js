@@ -128,7 +128,7 @@ export const ARTIST_CAROUSEL = Object.freeze({ sectionClass: 'artist-section', s
  * @param {Object} o
  * @param {string} [o.title] - text of the default header row.
  * @param {string} [o.id] - section id: data-section-id / data-section and the carousel id (carousel-<id>); omitted, none of the three is written.
- * @param {Array|null} [o.items] - null/undefined: loading (card skeletons); []: "No content found.".
+ * @param {Array|null} [o.items] - null/undefined: loading (card skeletons); []: the emptyText line.
  * @param {string} [o.type] - the section's item type: used for items with no type/_fallbackType; 'artist' draws round skeletons.
  * @param {Function} o.onItem - (item, type, subtitle, event) card click; subtitle is undefined without o.subtitle.
  * @param {Function} [o.subtitle] - (item, type) => card subtitle; omitted, renderCardTemplate picks its own.
@@ -140,11 +140,13 @@ export const ARTIST_CAROUSEL = Object.freeze({ sectionClass: 'artist-section', s
  * @param {number} [o.skeletons=6] - (artist) number of card skeletons while loading.
  * @param {boolean} [o.roundSkeletons] - (artist) round card skeletons; defaults to type === 'artist'.
  * @param {boolean} [o.scrollButton=true] - (artist) the hover "scroll right" button.
+ * @param {string} [o.emptyText='No content found.'] - the line shown when items is [].
  */
 export function renderCarouselSection({
     title, id, items = null, type, onItem, subtitle, expanded = false, onToggle, seeAll,
     header, sectionClass = 'home-section', skeletons = 6,
     roundSkeletons = type === 'artist', scrollButton = true,
+    emptyText = 'No content found.',
 }) {
     const hasItems = !!items && items.length > 0;
 
@@ -152,7 +154,7 @@ export function renderCarouselSection({
     if (items === null) {
         content = Array(skeletons).fill(0).map(() => renderCardSkeletonTemplate(roundSkeletons));
     } else if (items.length === 0) {
-        content = html`<div style="padding:20px; opacity:0.5; white-space:nowrap;">No content found.</div>`;
+        content = html`<div style="padding:20px; opacity:0.5; white-space:nowrap;">${emptyText}</div>`;
     } else {
         content = items.map(item => {
             const itemType = item.type || item._fallbackType || type;
