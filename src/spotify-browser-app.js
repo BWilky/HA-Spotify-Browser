@@ -1,7 +1,7 @@
 import { LitElement, html } from "./lit.js";
 
 import { SpotifyApi, classifyPlaybackError } from './api.js';
-import { parseDeviceItems, normalizeDevice, fireHaptic, setDebug, debugLog, pickImage, IMG_THUMB, wheelScrollsInside } from './utils.js';
+import { parseDeviceItems, normalizeDevice, fireHaptic, setDebug, debugLog, pickImage, IMG_THUMB, wheelScrollsInside, touchScrollsInside } from './utils.js';
 import { sharedStyles } from './styles/shared-styles.js';
 import { shellStyles } from './spotify-browser-app.styles.js';
 import { Router } from './router.js';
@@ -355,6 +355,25 @@ class SpotifyBrowserApp extends LitElement {
         };
         this.addEventListener('wheel', this._onWheelGuard, { passive: false });
 
+        // The same for a finger on a touch screen: a drag that nothing in the
+        // modal can scroll along (the end of a page, or the header, player or
+        // backdrop) has its native scroll cancelled, so it can't move the
+        // dashboard. Only while the browser can still be stopped (cancelable:
+        // before a scroll inside the modal has started) and one finger is
+        // down (pinch zoom is left alone). The app's own drags (sheet
+        // dismiss, sliders, reorder) use pointer events, which carry on.
+        this._onTouchStartGuard = (e) => {
+            const t = e.touches.length === 1 ? e.touches[0] : null;
+            this._touchStart = t ? { x: t.clientX, y: t.clientY } : null;
+        };
+        this._onTouchMoveGuard = (e) => {
+            if (!this._isOpen || !this._touchStart || e.touches.length !== 1) return;
+            if (!e.cancelable || e.defaultPrevented) return;
+            if (!touchScrollsInside(e, this._touchStart, this)) e.preventDefault();
+        };
+        this.addEventListener('touchstart', this._onTouchStartGuard, { passive: true });
+        this.addEventListener('touchmove', this._onTouchMoveGuard, { passive: false });
+
         this.router.addEventListener('route-changed', (e) => {
             const { pageId, data, isHeroPage, direction } = e.detail;
 
@@ -429,6 +448,8 @@ class SpotifyBrowserApp extends LitElement {
             }
         }
         if (this._onWheelGuard) this.removeEventListener('wheel', this._onWheelGuard);
+        if (this._onTouchStartGuard) this.removeEventListener('touchstart', this._onTouchStartGuard);
+        if (this._onTouchMoveGuard) this.removeEventListener('touchmove', this._onTouchMoveGuard);
         this._stopIdleWatch();
         this._restoreViewport();
     }

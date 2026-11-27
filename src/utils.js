@@ -533,10 +533,43 @@ export function canScrollAlong(el, dx, dy, style) {
  * @param {(el: Element) => {overflowX:string, overflowY:string}} [getStyle]
  */
 export function wheelScrollsInside(e, host, getStyle = (el) => getComputedStyle(el)) {
-    for (const el of e.composedPath()) {
+    return scrollsInside(e.composedPath(), e.deltaX, e.deltaY, host, getStyle);
+}
+
+/**
+ * The same test for a one-finger touch drag: whether the drag from `start`
+ * to the touch's current point will scroll something inside `host`. A
+ * finger moving up scrolls content down, so the delta is start - current.
+ * Only the drag's main axis counts (the browser locks a touch scroll to
+ * one axis), so a slightly diagonal vertical drag over a carousel is
+ * judged as vertical. No movement yet: true (nothing to decide).
+ * @param {TouchEvent} e  a touchmove with one touch
+ * @param {{x:number, y:number}} start  where the touch began (clientX/Y)
+ * @param {Element} host
+ * @param {(el: Element) => {overflowX:string, overflowY:string}} [getStyle]
+ */
+export function touchScrollsInside(e, start, host, getStyle = (el) => getComputedStyle(el)) {
+    const t = e.touches[0];
+    const dx = start.x - t.clientX;
+    const dy = start.y - t.clientY;
+    if (!dx && !dy) return true;
+    const vertical = Math.abs(dy) >= Math.abs(dx);
+    return scrollsInside(e.composedPath(), vertical ? 0 : dx, vertical ? dy : 0, host, getStyle);
+}
+
+/**
+ * Whether any element on `path` below `host` can scroll along (dx, dy).
+ * @param {EventTarget[]} path  composed path, innermost first
+ * @param {number} dx
+ * @param {number} dy
+ * @param {Element} host
+ * @param {(el: Element) => {overflowX:string, overflowY:string}} getStyle
+ */
+function scrollsInside(path, dx, dy, host, getStyle) {
+    for (const el of path) {
         if (el === host) break;
         if (!el || el.nodeType !== 1) continue; // shadow roots, text
-        if (canScrollAlong(el, e.deltaX, e.deltaY, getStyle(el))) return true;
+        if (canScrollAlong(el, dx, dy, getStyle(el))) return true;
     }
     return false;
 }

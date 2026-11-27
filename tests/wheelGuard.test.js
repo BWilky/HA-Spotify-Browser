@@ -3,7 +3,7 @@
 // the browser scrolls the dashboard behind the modal).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { canScrollAlong, wheelScrollsInside } from '../src/utils.js';
+import { canScrollAlong, wheelScrollsInside, touchScrollsInside } from '../src/utils.js';
 
 const AUTO = { overflowX: 'hidden', overflowY: 'auto' };
 const ROW = { overflowX: 'auto', overflowY: 'hidden' };
@@ -58,4 +58,29 @@ test('wheelScrollsInside: an inner area at its end hands over to an outer one th
 test('wheelScrollsInside: elements above the host (the dashboard itself) never count', () => {
     const page = box();
     assert.equal(wheelScrollsInside(wheel([{ nodeType: 1 }, host, page], 100), host, styleOf), false);
+});
+
+// Touch screens: the same rule for a one-finger drag (finger up = content down).
+const touch = (path, x, y) => ({ touches: [{ clientX: x, clientY: y }], composedPath: () => path });
+const START = { x: 200, y: 400 };
+
+test('touchScrollsInside: a finger dragging up scrolls a page down until its end', () => {
+    assert.equal(touchScrollsInside(touch([box(), host], 200, 300), START, host, styleOf), true, 'top of the page');
+    assert.equal(touchScrollsInside(touch([box({ scrollTop: 500 }), host], 200, 300), START, host, styleOf), false, 'end of the page');
+    assert.equal(touchScrollsInside(touch([box({ scrollTop: 500 }), host], 200, 500), START, host, styleOf), true, 'end of the page, dragging back down');
+});
+
+test('touchScrollsInside: a drag over parts that do not scroll (header, backdrop) is not taken inside', () => {
+    assert.equal(touchScrollsInside(touch([{ nodeType: 1 }, host], 200, 300), START, host, styleOf), false);
+});
+
+test('touchScrollsInside: only the main axis counts, so a near-vertical drag over a carousel at the page end is not taken', () => {
+    const row = box({ scrollWidth: 1200, clientWidth: 300, scrollHeight: 200, clientHeight: 200, style: ROW });
+    const pageEnd = box({ scrollTop: 500 });
+    assert.equal(touchScrollsInside(touch([row, pageEnd, host], 190, 300), START, host, styleOf), false, 'mostly up, a little sideways');
+    assert.equal(touchScrollsInside(touch([row, pageEnd, host], 100, 390), START, host, styleOf), true, 'mostly sideways');
+});
+
+test('touchScrollsInside: no movement yet is not cancelled', () => {
+    assert.equal(touchScrollsInside(touch([{ nodeType: 1 }, host], 200, 400), START, host, styleOf), true);
 });
