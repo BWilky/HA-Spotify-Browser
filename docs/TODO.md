@@ -83,7 +83,7 @@ Legend: `[ ]` open · `[x]` done (commit) · `[~]` in progress · `[?]` needs th
 
 ## Notes
 
-- `renderTrackRowTemplate`'s non-playlist branch (`media-templates.js`, `with-art` / `track-art-small`) has no caller and no CSS left; the `layout` option can go. `.track-art-small` in `sharedStyles` is used only by one skeleton.
+- [x] `renderTrackRowTemplate`'s unused non-playlist branch and its `layout` option removed; the `.track-art-small` rule went too (its one skeleton sets every property inline).
 - `FollowStateController` could pass the toggle's context to `verify` instead of the artist view queueing ids.
 
 - `searchPlaylists` (`src/api.js` ~1554) still returns a raw-looking `{result:{items,total}}`; `getArtistGenres` / `getTrackArt` still accept a bare object. Both could sit on the new getters.

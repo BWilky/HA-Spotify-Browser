@@ -123,13 +123,11 @@ test('trackMenuDetail: fields, thumb-size image, extras merged last', () => {
 
 test("renderTrackRowTemplate's menu payload: same fields, image now the thumb", () => {
     for (const [k, track] of Object.entries(TRACKS)) {
-        for (const layout of [undefined, 'playlist']) {
-            let got = null;
-            const tpl = renderTrackRowTemplate(track, 1, null, { layout, onMenu: (e, data) => { got = data; } });
-            for (const fn of listeners(tpl)) fn(fakeEvent());
-            const want = swapImage(legacy.trackRow(track), pickImage(track.album?.images, IMG_THUMB));
-            assert.deepEqual(got, want, `${k} / ${layout}`);
-            assert.deepEqual(Object.keys(got), Object.keys(want), `${k} / ${layout}: key order`);
-        }
+        let got = null;
+        const tpl = renderTrackRowTemplate(track, 1, null, { onMenu: (e, data) => { got = data; } });
+        for (const fn of listeners(tpl)) fn(fakeEvent());
+        const want = swapImage(legacy.trackRow(track), pickImage(track.album?.images, IMG_THUMB));
+        assert.deepEqual(got, want, k);
+        assert.deepEqual(Object.keys(got), Object.keys(want), `${k}: key order`);
     }
 });

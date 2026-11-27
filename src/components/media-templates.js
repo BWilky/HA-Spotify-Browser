@@ -319,20 +319,16 @@ export function renderTrackSkeletonTemplate() {
 }
 
 /**
- * Standardizes the "Track Row" layout (Index + Image + Title + Artist + Actions).
- * Used for Playlists, Albums, and Track Lists.
- *
- * Playlist mode (options.layout === 'playlist') is the superset used by the
- * live playlist view: album art replaces the index column (playlists only —
- * albums keep the index), the playing row carries an inline equalizer and
- * 'playing' class, and the like button reflects optimistic state. Action
- * buttons render only for the handlers the caller supplies.
+ * A track row on the playlist / album page: album art in the first column
+ * (playlists; albums keep the index), the playing row carries an inline
+ * equalizer and the 'playing' class, and the like button reflects
+ * optimistic state. Action buttons render only for the handlers the caller
+ * supplies.
  *
  * @param {Object} track
  * @param {number} index - 1-based row number.
  * @param {Function} clickHandler - (e, track) row click.
  * @param {Object} [options]
- * @param {string}   [options.layout] - 'playlist' for the playlist superset layout.
  * @param {boolean}  [options.isPlaying] - row is the now-playing track.
  * @param {boolean}  [options.isAlbum] - album context (index column, default title colour).
  * @param {boolean}  [options.liked] - optimistic like state for the heart button.
@@ -349,25 +345,22 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
     // The track-menu payload (onMenu), with the row's own artist line.
     const trackData = trackMenuDetail(track, { artist: artistNames });
 
-    const isPlaylist = options.layout === 'playlist';
     const { isPlaying = false, isAlbum = false, liked = false, onSave, onQueue, onMenu } = options;
 
-    // First column. Playlist mode keeps the album art (playlists) / index
-    // (albums) there even while playing — the now-playing cue is the inline
-    // equalizer + green title next to the track name, matching the native app.
-    const firstCol = (isPlaylist && image && !isAlbum)
+    // First column: the album art (playlists) / index (albums), even while
+    // playing — the now-playing cue is the inline equalizer + green title
+    // next to the track name, matching the native app.
+    const firstCol = (image && !isAlbum)
         ? html`<img src="${thumb}" style="width: 40px; height: 40px; border-radius: 4px; object-fit: cover;" loading="lazy" decoding="async">`
         : html`<div class="track-num">${index}</div>`;
 
-    // Title: playlist mode carries the inline equalizer on the playing row and
-    // forces a white title on playlist (non-album) rows.
-    const titleBlock = isPlaylist
-        ? html`
-            <div class="track-name" style="${isPlaying ? '' : (isAlbum ? '' : 'color: white;')}">
-                ${isPlaying ? html`<div class="track-eq" aria-label="Now playing"><span></span><span></span><span></span></div>` : ''}
-                <span class="track-name-text">${track.name}</span>
-            </div>`
-        : html`<div class="track-name">${track.name}</div>`;
+    // Title: the inline equalizer on the playing row; a white title on
+    // playlist (non-album) rows.
+    const titleBlock = html`
+        <div class="track-name" style="${isPlaying ? '' : (isAlbum ? '' : 'color: white;')}">
+            ${isPlaying ? html`<div class="track-eq" aria-label="Now playing"><span></span><span></span><span></span></div>` : ''}
+            <span class="track-name-text">${track.name}</span>
+        </div>`;
 
     // Row actions require caller-supplied handlers (like / queue / context menu).
     const actions = html`
@@ -385,16 +378,12 @@ export function renderTrackRowTemplate(track, index, clickHandler, options = {})
             </button>` : ''}`;
 
     return html`
-        <div class="track-row interactive ${isPlaylist ? (isPlaying ? 'playing' : '') : (image ? 'with-art' : '')}"
+        <div class="track-row interactive ${isPlaying ? 'playing' : ''}"
              data-track-id="${track.id}"
              data-uri="${track.uri}"
              @click=${clickHandler ? (e) => clickHandler(e, track) : null}>
 
             ${firstCol}
-
-            ${!isPlaylist && image ? html`
-            <div class="track-art-small" style="background-image: url('${thumb}');"></div>
-            ` : ''}
 
             <div class="track-info">
                 ${titleBlock}

@@ -43,7 +43,7 @@ export class SpotifyPlaylistView extends LitElement {
             sharedStyles,
             css`
                 /* Track-row rules that sat in sharedStyles but only render
-                   here (renderTrackRowTemplate's playlist layout). Kept
+                   here (renderTrackRowTemplate). Kept
                    between sharedStyles and contextViewStyles: their place in
                    the cascade before they moved. */
                 .track-row.playing .track-name { color: var(--spf-brand); }
@@ -717,7 +717,6 @@ export class SpotifyPlaylistView extends LitElement {
                 index,
                 (e, t) => this._handleTrackClick(e, t, index - 1),
                 {
-                    layout: 'playlist',
                     isPlaying,
                     isAlbum,
                     liked: this._likes.isLiked(track.id),

@@ -255,10 +255,6 @@ export const sharedStyles = css`
     
     .track-num { color: var(--spf-text-sub); font-size: var(--spf-text-base, 13.5px); text-align: center; }
     
-    .track-art-small {
-        width: 40px; height: 40px; background-size: cover; background-position: center;
-        border-radius: 4px; background-color: var(--spf-skeleton-bg);
-    }
 
     .track-actions-right {
         display: flex;
