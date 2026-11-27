@@ -156,6 +156,19 @@ storage:
 
 The sensor and event names above are the defaults, so with those names you only need `storage.script`, and only if non-admins will pin things. Restart HA (or reload template entities and scripts), then turn on pins with `home: {pinned: true}`.
 
+### Optional: keep it out of history
+
+Every save is a state change, so by default the recorder writes a full copy of the data to the history database each time. Nothing reads that history, so you can leave the sensor out (add to `configuration.yaml`, or merge into an existing `recorder:` block, then restart HA):
+
+```yaml
+recorder:
+  exclude:
+    entities:
+      - sensor.spotify_browser_data
+```
+
+This doesn't affect what survives a restart: Home Assistant restores the sensor from its own saved state, not from the recorder. That saved state is written on shutdown and about every 15 minutes, so after a crash or power cut the last few minutes of changes can be lost.
+
 ## 5. Set up with an AI assistant
 
 If you use an AI assistant that can edit your Home Assistant config (Claude with the HA MCP server, for example), paste this in. It covers the whole install.
@@ -180,6 +193,13 @@ template:
         attributes:
           data: "{{ trigger.event.data.data }}"
 
+Also exclude that sensor from the recorder, so each save doesn't add a copy to the history database (merge into an existing recorder: block if there is one):
+
+recorder:
+  exclude:
+    entities:
+      - sensor.spotify_browser_data
+
 4. Add this script (scripts.yaml or the script editor), so non-admin users can save pins:
 
 spotify_browser_store:
@@ -195,7 +215,7 @@ spotify_browser_store:
       event_data:
         data: "{{ data }}"
 
-5. Reload template entities and scripts (or restart Home Assistant), then confirm sensor.spotify_browser_data and script.spotify_browser_store exist.
+5. Restart Home Assistant (the recorder change needs a restart; reloading template entities and scripts isn't enough), then confirm sensor.spotify_browser_data and script.spotify_browser_store exist.
 
 6. In the dashboard I name, open the raw configuration editor and add this at the root (not inside a view), using the entity from step 1:
 
